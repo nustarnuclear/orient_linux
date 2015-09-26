@@ -1,0 +1,13 @@
+        NEW_1   NEW_1   NEW_1   
+                        J04     NEW_1   F13     F12_08  F01     NEW_1   J10     
+                NEW_1   NEW_1   B06     E12     F07     E02     B08     NEW_1   NEW_1   
+        D09     NEW_1   H08     L08     D11     H04     D03     L06     H06     NEW_1   D05     
+        NEW_1   F02     H11     H10     M10     E09     M04     K06     H03     F12     NEW_1   
+NEW_1   N06     M05     L04     K12     H07_08  E07     G06_08  K02     L10     M09     N08     NEW_1   
+NEW_1   B06_08  G06     K08     E05     G05     J04_06  G09     J09     D06     G08     M08_08  NEW_1   
+NEW_1   A06     B05     C04     D12     G08_08  J07     F07_08  D02     C10     B09     A08     NEW_1   
+        NEW_1   H02     F11     D08     B10     J05     B04     F04     F03     H12     NEW_1   
+        K09     NEW_1   F08     C08     K11     F10     K03     C06     F06     NEW_1   K05     
+                NEW_1   NEW_1   M06     J12     H07     J02     M08     NEW_1   NEW_1   
+                        E04     NEW_1   H13     H02_08  H01     NEW_1   E10     
+                                        NEW_1   NEW_1   NEW_1
