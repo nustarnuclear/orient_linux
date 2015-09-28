@@ -331,11 +331,18 @@ media_root=settings.MEDIA_ROOT
 
        
 class EgretTask(BaseModel):
+    TASK_STATUS_CHOICES=(
+                         (0,'not yet'),
+                         (1,'finished'),
+    )
     task_name=models.CharField(max_length=32)
+    task_type=models.CharField(max_length=32)
     cycle=models.ForeignKey('tragopan.Cycle')
+    result_xml=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     follow_index=models.BooleanField()
-    restart_file=models.FilePathField(path=media_root,recursive=True,blank=True,null=True)
+    task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
+    restart_file=models.FilePathField(path=media_root,recursive=True,blank=True,null=True,max_length=200)
     #depletion_composition=models.ManyToManyField('EgretDepletionCase')
     
     class Meta:

@@ -66,13 +66,28 @@ class BurnablePoisonAssemblyLoadingPatternSerializer(serializers.ModelSerializer
         fields = ( 'reactor_position','burnable_poison_assembly')
         
 
+class ControlRodAssemblySerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = ControlRodAssembly
+        fields = ( 'cluster_name',)        
+
+class ControlRodAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
+    reactor_position=ReactorPositionSerializer()
+    control_rod_assembly=ControlRodAssemblySerializer()
+    
+    class Meta:
+        model = ControlRodAssemblyLoadingPattern
+        fields = ( 'reactor_position','control_rod_assembly')       
+
 class CycleSerializer(serializers.ModelSerializer):
     #unit=UnitParameterSerializer()
     fuel_assembly_loading_patterns=FuelAssemblyLoadingPatternSerializer(many=True, read_only=True)
     burnable_posison_assembly_positions=BurnablePoisonAssemblyLoadingPatternSerializer(many=True, read_only=True)
+    control_rod_assembly_loading_patterns=ControlRodAssemblyLoadingPatternSerializer(many=True, read_only=True)
     class Meta:
         model = Cycle
-        fields = ( 'fuel_assembly_loading_patterns','burnable_posison_assembly_positions')
+        fields = ( 'fuel_assembly_loading_patterns','burnable_posison_assembly_positions','control_rod_assembly_loading_patterns')
         
 
 class GridListingField(serializers.RelatedField):

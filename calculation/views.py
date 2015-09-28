@@ -3,6 +3,7 @@ import os
 import shutil
 from django.conf import settings
 from django.shortcuts import render
+from django.core.files import File
 from rest_framework.response import Response
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from calculation.models import *
@@ -446,25 +447,28 @@ def LoadingPattern_list(request, plantname,unit_num,format=None):
 def generate_egret_task(request,format=None):
      
     if request.method == 'GET':
-        data=request.GET
+        #data=request.GET
        
-        pid=data['pid']
-        task_id=data['task']
-        task=EgretTask.objects.get(pk=task_id)
-        input_file_path=task.egret_input_file.name
-        base_dir=os.path.join(os.path.dirname(input_file_path),'.workspace')
-        cycle=task.cycle
-        cycle_num=cycle.cycle
-        unit=cycle.unit
-        unit_num=unit.unit
-        reactor_model_name=unit.reactor_model.name
-        tmp_str="{}_U{}.{}.xml".format(reactor_model_name,unit_num,str(cycle_num).zfill(3))
-        message={'xml_path':os.path.join(base_dir,tmp_str)}
-        return Response(data=message,status=200)
+        #pid=data['pid']
+        #task_id=data['task']
+        #task=EgretTask.objects.get(pk=task_id)
+        #input_file_path=task.egret_input_file.name
+        #base_dir=os.path.join(os.path.dirname(input_file_path),'.workspace')
+        #cycle=task.cycle
+        #cycle_num=cycle.cycle
+        #unit=cycle.unit
+        #unit_num=unit.unit
+        #reactor_model_name=unit.reactor_model.name
+        #tmp_str="{}_U{}.{}.xml".format(reactor_model_name,unit_num,str(cycle_num).zfill(3))
+        #message={'xml_path':os.path.join(base_dir,tmp_str)}
+        task_list=EgretTask.objects.filter(user=request.user)
+        serializer = EgretTaskSerializer(task_list,many=True)
+        return Response(data=serializer.data,headers={'cmd':4})
         
     if request.method == 'POST':
         data=request.data
         task_name=data['task_name']
+        task_type=data['task_type']
         plant_name=data['plant']
         unit_num=data['unit']
         cycle_num=data['cycle']
@@ -495,7 +499,7 @@ def generate_egret_task(request,format=None):
             error_message={'error_message':'the taskname already exists'}
             return Response(data=error_message,status=404)
         else:
-            task_instance=EgretTask.objects.create(task_name=task_name,user=user,cycle=cycle,follow_index=follow_depletion,)
+            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,cycle=cycle,follow_index=follow_depletion,)
             task_instance.egret_input_file.save(name=task_name,content=input_file)
             input_file.close()
         
@@ -510,15 +514,24 @@ def generate_egret_task(request,format=None):
             return Response(data=error_message,status=404)
 
         return_code=process.wait()
-        input_file_dir=os.path.join(os.path.dirname(rela_file_path),'.workspace')
-        success_message={'success_message':'your request has been handled successfully','task_ID':task_instance.pk,'task_name':task_name}
-        success_message['xml_path']=os.path.join(input_file_dir,tmp_str)
+        input_file_dir=os.path.join(os.path.dirname(abs_file_path),'.workspace')
+        xml_path=os.path.join(input_file_dir,tmp_str)
+        print(xml_path)
+        f=open(xml_path)
+        print(f)
+        task_instance.result_xml.save(name='result.xml',content=File(f))
+        task_instance.task_status=1
+        task_instance.save()
+        f.close()
+        success_message={'success_message':'your request has been handled successfully','task_ID':task_instance.pk,'task_name':task_name,'task_type':task_type,'task_status':task_instance.task_status}
+        success_message['xml_path']=task_instance.result_xml
         if return_code is not None:
             return Response(data=success_message,status=200,headers={'cmd':3})
                              
     if request.method =='PUT':
         data=request.data
         task_name=data['task_name']
+        task_type=data['task_type']
         plant_name=data['plant']
         unit_num=data['unit']
         cycle_num=data['cycle']
@@ -535,7 +548,7 @@ def generate_egret_task(request,format=None):
             return Response(data=error_message,status=404)
 
         try:
-            exitent_tasks=EgretTask.objects.filter(task_name=task_name,user=user,)
+            exitent_tasks=EgretTask.objects.filter(task_name=task_name,user=user,task_type=task_type,)
         except Exception:
             error_message={'error_message':'the egret task is nonexistent in database!'}
             return Response(data=error_message,status=404)
@@ -556,6 +569,7 @@ def generate_egret_task(request,format=None):
         input_file=generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletion_lst)
         task_instance.cycle=cycle
         task_instance.follow_index=follow_depletion
+        task_instance.task_status=0
         task_instance.save()
         media_root=settings.MEDIA_ROOT
 
@@ -563,8 +577,8 @@ def generate_egret_task(request,format=None):
         pre_rela_file_path=task_instance.egret_input_file.name
         pre_abs_file_path=os.path.join(media_root,*(pre_rela_file_path.split(sep='/')))
         print(pre_abs_file_path)
-        prarent_dir=os.path.dirname(pre_abs_file_path)
-        os.chdir(os.path.dirname(prarent_dir))
+        parent_dir=os.path.dirname(pre_abs_file_path)
+        os.chdir(os.path.dirname(parent_dir))
         shutil.rmtree(task_name)
        
         task_instance.egret_input_file.save(name=task_name,content=input_file)
@@ -580,9 +594,16 @@ def generate_egret_task(request,format=None):
             return Response(data=error_message,status=404)
 
         return_code=process.wait()
-        input_file_dir=os.path.join(os.path.dirname(rela_file_path),'.workspace')
-        success_message={'success_message':'your request has been handled successfully','task_ID':task_instance.pk,'task_name':task_name}
-        success_message['xml_path']=os.path.join(input_file_dir,tmp_str)
+        #refresh the task status when process finished
+        task_instance.task_status=1
+        input_file_dir=os.path.join(os.path.dirname(abs_file_path),'.workspace')
+        xml_path=os.path.join(input_file_dir,tmp_str)
+        f=open(xml_path)
+        task_instance.result_xml.save(name='result.xml',content=File(f))
+        task_instance.save()
+        f.close()
+        success_message={'success_message':'your request has been handled successfully','task_ID':task_instance.pk,'task_name':task_name,'task_type':task_type,'task_status':task_instance.task_status}
+        success_message['xml_path']=task_instance.result_xml
         if return_code is not None:
             return Response(data=success_message,status=200,headers={'cmd':3})
 

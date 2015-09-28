@@ -1,7 +1,7 @@
 from calculation.models import *
 from rest_framework import serializers
 from tragopan.models import FuelAssemblyType,FuelAssemblyModel,Grid,GridPosition,UnitParameter,Cycle
-
+from calculation.models import EgretTask
 
 class GridSerializer(serializers.ModelSerializer):
     
@@ -62,4 +62,21 @@ class CycleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cycle
         fields = ( 'unit','fuel_assembly_loading_patterns')
+        
+        
+        
+ 
+ 
+class EgretCycleSerializer(serializers.ModelSerializer):
+   
+    unit=UnitParameterSerializer()
+    class Meta:
+        model = Cycle
+        fields = ( 'unit','cycle')       
+class EgretTaskSerializer(serializers.ModelSerializer):
+   
+    cycle=EgretCycleSerializer()
+    class Meta:
+        model = EgretTask
+        fields = ( 'task_name','task_type','result_xml','egret_input_file','cycle','follow_index','task_status')       
         
