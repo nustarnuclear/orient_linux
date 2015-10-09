@@ -3,7 +3,7 @@ from .models import *
 from django.core.files import File
 from django.conf import settings
 from decimal import Decimal
-from tragopan.models import Plant,UnitParameter
+from tragopan.models import Plant,UnitParameter,Cycle,FuelAssemblyLoadingPattern
 from calculation.models import EgretInputXML
 def generate_prerobin_input(input_id):
     pri=PreRobinInput.objects.get(pk=input_id)
@@ -337,6 +337,7 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
     sep='\n'
     plant=Plant.objects.get(abbrEN=plant_name)
     unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+    cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
     #section DATABANK
     f.write('& DATABANK%s'%sep)
     f.write('   coreID = "{}_U{}"{}'.format(unit.reactor_model.name,unit_num,sep))
@@ -362,8 +363,21 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
         f.write("   DB_READ = ''%s"%sep)
         
     else:
-        read_restart_file=os.path.join(restart_dir,'C%d'%(cycle_num-1))
-        f.write("   DB_READ = '{}.RES'{}".format(read_restart_file,sep))
+        fuel_patterns=cycle.fuel_assembly_loading_patterns.all()
+        cycle_lst=[]
+        for fuel_pattern in fuel_patterns:
+            fuel_assembly=fuel_pattern.fuel_assembly
+            falp=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=fuel_assembly,cycle__cycle__lt=cycle_num)
+            for item in falp:
+                if item.cycle.cycle not in cycle_lst:
+                    cycle_lst.append(item.cycle.cycle)
+                    
+        read_restart_file_lst=[]
+        for i in cycle_lst:        
+            read_restart_file=os.path.join(restart_dir,'C%d'%i)
+            read_restart_file_lst.append("'"+read_restart_file+".RES'")
+        read_restart_file_str=','.join(read_restart_file_lst)
+        f.write("   DB_READ = {}{}".format(read_restart_file_str,sep))
     if follow_depletion:
         write_restart_file=os.path.join(restart_dir,'C%d'%(cycle_num))  
         f.write("   DB_RITE = '{}.RES'{}".format(write_restart_file,sep))

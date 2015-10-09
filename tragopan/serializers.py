@@ -132,7 +132,28 @@ class BaseFuelAssemblySerializer(serializers.ModelSerializer):
     class Meta:
         model = FuelAssemblyType
         fields = ( 'assembly_enrichment','model',)
+
+
         
+################################################# 
+class CycleListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cycle
+        fields = ( 'cycle',)
+        
+class UnitParameterListSerializer(serializers.ModelSerializer):
+    cycles=CycleListSerializer(many=True, read_only=True)
+    class Meta:
+        model = UnitParameter
+        fields = ( 'unit','cycles')
+
+ 
    
-    
+class PlantListSerializer(serializers.ModelSerializer):
+    units=UnitParameterListSerializer(many=True, read_only=True)
+    class Meta:
+        model =  Plant
+        fields = ( 'abbrEN','units')
+        
+        
         

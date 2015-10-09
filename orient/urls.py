@@ -3,7 +3,7 @@ from django.contrib import admin
 admin.autodiscover()
 from django.conf import settings
 from django.views.generic import TemplateView
-
+from filebrowser.sites import site
 from django.conf.urls.static import static
 from django.contrib.auth.models import User,Group
 
@@ -54,6 +54,7 @@ urlpatterns = [
     # url(r'^blog/', include('blog.urls')),
     
     url(r'^', include(router.urls)),
+    url(r'^admin/filebrowser/', include(site.urls)),
     #url(r'^o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
     url(r'^grappelli/', include('grappelli.urls')), # grappelli URLS
     url(r'^admin/', include(admin.site.urls)),

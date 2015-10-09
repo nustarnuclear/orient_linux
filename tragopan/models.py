@@ -63,7 +63,8 @@ class Nuclide(BaseModel):
     reference = models.CharField(max_length=80, default='IUPAC') 
    
     class Meta:
-        db_table='Nuclide'
+        managed=False 
+        db_table='nuclide'
         unique_together = ('element', 'atom_mass')
         ordering=['element']
             
@@ -141,7 +142,8 @@ class Material(BaseModel):
     mixture_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
     
     class Meta:
-        db_table='Material'
+        managed=False 
+        db_table='material'
         verbose_name='Material repository'
         verbose_name_plural='Material repository'
     

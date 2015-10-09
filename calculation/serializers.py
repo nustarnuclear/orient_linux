@@ -72,7 +72,8 @@ class EgretCycleSerializer(serializers.ModelSerializer):
     unit=UnitParameterSerializer()
     class Meta:
         model = Cycle
-        fields = ( 'unit','cycle')       
+        fields = ( 'unit','cycle')
+               
 class EgretTaskSerializer(serializers.ModelSerializer):
    
     cycle=EgretCycleSerializer()

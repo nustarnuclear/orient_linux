@@ -7,6 +7,7 @@ from .forms import *
 from tragopan.models import Element,Cycle
 from calculation.models import *
 import os
+from django.db.models import Max
 #django rest framework
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.renderers import JSONRenderer
@@ -190,42 +191,92 @@ def cycle_list(request,format=None):
  
  
     
-@api_view(('GET',))
+@api_view(('GET','POST','PUT','DELETE'))
 @renderer_classes((CustomXMLRenderer,))
 def cycle_detail(request, plantname,unit_num,cycle_num,format=None):
-    """
-    Retrieve, update or delete a code snippet.
-    """
-   
-   
+    
     try:
         plant=Plant.objects.get(abbrEN=plantname)
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
-        cycle = Cycle.objects.get(unit=unit,cycle=cycle_num)
-    except Cycle.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
+    
+    except Plant.DoesNotExist or UnitParameter.DoesNotExist:
+        error_message={'error_message':'the plant or unit does not exist in database!'}
+        return Response(data=error_message,status=404)
+    
+    if request.method == 'DELETE':
+        c=Cycle.objects.filter(unit=unit).aggregate(Max('cycle'))
+        cmax=c['cycle__max']
+        print(cmax)
+        if cycle_num==cmax:
+            success_message={'success_message':'sucessful'}
+            return Response(data=success_message,status=200)
+        else:
+            error_message={'error_message':'you can only delete the last cycle of certain unit'}
+            return Response(data=error_message,status=404)
+            
+        
+    if request.method == 'POST':
+        if cycle_num>=13:
+            pass
+        else:
+            return Response(data={'error_message':'you have no permission'},status=404)
+        cycle = Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
+            
+        reactor_model=unit.reactor_model
+        reactor_position_objs=ReactorPosition.objects.filter(reactor_model=reactor_model,)
+        data=request.data
+        print(data)
+        fuel_assembly_loading_patterns=data['fuel_assembly_loading_patterns']
+        print(len(fuel_assembly_loading_patterns))
+        created_num,updated_num=0,0
+        for fuel_assembly_loading_pattern in fuel_assembly_loading_patterns:
+            reactor_position=fuel_assembly_loading_pattern['reactor_position']
+            row=reactor_position['row']
+            column=reactor_position['column']
+            reactor_position_obj=reactor_position_objs.get(row=row,column=column)
+            previous=fuel_assembly_loading_pattern['get_previous']
+            
+            fuel_id=fuel_assembly_loading_pattern['fuel_assembly']
+            # if not fresh
+            if previous:
+                fuel_assembly=FuelAssemblyRepository.objects.get(pk=fuel_id)
+                
+            else:
+                fuel_assembly_type=FuelAssemblyType.objects.get(pk=fuel_id)
+                fuel_assembly=FuelAssemblyRepository.objects.create(type=fuel_assembly_type,plant=plant)
+            try:
+                exist_pattern=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,reactor_position=reactor_position_obj)
+                exist_pattern.fuel_assembly=fuel_assembly
+                exist_pattern.save()
+                updated_num +=1
+            except Exception:
+                new_pattern=FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=reactor_position_obj,fuel_assembly=fuel_assembly)
+                created_num +=1
+            
+        sucess_message={'created':created_num,'updated':updated_num}       
+        return Response(data=sucess_message,status=200)
+    
+    
+   
 
     if request.method == 'GET':
+        try:
+            cycle = Cycle.objects.get(unit=unit,cycle=cycle_num)
+        except Cycle.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = CycleSerializer(cycle)
         return Response(serializer.data)
-
-
-
     
-      
 
-@api_view(['GET',])
-def hello_test(request,format=None):
-    BASE_DIR =os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+@api_view(('GET',))
+def plant_list(request,format=None):
     
-    os.chdir(BASE_DIR)
-    result=os.popen('hello.py').read()
-    return Response(result)
-
-
-
-
-
+    if request.method == 'GET':
+        plants=Plant.objects.all()
+        serializer=PlantListSerializer(plants,many=True)
+        return Response(serializer.data)
+    
 
     
 

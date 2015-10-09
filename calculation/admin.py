@@ -132,7 +132,8 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
     
 
 class EgretTaskAdmin(admin.ModelAdmin):  
-    pass
+    exclude=('remark',)
+    list_display=('task_name','task_type','cycle')
 admin.site.register(EgretTask, EgretTaskAdmin)
 
 class EgretInputXMLAdmin(admin.ModelAdmin):  

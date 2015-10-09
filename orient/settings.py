@@ -37,6 +37,7 @@ INSTALLED_APPS = (
     'grappelli.dashboard',
     'grappelli',
     #'debug_toolbar',
+    'filebrowser',
     'django.contrib.admin',
     'django.contrib.sessions',
     'django.contrib.messages',
@@ -173,3 +174,19 @@ REST_FRAMEWORK = {
 }
 
 
+#django file browser setting
+
+FILEBROWSER_DIRECTORY=''
+FILEBROWSER_EXTENSIONS={
+    'Image': ['.jpg','.jpeg','.gif','.png','.tif','.tiff'],
+    'Document': ['.pdf','.doc','.rtf','.txt','.xls','.csv','.docx',],
+    'Video': ['.mov','.wmv','.mpeg','.mpg','.avi','.rm','.mkv'],
+    'Audio': ['.mp3','.mp4','.wav','.aiff','.midi','.m4p']
+}
+FILEBROWSER_SELECT_FORMATS={
+    'file': ['Image','Document','Video','Audio'],
+    'image': ['Image'],
+    'document': ['Document'],
+    'media': ['Video','Audio'],
+}
+FILEBROWSER_MAX_UPLOAD_SIZE=10000000000
