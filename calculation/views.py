@@ -65,7 +65,6 @@ class CustomBaseFuelRenderer(BaseRenderer):
         for item in data:
             base_fuel_attr={}
             base_fuel_attr['fuel_id']=item['fuel_identity']
-            print(item['fuel_identity'])
             base_fuel_attr['offset']='1' if item['offset'] else '0'
             base_fuel_attr['base_bottom']=item['base_bottom']
             base_fuel_attr['active_length']=item['composition'][0]['ibis']['active_length']
@@ -172,9 +171,11 @@ class CustomBaseCoreRenderer(BaseRenderer):
         xml = SimplerXMLGenerator(stream, self.charset)
         xml.startDocument()
         reactor_model=ReactorModel.objects.get(pk=data['reactor_model'])
-        
+        plant=Plant.objects.get(pk=data['plant'])
+        unit=UnitParameter.objects.get(plant=plant,unit=data['unit'])
         xml.startElement("basecore ", {'ID':reactor_model.name,'core_type':reactor_model.reactor_type})
         reactor_positions=reactor_model.positions.all()
+        print(reactor_positions)
         num_side_asms=0
         for reactor_position in reactor_positions:
             if reactor_position.row>num_side_asms:
@@ -213,7 +214,7 @@ class CustomBaseCoreRenderer(BaseRenderer):
         
         for position in reactor_positions:
             try:
-                cralp=ControlRodAssemblyLoadingPattern.objects.get(reactor_position=position)
+                cralp=ControlRodAssemblyLoadingPattern.objects.filter(reactor_position=position).get(cycle__unit=unit)
                 control_rod_assembly_lst.append(cralp.control_rod_assembly.cluster_name)
                 if cralp.control_rod_assembly.cluster_name not in bank_id_lst:
                     bank_id_lst.append(cralp.control_rod_assembly.cluster_name)
@@ -362,26 +363,10 @@ class CustomLoadingPatternRenderer(BaseRenderer):
            
             fuel_lst=[]
             previous_cycle_lst=[]
-            '''
-            for fuel_assembly_loading_pattern in fuel_assembly_loading_patterns:
-                fuel_assembly_type=fuel_assembly_loading_pattern.fuel_assembly.type
-                burnable_poison_assembly_position=burnable_posison_assembly_positions.filter(reactor_position=fuel_assembly_loading_pattern.reactor_position)
-                
-                if burnable_poison_assembly_position:
-                    ibis=Ibis.objects.filter(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=burnable_poison_assembly_position.get().burnable_poison_assembly).get()
-                    base_fuel=ibis.base_fuels.get()
-                    print(base_fuel)
-                    fuel_lst.append(base_fuel.base_fuel.fuel_identity)
-                else:
-                    ibis=Ibis.objects.filter(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None).get()
-                    base_fuels=ibis.base_fuels.all()
-                    for base_fuel in base_fuels:
-                        if not base_fuel.base_fuel.if_insert_burnable_fuel:
-                            fuel_lst.append(base_fuel.base_fuel.fuel_identity)
-            '''               
+                     
             for reactor_position in reactor_positions:
                 fuel_assembly_loading_pattern=cycle.fuel_assembly_loading_patterns.filter(reactor_position=reactor_position).get()
-                burnable_poison_assembly_position=cycle.burnable_posison_assembly_positions.filter(reactor_position=reactor_position)
+                burnable_poison_assembly_position=cycle.bpa_loading_patterns.filter(reactor_position=reactor_position)
                 fuel_assembly_type=fuel_assembly_loading_pattern.fuel_assembly.type
                 if fuel_assembly_loading_pattern.get_previous():
                     [previous_cycle,previous_position_row,previous_position_column]=fuel_assembly_loading_pattern.get_previous().split('-')
@@ -395,11 +380,11 @@ class CustomLoadingPatternRenderer(BaseRenderer):
                 else:
                     if burnable_poison_assembly_position:
                         ibis=Ibis.objects.filter(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=burnable_poison_assembly_position.get().burnable_poison_assembly).get()
-                        base_fuel=ibis.base_fuels.get()
+                        base_fuel=ibis.base_fuel_compositions.get()
                         fuel_lst.append(base_fuel.base_fuel.fuel_identity)
                     else:
                         ibis=Ibis.objects.filter(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None).get()
-                        base_fuels=ibis.base_fuels.all()     
+                        base_fuels=ibis.base_fuel_compositions.all()     
                         for base_fuel in base_fuels:
                             if not base_fuel.base_fuel.if_insert_burnable_fuel():
                                 fuel_lst.append(base_fuel.base_fuel.fuel_identity)
@@ -499,7 +484,7 @@ def generate_egret_task(request,format=None):
         #message={'xml_path':os.path.join(base_dir,tmp_str)}
         task_list=EgretTask.objects.filter(user=request.user,cycle=cycle)
         serializer = EgretTaskSerializer(task_list,many=True)
-        return Response(data=serializer.data,headers={'cmd':4})
+        return Response(data=serializer.data)
         
     if request.method == 'POST':
         data=request.data
@@ -509,6 +494,7 @@ def generate_egret_task(request,format=None):
         unit_num=data['unit']
         cycle_num=data['cycle']
         follow_depletion=data['follow_depletion']
+        remark=data['remark']
         user=request.user
         try:
             plant=Plant.objects.get(abbrEN=plant_name)
@@ -535,8 +521,8 @@ def generate_egret_task(request,format=None):
             error_message={'error_message':'the taskname already exists'}
             return Response(data=error_message,status=404)
         else:
-            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,cycle=cycle,follow_index=follow_depletion,)
-            task_instance.egret_input_file.save(name=task_name,content=input_file)
+            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,cycle=cycle,follow_index=follow_depletion,remark=remark)
+            task_instance.egret_input_file.save(name=task_name+'.txt',content=input_file)
             input_file.close()
         
         media_root=settings.MEDIA_ROOT
@@ -572,6 +558,7 @@ def generate_egret_task(request,format=None):
         f.close()
         success_message={'success_message':'your request has been handled successfully','task_ID':task_instance.pk,'task_name':task_name,'task_type':task_type,'task_status':task_instance.task_status}
         success_message['xml_path']=task_instance.result_xml
+        
         if return_code is not None:
             return Response(data=success_message,status=200,headers={'cmd':3})
                              
@@ -584,6 +571,7 @@ def generate_egret_task(request,format=None):
         cycle_num=data['cycle']
         follow_depletion=data['follow_depletion']
         user=request.user
+        remark=data['remark']
         try:
             plant=Plant.objects.get(abbrEN=plant_name)
             unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
@@ -595,7 +583,7 @@ def generate_egret_task(request,format=None):
             return Response(data=error_message,status=404)
 
         try:
-            exitent_tasks=EgretTask.objects.filter(task_name=task_name,user=user,task_type=task_type,)
+            exitent_tasks=EgretTask.objects.filter(task_name=task_name,cycle=cycle,user=user,task_type=task_type,)
         except Exception:
             error_message={'error_message':'the egret task is nonexistent in database!'}
             return Response(data=error_message,status=404)
@@ -615,6 +603,7 @@ def generate_egret_task(request,format=None):
 
         input_file=generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletion_lst)
         task_instance.cycle=cycle
+        task_instance.remark=remark
         task_instance.follow_index=follow_depletion
         task_instance.task_status=0
         task_instance.save()
@@ -628,7 +617,7 @@ def generate_egret_task(request,format=None):
         os.chdir(os.path.dirname(parent_dir))
         shutil.rmtree(task_name)
        
-        task_instance.egret_input_file.save(name=task_name,content=input_file)
+        task_instance.egret_input_file.save(name=task_name+'.txt',content=input_file)
         input_file.close()
       
         try:
@@ -651,6 +640,7 @@ def generate_egret_task(request,format=None):
         f.close()
         success_message={'success_message':'your request has been handled successfully','task_ID':task_instance.pk,'task_name':task_name,'task_type':task_type,'task_status':task_instance.task_status}
         success_message['xml_path']=task_instance.result_xml
+        
         if return_code is not None:
             return Response(data=success_message,status=200,headers={'cmd':3})
 

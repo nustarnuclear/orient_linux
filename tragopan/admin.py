@@ -234,7 +234,7 @@ class ReactorPositionAdmin(admin.ModelAdmin):
     exclude=('remark',)
     search_fields=('=row','=column')
     list_filter=('reactor_model__name',)
-    list_display=('reactor_model','__str__','control_rod_mechanism')
+    list_display=('reactor_model','__str__','control_rod_mechanism','get_quadrant_symbol')
     list_editable=('control_rod_mechanism',)
     list_per_page=200
     ordering=('row','column')
@@ -330,8 +330,8 @@ class ReactorModelAdmin(admin.ModelAdmin):
     inlines=[CoreBaffleInline,CoreUpperPlateInline,CoreLowerPlateInline,ThermalShieldInline,PressureVesselInline,PressureVesselInsulationInline,CoreBaffleInline,
              ]
     #raw_id_fields=('thermal_couple_position','incore_instrument_position')
-    list_display=['name','generation','reactor_type','geometry_type','num_loops',
-                  'get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','get_control_rod_mechanism_num']
+    list_display=['name','generation','reactor_type',
+                  'get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','get_control_rod_mechanism_num','get_max_row_column']
     
     def get_formsets_with_inlines(self, request, obj=None):
         for inline in self.get_inline_instances(request, obj):
@@ -392,15 +392,27 @@ class FuelAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     
     raw_id_fields = ("fuel_assembly",)
     ordering=('cycle','reactor_position')
-    list_editable=("fuel_assembly",)
+    #list_editable=("fuel_assembly",)
     list_per_page=121
 admin.site.register(FuelAssemblyLoadingPattern, FuelAssemblyLoadingPatternAdmin)
 
+class ControlRodAssemblyLoadingPatternInline(admin.TabularInline):
+    exclude=('remark',)
+    extra=0
+    model=ControlRodAssemblyLoadingPattern
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "reactor_position":
+            try:
+                kwargs["queryset"] = ReactorPosition.objects.filter(reactor_model=Cycle.objects.get(pk=int(request.path.split(sep='/')[-2])).unit.reactor_model)
+            except Exception:
+                pass
+        return super(ControlRodAssemblyLoadingPatternInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 
 class BurnablePoisonAssemblyLoadingPatternInline(admin.TabularInline):
     exclude=('remark',)
     extra=0
-    model=BurnablePoisonAssemblyLoadingPattern    
+    model=BurnablePoisonAssemblyLoadingPattern
+    raw_id_fields=('burnable_poison_assembly',)    
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
         if db_field.name == "reactor_position":
             try:
@@ -424,8 +436,8 @@ class SourceAssemblyLoadingPatternInline(admin.TabularInline):
 class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
-    inlines=[BurnablePoisonAssemblyLoadingPatternInline,SourceAssemblyLoadingPatternInline]
-    list_display=('__str__','get_burnable_poison_assembly_num','get_source_assembly_num')
+    inlines=[BurnablePoisonAssemblyLoadingPatternInline,ControlRodAssemblyLoadingPatternInline]
+    list_display=('pk','__str__','get_burnable_poison_assembly_num','get_source_assembly_num')
    
     
     def get_burnable_poison_assembly_num(self,obj):
@@ -630,7 +642,7 @@ class BurnablePoisonRodMapInline(admin.TabularInline):
 class BurnablePoisonAssemblyAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[BurnablePoisonRodMapInline]
-    list_display=['__str__','get_poison_rod_num']
+    list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','get_substitute_bpa']
     
     def get_rod_num(self,obj):
         num=obj.rod_positions.count()
@@ -640,7 +652,7 @@ admin.site.register(BurnablePoisonAssembly, BurnablePoisonAssemblyAdmin)
 
 class BurnablePoisonAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('cycle','reactor_position','burnable_poison_assembly')
+    list_display=('cycle','reactor_position','burnable_poison_assembly','get_sysmetry_quadrant')
     list_filter=('cycle',)
 admin.site.register(BurnablePoisonAssemblyLoadingPattern, BurnablePoisonAssemblyLoadingPatternAdmin)
 ###############################################################################

@@ -1,10 +1,11 @@
 import os
-from .models import *
 from django.core.files import File
 from django.conf import settings
 from decimal import Decimal
-from tragopan.models import Plant,UnitParameter,Cycle,FuelAssemblyLoadingPattern
-from calculation.models import EgretInputXML
+from tragopan.models import Plant,UnitParameter,Cycle,FuelAssemblyLoadingPattern,ControlRodAssemblyLoadingPattern
+from calculation.models import *
+from xml.dom import minidom
+from tragopan.functions import fuel_assembly_loading_pattern
 def generate_prerobin_input(input_id):
     pri=PreRobinInput.objects.get(pk=input_id)
     #get segment id
@@ -332,8 +333,10 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
     #generate a file
     f=open(os.path.join(path, '_'.join([str(plant_name),str(unit_num),str(cycle_num)])),mode='w+')
     media_root=settings.MEDIA_ROOT
-    ibis_dir=os.path.join(os.path.join(media_root, plant_name),'ibis_files')
-    restart_dir=os.path.join(os.path.join(media_root, plant_name),'restart_files')
+    plant_dir=os.path.join(media_root, plant_name)
+    unit_dir=os.path.join(plant_dir,'unit'+str(unit_num))
+    ibis_dir=os.path.join(plant_dir,'ibis_files')
+    restart_dir=os.path.join(unit_dir,'restart_files')
     sep='\n'
     plant=Plant.objects.get(abbrEN=plant_name)
     unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
@@ -415,5 +418,376 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
         
     
     return File(f)
+
+def generate_base_component(plant_name):
+    plant=Plant.objects.get(abbrEN=plant_name)
+    base_fuels=BaseFuel.objects.filter(plant=plant)
+    unit=UnitParameter.objects.get(plant=plant,unit=1)
+    reactor_model=unit.reactor_model
+    core_id=reactor_model.name
+    #start xml 
+    doc = minidom.Document()
+    base_componenet_xml = doc.createElement("base_component")
+    base_componenet_xml.setAttribute("basecore_ID",core_id)
+    doc.appendChild(base_componenet_xml)
     
-               
+    #base fuel
+    for base_fuel in base_fuels:
+        base_fuel_xml=doc.createElement("base_fuel")
+        base_componenet_xml.appendChild(base_fuel_xml)
+        base_fuel_composition=base_fuel.composition.all()
+        
+        offset=base_fuel.offset
+        base_fuel_xml.setAttribute("offset",'1' if offset else '0')
+        
+        
+        fuel_id=base_fuel.fuel_identity
+        base_fuel_xml.setAttribute("fuel_id",fuel_id)
+        
+        #not offset
+        if not offset:
+            base_bottom=base_fuel.base_bottom
+            base_fuel_xml.setAttribute("base_bottom",str(base_bottom))
+            
+            data=[]
+            for item in base_fuel_composition:
+                data.append((item.height,item.ibis.ibis_name))
+            data.sort()
+            
+            #active length attribute
+            active_length=data[-1][0]
+            base_fuel_xml.setAttribute("active_length",str(active_length))  
+            
+            height_lst=[]
+            ibis_lst=[]
+            
+            for item in data:
+                ibis_lst.append(item[1])
+                try:
+                    height_lst.append(item[0]-height_lst[-1])
+                except IndexError:
+                    height_lst.append(item[0])
+                    
+            height_lst_str=[str(i) for i in height_lst]       
+            axial_ratio_xml=doc.createElement("axial_ratio")
+            axial_ratio_xml.appendChild(doc.createTextNode(' '.join(height_lst_str)))
+            axial_color_xml=doc.createElement("axial_color")
+            axial_color_xml.appendChild(doc.createTextNode(' '.join(ibis_lst)))
+            
+            base_fuel_xml.appendChild(axial_ratio_xml)
+            base_fuel_xml.appendChild(axial_color_xml)
+            
+            fuel_assembly_model=base_fuel.axial_composition.all()[0].fuel_assembly_type.model
+            grid_positions=fuel_assembly_model.grids.all()
+            for grid_position in grid_positions:
+                hight=grid_position.height
+                grid=grid_position.grid
+                width=grid.sleeve_height
+                grid_type="1" if grid.functionality=='fix' else '2'
+                spacer_grid_xml=doc.createElement("spacer_grid")
+                spacer_grid_xml.appendChild(doc.createTextNode(grid_type))
+                
+                spacer_grid_xml.setAttribute("hight",str(hight))
+                spacer_grid_xml.setAttribute("width",str(width))
+                base_fuel_xml.appendChild(spacer_grid_xml)
+        
+        #offset
+        else:
+            quadrant_1=base_fuel.quadrant_one.fuel_identity
+            quadrant_2=base_fuel.quadrant_two.fuel_identity
+            quadrant_3=base_fuel.quadrant_three.fuel_identity
+            quadrant_4=base_fuel.quadrant_four.fuel_identity
+            index=1
+            for item in [quadrant_1,quadrant_2,quadrant_3,quadrant_4]:
+                
+                inner_part_xml=doc.createElement("inner_part")
+                inner_part_xml.appendChild(doc.createTextNode(item))
+                inner_part_xml.setAttribute("quadrant",str(index))
+                index +=1
+                base_fuel_xml.appendChild(inner_part_xml)
+        
+        #base_componenet_xml.appendChild(base_fuel_xml)        
+        
+    #control rod xml        
+    base_control_rod_xml=doc.createElement("base_control_rod")
+    base_control_rod_xml.setAttribute("cr_id","CR1")
+    base_control_rod_xml.setAttribute("spider","0")
+    base_componenet_xml.appendChild(base_control_rod_xml)
+    
+    axial_length_xml=doc.createElement("axial_length")
+    axial_length_xml.appendChild(doc.createTextNode('400'))
+    
+    axial_type_xml=doc.createElement("axial_type")
+    axial_type_xml.appendChild(doc.createTextNode('1'))
+    
+    base_control_rod_xml.appendChild(axial_length_xml)
+    base_control_rod_xml.appendChild(axial_type_xml)
+        
+    f = open("/home/django/Desktop/book.xml","w")
+    print('ok')
+    doc.writexml(f)
+    f.close()
+    print('finished')
+        
+        
+                
+                
+def generate_loading_pattern(plant_name,unit_num):
+    plant=Plant.objects.get(abbrEN=plant_name)
+    base_fuels=BaseFuel.objects.filter(plant=plant)
+    unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+    cycles=unit.cycles.all()
+    reactor_model=unit.reactor_model
+    reactor_positions=reactor_model.positions.all()
+    basecore_id=reactor_model.name
+    core_id=plant_name+'unit%d'%unit_num
+    #start xml 
+    doc = minidom.Document()
+    loading_pattern_xml = doc.createElement("loading_pattern")
+    loading_pattern_xml.setAttribute("basecore_ID",basecore_id)
+    loading_pattern_xml.setAttribute("core_id",core_id)
+    doc.appendChild(loading_pattern_xml)
+    
+    #control rod xml
+    
+    for cycle in cycles:
+        control_rod_assembly_loading_patterns=cycle.control_rod_assembly_loading_patterns.all()
+        if control_rod_assembly_loading_patterns:
+            control_rod_xml=doc.createElement("control_rod")
+            control_rod_xml.setAttribute("cycle",str(cycle.cycle))
+            loading_pattern_xml.appendChild(control_rod_xml)
+            
+            map_xml=doc.createElement("map")
+            control_rod_xml.appendChild(map_xml)
+            cra_position_lst=[]
+            for reactor_position in reactor_positions:
+                cra_pattern=control_rod_assembly_loading_patterns.filter(reactor_position=reactor_position)
+                if cra_pattern:
+                    cra=cra_pattern.get().control_rod_assembly
+                    cra_position_lst.append('CR1')
+                else:
+                    cra_position_lst.append('0')
+                    
+            map_xml.appendChild(doc.createTextNode((' '.join(cra_position_lst))))
+    
+    #fuel xml
+    for cycle in cycles: 
+        fuel_lst=[]
+        previous_cycle_lst=[]
+        for reactor_position in reactor_positions:
+                fuel_assembly_loading_pattern=cycle.fuel_assembly_loading_patterns.get(reactor_position=reactor_position)
+                bpa_patterns=cycle.bpa_loading_patterns.filter(reactor_position=reactor_position)
+                fuel_assembly_type=fuel_assembly_loading_pattern.fuel_assembly.type
+                
+                #not fresh
+                if fuel_assembly_loading_pattern.get_previous():
+                    [previous_cycle,previous_position_row,previous_position_column]=fuel_assembly_loading_pattern.get_previous().split('-')
+                    position='{}{}'.format(previous_position_row.zfill(2), previous_position_column.zfill(2))
+                    fuel_lst.append(position)
+                    #not from last cycle
+                    if previous_cycle!=cycle.cycle-1:
+                        
+                        previous_cycle_lst.append([previous_cycle,reactor_position.row,reactor_position.column])
+                       
+                
+                #fresh       
+                else:
+                    if bpa_patterns:
+                        bpa_pattern=bpa_patterns.get()
+                        sysmetry_quadrant=bpa_pattern.get_sysmetry_quadrant()
+                        bpa=bpa_pattern.burnable_poison_assembly
+                        sub_bpa=bpa.get_substitute_bpa()
+                        
+                        #offset
+                        if sub_bpa:
+                            #contains bpa basefuel
+                            bpa_ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=sub_bpa)
+                            sub_base_fuel=bpa_ibis.base_fuels.get()
+                            
+                            #not contain bpa basefuel
+                            fuel_ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
+                            fuel_base_fuels=fuel_ibis.base_fuels.all()
+                            
+                            for item in fuel_base_fuels:
+                                if not item.if_insert_burnable_fuel():
+                                    fuel_base_fuel=item
+                                    
+                            #reactor position quadrant
+                            quadrant_lst=[] 
+                              
+                            for num in [1,2,3,4]:
+                                if num in sysmetry_quadrant:
+                                    quadrant_lst.append(sub_base_fuel)
+                                else:
+                                    quadrant_lst.append(fuel_base_fuel)
+                                    
+                            print(quadrant_lst,bpa_patterns)
+    
+                              
+                            base_fuel=BaseFuel.objects.get(quadrant_one=quadrant_lst[0],quadrant_two=quadrant_lst[1],quadrant_three=quadrant_lst[2],quadrant_four=quadrant_lst[3])       
+                                        
+                                    
+                                
+                        else:
+                            ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=bpa)
+                            base_fuel=ibis.base_fuels.get()
+                            
+                        fuel_lst.append(base_fuel.fuel_identity)
+                    else:
+                        ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
+                        base_fuels=ibis.base_fuels.all()     
+                        for base_fuel in base_fuels:
+                            if not base_fuel.if_insert_burnable_fuel():
+                                fuel_lst.append(base_fuel.fuel_identity)
+                             
+        
+        fuel_xml = doc.createElement("fuel")
+        fuel_xml.setAttribute("cycle",str(cycle.cycle))
+        loading_pattern_xml.appendChild(fuel_xml)
+        
+        fuel_map_xml=doc.createElement("map")
+        fuel_xml.appendChild(fuel_map_xml)
+        fuel_map_xml.appendChild(doc.createTextNode((' '.join(fuel_lst))))
+    
+    f = open("/home/django/Desktop/fuel.xml","w")
+    print('ok')
+    doc.writexml(f)
+    f.close()
+    print('finished') 
+    
+def generate_basecore(plant_name):
+    plant=Plant.objects.get(abbrEN=plant_name)
+    unit=plant.units.get(unit=1)
+    cycle=unit.cycles.get(cycle=1)
+    reactor_model=unit.reactor_model
+    reactor_positions=reactor_model.positions.all()
+    basecore_id=reactor_model.name
+    core_type=reactor_model.reactor_type 
+    max_row=reactor_model.get_max_row_column()[0]
+    fuel_pitch=reactor_model.fuel_pitch
+    active_height=reactor_model.active_height
+    #start xml 
+    doc = minidom.Document()
+    basecore_xml = doc.createElement("basecore")
+    basecore_xml.setAttribute("ID",basecore_id)
+    basecore_xml.setAttribute("core_type",core_type)
+    doc.appendChild(basecore_xml)
+    
+    core_geo_xml = doc.createElement("core_geo")
+    core_geo_xml.setAttribute("num_side_asms",str(max_row))
+    basecore_xml.appendChild(core_geo_xml)
+    
+    fuel_pitch_xml = doc.createElement("fuel_pitch")
+    fuel_pitch_xml.appendChild(doc.createTextNode(str(fuel_pitch)))
+    core_geo_xml.appendChild(fuel_pitch_xml)
+    
+    std_fuel_len_xml = doc.createElement("std_fuel_len")
+    std_fuel_len_xml.appendChild(doc.createTextNode(str(active_height)))
+    core_geo_xml.appendChild(std_fuel_len_xml)
+    
+    fuel_map_lst=[]
+    for i in range(1,max_row+1):
+        for j in range(1,max_row+1):
+            fuel_position=reactor_model.positions.filter(row=i,column=j)
+            if fuel_position:
+                fuel_map_lst.append('1')
+            else:
+                fuel_map_lst.append('0')
+    
+    fuel_map_xml = doc.createElement("fuel_map")
+    fuel_map_xml.appendChild(doc.createTextNode(' '.join(fuel_map_lst)))
+    core_geo_xml.appendChild(fuel_map_xml)
+    
+    rcca_xml = doc.createElement("rcca")
+    basecore_xml.appendChild(rcca_xml)  
+    
+    control_rod_assembly_lst=[]
+    bank_id_lst=[]
+        
+    for position in reactor_positions:
+        try:
+            cralp=ControlRodAssemblyLoadingPattern.objects.get(reactor_position=position,cycle=cycle)
+            control_rod_assembly_lst.append(cralp.control_rod_assembly.cluster_name)
+            if cralp.control_rod_assembly.cluster_name not in bank_id_lst:
+                bank_id_lst.append(cralp.control_rod_assembly.cluster_name)
+        except Exception:
+            control_rod_assembly_lst.append('0')
+     
+    index=1 
+    for name in bank_id_lst:
+        bank_id_xml=doc.createElement('bank_id')
+        bank_id_xml.setAttribute('index', str(index))
+        bank_id_xml.setAttribute('basez', '18.0')
+        bank_id_xml.appendChild(doc.createTextNode(name))
+        index+=1
+        rcca_xml.appendChild(bank_id_xml) 
+        
+    map_xml=doc.createElement('map')
+    map_xml.appendChild(doc.createTextNode(' '.join(control_rod_assembly_lst)))
+    rcca_xml.appendChild(map_xml)
+    
+    step_size_xml=doc.createElement('step_size')
+    step_size_xml.appendChild(doc.createTextNode('1.0'))
+    rcca_xml.appendChild(step_size_xml)
+    
+    calc_xml=doc.createElement('calc')
+    basecore_xml.appendChild(calc_xml)
+    
+    calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'15.263','top_br_size':'15.263','fold_core':'1','axial_df':'0','axial_mesh':'15.3'}
+    
+    for key,value in calc_data.items():
+        key_xml=doc.createElement(key)
+        key_xml.appendChild(doc.createTextNode(value))
+        calc_xml.appendChild(key_xml)
+        
+    #reflector
+    reflector_xml=doc.createElement('reflector')
+    basecore_xml.appendChild(reflector_xml)
+    
+    if plant_name=='QNPC_I':
+        reflector_data={'bot_br':'BR_BOT',
+                        'top_br':'BR_TOP',
+                        'radial_br':[('BR3  BR3  BR3  BR9  BR6  BR5  BR7  BR3  BR3  BR9  BR6  BR5  BR7  BR9',{'index':'1'}),
+                                     ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12',{'index':'2'})]
+        }
+    
+    for key,value in reflector_data.items():
+        if type(value)==str:
+            key_xml=doc.createElement(key)
+            key_xml.appendChild(doc.createTextNode(value))
+            reflector_xml.appendChild(key_xml)
+        else:
+            for item in value:
+                key_xml=doc.createElement(key)
+                key_xml.appendChild(doc.createTextNode(item[0]))
+                try:
+                    attr_dic=item[1]
+                    for attr_key,attr_value in attr_dic.items():
+                        key_xml.setAttribute(attr_key,attr_value)
+                except:
+                    pass
+                
+                reflector_xml.appendChild(key_xml)
+                
+   
+    f = open("/home/django/Desktop/basecore.xml","w")
+    print('ok')
+    doc.writexml(f)
+    f.close()
+    print('finished')
+                
+                
+                
+        
+    
+        
+    
+    
+
+    
+    
+       
+    
+    
+                            
+            

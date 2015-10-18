@@ -101,9 +101,10 @@ class PreRobinInputAdmin(admin.ModelAdmin):
 admin.site.register(PreRobinInput, PreRobinInputAdmin)
 
 class IbisAdmin(admin.ModelAdmin):
-    exclude=('remark',)
+    exclude=('remark','user')
     list_display=('__str__','plant','ibis_file','last_modified','burnable_poison_assembly')
     list_editable=('burnable_poison_assembly',)
+    list_filter=('plant',)
 admin.site.register(Ibis, IbisAdmin)    
 
 class RobinFileAdmin(admin.ModelAdmin):
@@ -117,9 +118,11 @@ class BaseFuelCompositionInline(admin.TabularInline):
 
 
 class BaseFuelAdmin(admin.ModelAdmin):
-    exclude=('remark',)
+    exclude=('remark','user')
     inlines=(BaseFuelCompositionInline,)
-    list_display=('__str__','get_ibis_composition','if_insert_burnable_fuel')
+    list_display=('__str__','get_ibis_composition','if_insert_burnable_fuel','offset')
+    list_filter=('plant',)
+    list_editable=('offset',)
     def get_ibis_composition(self,obj):
         ibis_composition=obj.composition.all()
         result=''

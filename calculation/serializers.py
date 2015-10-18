@@ -73,11 +73,18 @@ class EgretCycleSerializer(serializers.ModelSerializer):
     class Meta:
         model = Cycle
         fields = ( 'unit','cycle')
+        
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields=('username',)
+           
                
 class EgretTaskSerializer(serializers.ModelSerializer):
    
     cycle=EgretCycleSerializer()
+    user=UserSerializer()
     class Meta:
         model = EgretTask
-        fields = ( 'task_name','task_type','result_xml','egret_input_file','cycle','follow_index','task_status')       
+        fields = ( 'task_name','task_type','result_xml','egret_input_file','cycle','follow_index','task_status','remark','user')       
         

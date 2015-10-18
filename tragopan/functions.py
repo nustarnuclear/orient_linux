@@ -288,3 +288,82 @@ def add_wmis_element_data(filename):
                     print(we)
         
     print(s)
+    
+def add_cycle(filename,plantname,unit_num):
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    DATA_DIR=os.path.join(BASE_DIR, 'data')
+    FILE_PATH=os.path.join(DATA_DIR,filename)
+    f=open(FILE_PATH)
+    t=f.read()
+    s=t.split(sep='/')
+    lst=[]
+    for item in s:
+        value=item.split()
+        lst.append(value)
+
+    for i in range(len(lst)):
+        for j in range(len(lst[i])):
+            pos=lst[i][j]
+            try:
+                lst[i][j]=int(pos)
+            except ValueError:
+                tmp=pos.split('_')
+                if len(tmp)!=2:
+                    tmp.append(i)
+                    
+                cycle=int(tmp[1])
+                
+                if plantname=='QNPC_II':
+                    row=ord(tmp[0][0])
+                    if row<73:
+                        row -=64
+                    else:
+                        row -=65
+                        
+                    column=int(tmp[0][1:3])
+                elif plantname=='QNPC_I':
+                    row=int(tmp[0][1:3])
+                    num_dic={'N':1,'M':2,'L':3,'K':4,'J':5,'H':6,'G':7,'F':8,'E':9,'D':10,'C':11,'B':12,'A':13}
+                    column=num_dic[tmp[0][0]]
+                else:
+                    pass
+                lst[i][j]=[cycle,row,column]
+    f.close()
+    
+    plant=Plant.objects.get(abbrEN=plantname)
+    unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+    reactor_model=unit.reactor_model
+    reactor_positions=reactor_model.positions.all()
+    pos_lst=[]
+    for reactor_position in reactor_positions:
+        pos_lst.append([reactor_position.row,reactor_position.column])
+        
+    print(pos_lst)
+    print(len(pos_lst))
+    print(reactor_positions)
+    
+    for i in range(len(lst)):
+        cycle_num=i+1
+        cycle=Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
+        
+        for j in range(len(lst[i])):
+            pattern=lst[i][j]
+            position=reactor_positions[j]
+            print(position)
+            #FRESH
+            if type(pattern)==int:
+                fuel_assembly_type=FuelAssemblyType.objects.get(pk=pattern)
+                fuel_assembly=FuelAssemblyRepository.objects.create(type=fuel_assembly_type,plant=plant)
+                fuel_assembly_loading_pattern=FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=position,fuel_assembly=fuel_assembly)
+            else:
+                previous_cycle_num=pattern[0]
+                previous_cycle_row=pattern[1]
+                previous_cycle_column=pattern[2]
+                previous_cycle=Cycle.objects.get(unit=unit,cycle=previous_cycle_num)
+                previous_position=reactor_positions.filter(row=previous_cycle_row,column=previous_cycle_column).get()
+                previous_pattern=FuelAssemblyLoadingPattern.objects.get(cycle=previous_cycle,reactor_position=previous_position)
+                previous_fuel_assembly=previous_pattern.fuel_assembly
+                fuel_assembly_loading_pattern=FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=position,fuel_assembly=previous_fuel_assembly)
+                
+            
+    return lst

@@ -247,14 +247,18 @@ class RobinFile(BaseModel):
 
     
 class BaseFuel(BaseModel):
+    plant=models.ForeignKey('tragopan.Plant')
     fuel_identity=models.CharField(max_length=32)
-    offset=models.BooleanField(default=False)
+    quadrant_one=models.ForeignKey('self',blank=True,null=True,related_name='one')
+    quadrant_two=models.ForeignKey('self',blank=True,null=True,related_name='two')
+    quadrant_three=models.ForeignKey('self',blank=True,null=True,related_name='three')
+    quadrant_four=models.ForeignKey('self',blank=True,null=True,related_name='four')
     base_bottom=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',default=0)
-    axial_composition=models.ManyToManyField(Ibis,through='BaseFuelComposition')
+    axial_composition=models.ManyToManyField(Ibis,through='BaseFuelComposition',related_name='base_fuels')
+    offset=models.BooleanField(default=False)
     
     def if_insert_burnable_fuel(self):
-        obj=BaseFuel.objects.get(pk=self.pk)
-        composition=obj.composition.count()
+        composition=self.composition.count()
         result=True if composition>1 else False
         return result
     
@@ -268,7 +272,7 @@ class BaseFuel(BaseModel):
     
 class BaseFuelComposition(models.Model):
     base_fuel=models.ForeignKey(BaseFuel,related_name='composition')
-    ibis=models.ForeignKey(Ibis,related_name='base_fuels')
+    ibis=models.ForeignKey(Ibis,related_name='base_fuel_compositions')
     height=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',)
     class Meta:
         db_table='base_fuel_composition'
@@ -301,11 +305,16 @@ def get_egret_loading_pattern_xml_path(instance,filename):
     plant_name=unit.plant.abbrEN
     return '{}/unit{}/{}'.format(reactor_model_name,unit.unit, filename)   
 
+def get_egret_input_xml_path(instance,filename):
+    unit=instance.unit
+    plant_name=unit.plant.abbrEN
+    return '{}/unit{}/egret_input_xml/{}'.format(plant_name,unit.unit, filename)
+
 class EgretInputXML(models.Model):
     unit=models.ForeignKey('tragopan.UnitParameter')
-    base_component_xml=models.FileField(upload_to=get_egret_base_component_xml_path)
-    base_core_xml=models.FileField(upload_to=get_egret_base_core_xml_path)
-    loading_pattern_xml=models.FileField(upload_to=get_egret_loading_pattern_xml_path)
+    base_component_xml=models.FileField(upload_to=get_egret_input_xml_path)
+    base_core_xml=models.FileField(upload_to=get_egret_input_xml_path)
+    loading_pattern_xml=models.FileField(upload_to=get_egret_input_xml_path)
     
     class Meta:
         db_table='egret_input_xml'
@@ -353,19 +362,3 @@ class EgretTask(BaseModel):
     def __str__(self):
         return '{}'.format(self.task_name)
      
-'''   
-class EgretDepletionCase(models.Model):
-    ralative_power=models.DecimalField(max_digits=6,decimal_places=5,validators=[MaxValueValidator(1.5),MinValueValidator(0)],help_text='0-1.5',)  
-    burnup=models.DecimalField(max_digits=15,decimal_places=5,validators=[MinValueValidator(0),MaxValueValidator(100)],help_text='GWd/tU',blank=True,null=True)
-    bank_position=models.CommaSeparatedIntegerField(max_length=100)
-    delta_time=models.DecimalField(max_digits=10,decimal_places=3,validators=[MinValueValidator(0),],help_text='day',blank=True,null=True)
-    SDC=models.BooleanField(default=False)
-    
-    class Meta:
-        db_table='egret_depletion_case'
-        
-        
-        
-    def __str__(self):
-        return '{}'.format(self.pk)
-'''

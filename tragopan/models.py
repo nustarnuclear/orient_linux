@@ -11,6 +11,7 @@ from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework.authtoken.models import Token
+from symtable import Symbol
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
@@ -286,6 +287,12 @@ class ReactorModel(BaseModel):
    
     class Meta:
         db_table = 'reactor_model'
+        
+    def get_max_row_column(self):
+        positions=self.positions.all()
+        max_row=positions.aggregate(Max('row'))['row__max']
+        max_column=positions.aggregate(Max('column'))['column__max']
+        return [max_row,max_column]
     
     def __str__(self):
         return '{}'.format(self.name)     
@@ -299,6 +306,25 @@ class ReactorPosition(BaseModel):
         db_table='reactor_position'
         unique_together=('reactor_model','row','column')
         ordering=['row','column']
+        
+        
+    def get_quadrant_symbol(self):
+        '''
+        2|1
+        ---
+        3|4
+        '''
+        [max_row,max_column]=self.reactor_model.get_max_row_column()
+        if self.row<max_row/2:
+            if self.column<max_column/2:
+                return 2
+            else:
+                return 1
+        else:
+            if self.column<max_column/2:
+                return 3
+            else:
+                return 4
         
     def __str__(self):
         rowSymbol=self.reactor_model.row_symbol
@@ -514,14 +540,19 @@ class FuelAssemblyLoadingPattern(BaseModel):
         verbose_name='Incore fuel loading pattern'
     
     def get_previous(self):
-        obj=FuelAssemblyLoadingPattern.objects.get(pk=self.pk)
-        fuel_assembly=obj.fuel_assembly
-        cycle=obj.cycle
+        fuel_assembly=self.fuel_assembly
+        cycle=self.cycle
         try:
-            falp=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=fuel_assembly,cycle__cycle__lt=cycle.cycle,cycle__unit=cycle.unit).last()
-            previous_cycle=falp.cycle
-            previous_position=falp.reactor_position
-            return "{}-{}-{}".format(previous_cycle.cycle,previous_position.row,previous_position.column)
+            
+            falp=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=fuel_assembly,cycle__cycle__lt=cycle.cycle,cycle__unit=cycle.unit)
+            previous_cycles=[]
+            for item in falp:
+                previous_cycles.append(item.cycle.cycle)
+                
+              
+            last_cycle=max(previous_cycles)   
+            last_position=falp.get(cycle__cycle=last_cycle).reactor_position
+            return "{}-{}-{}".format(last_cycle,last_position.row,last_position.column)
         except:
             return None
         
@@ -615,6 +646,24 @@ class FuelAssemblyPosition(BaseModel):
         db_table='fuel_assembly_position'
         unique_together=('fuel_assembly_model','row','column')
         verbose_name='Intra-assembly rod pattern'
+        
+    def generate_quadrant_symbol(self):
+        row=self.row
+        column=self.column
+        mid_pos=FuelAssemblyPosition.objects.get(type='instrument',fuel_assembly_model=self.fuel_assembly_model)
+        mid_row=mid_pos.row
+        mid_column=mid_pos.column
+        if row<=mid_row:
+            if column<=mid_column:
+                return 1
+            else:
+                return 2
+        else:
+            if column<=mid_column:
+                return 3
+            else:
+                return 4
+        
     def __str__(self):
         return '{} R{}C{}'.format(self.fuel_assembly_model, self.row,self.column)
 
@@ -653,12 +702,12 @@ class Grid(BaseModel):
     )
     name=models.CharField(max_length=50)
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='fuel_assembly_grids')
-    side_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
+    side_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
 
     
     sleeve_height=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
-    inner_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
-    outer_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
+    inner_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
+    outer_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_material=models.ForeignKey(Material,related_name='grid_sleeves',related_query_name='grid_sleeve',blank=True,null=True)
     
     spring_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
@@ -985,16 +1034,39 @@ class BurnablePoisonAssembly(BaseModel):
         verbose_name='Burnable absorber rod pattern'
         
     def get_poison_rod_num(self):
-        obj=BurnablePoisonAssembly.objects.get(pk=self.pk)
-        num=obj.rod_positions.count()
+        num=self.rod_positions.count()
         return num  
     def get_poison_rod_height(self): 
-        obj=BurnablePoisonAssembly.objects.get(pk=self.pk)
-        height=obj.rod_positions.first().height
+        height=self.rod_positions.first().height
         return height
+    
+    def get_quadrant_symbol(self):
+        rod_map=self.rod_positions.all()
+        symbol_lst=[]
+        for rod in rod_map:
+            pos=rod.burnable_poison_position
+            symbol=pos.generate_quadrant_symbol()
+            if symbol not in symbol_lst:
+                symbol_lst.append(symbol)
+        
+        return symbol_lst
+    
+    def get_substitute_bpa(self):
+        quadrant_symbol=self.get_quadrant_symbol()
+        if quadrant_symbol==[1,2,3,4]:
+            return None
+        else:
+            num=self.get_poison_rod_num()
+            sub_num=num*4/len(quadrant_symbol)
+            sub_bpas=BurnablePoisonAssembly.objects.filter(fuel_assembly_model=self.fuel_assembly_model)
+            for sub_bpa in sub_bpas:
+                if sub_bpa.get_poison_rod_num()==sub_num:
+                        return sub_bpa
+            
+                
+            
     def __str__(self):
-        obj=BurnablePoisonAssembly.objects.get(pk=self.pk)
-        num=obj.rod_positions.count()
+        num=self.rod_positions.count()
         return '{} {}'.format(num, self.fuel_assembly_model)
     
     
@@ -1013,7 +1085,7 @@ class BurnablePoisonRodMap(BaseModel):
     
 class BurnablePoisonAssemblyLoadingPattern(BaseModel):
     
-    cycle=models.ForeignKey(Cycle,related_name='burnable_posison_assembly_positions')
+    cycle=models.ForeignKey(Cycle,related_name='bpa_loading_patterns')
     reactor_position=models.ForeignKey(ReactorPosition)
     burnable_poison_assembly=models.ForeignKey(BurnablePoisonAssembly)
     
@@ -1022,9 +1094,32 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
     class Meta:
         db_table='burnable_poison_assembly_loading_pattern'
         
-        unique_together=('reactor_position','burnable_poison_assembly')
+        #unique_together=('reactor_position','burnable_poison_assembly')
         verbose_name='Burnable absorber assembly'
         verbose_name_plural='Burnable absorber assemblies'
+        
+    def get_sysmetry_quadrant(self):
+        reactor_position=self.reactor_position
+        reactor_position_symbol=reactor_position.get_quadrant_symbol()
+        bpa=self.burnable_poison_assembly
+        bpa_symbol=bpa.get_quadrant_symbol()
+        if reactor_position_symbol==4:
+            sysm_relation={1:1,2:2,3:3,4:4}
+        elif reactor_position_symbol==1: 
+            sysm_relation={3:1,4:2,1:3,2:4}
+        elif reactor_position_symbol==2:
+            sysm_relation={4:1,3:2,2:3,1:4}
+        else:
+            sysm_relation={2:1,1:2,4:3,3:4}
+            
+        sysmetry_quadrant=[sysm_relation[i] for i in bpa_symbol]
+        return sysmetry_quadrant
+            
+            
+            
+        
+        
+        
     
     def __str__(self):
         return '{} {}'.format(self.cycle, self.reactor_position)

@@ -197,31 +197,34 @@ def cycle_detail(request, plantname,unit_num,cycle_num,format=None):
     
     try:
         plant=Plant.objects.get(abbrEN=plantname)
-        unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+        unit=UnitParameter.objects.get(plant=plant,unit=int(unit_num))
     
     except Plant.DoesNotExist or UnitParameter.DoesNotExist:
         error_message={'error_message':'the plant or unit does not exist in database!'}
         return Response(data=error_message,status=404)
     
+  
+    
     if request.method == 'DELETE':
         c=Cycle.objects.filter(unit=unit).aggregate(Max('cycle'))
         cmax=c['cycle__max']
         print(cmax)
-        if cycle_num==cmax:
+        if int(cycle_num)==cmax:
             success_message={'success_message':'sucessful'}
             return Response(data=success_message,status=200)
         else:
             error_message={'error_message':'you can only delete the last cycle of certain unit'}
             return Response(data=error_message,status=404)
             
-        
+   
     if request.method == 'POST':
-        if cycle_num>=13:
-            pass
-        else:
+        
+        if int(cycle_num)<13:
             return Response(data={'error_message':'you have no permission'},status=404)
-        cycle = Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
-            
+        
+        print(cycle_num)
+        cycle = Cycle.objects.get_or_create(unit=unit,cycle=int(cycle_num))[0]
+        print(cycle)    
         reactor_model=unit.reactor_model
         reactor_position_objs=ReactorPosition.objects.filter(reactor_model=reactor_model,)
         data=request.data
@@ -246,9 +249,10 @@ def cycle_detail(request, plantname,unit_num,cycle_num,format=None):
                 fuel_assembly=FuelAssemblyRepository.objects.create(type=fuel_assembly_type,plant=plant)
             try:
                 exist_pattern=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,reactor_position=reactor_position_obj)
-                exist_pattern.fuel_assembly=fuel_assembly
-                exist_pattern.save()
-                updated_num +=1
+                if exist_pattern.fuel_assembly!=fuel_assembly:
+                    exist_pattern.fuel_assembly=fuel_assembly
+                    exist_pattern.save()
+                    updated_num +=1
             except Exception:
                 new_pattern=FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=reactor_position_obj,fuel_assembly=fuel_assembly)
                 created_num +=1
