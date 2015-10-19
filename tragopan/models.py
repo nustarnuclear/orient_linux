@@ -315,16 +315,16 @@ class ReactorPosition(BaseModel):
         3|4
         '''
         [max_row,max_column]=self.reactor_model.get_max_row_column()
-        if self.row<max_row/2:
-            if self.column<max_column/2:
-                return 2
-            else:
-                return 1
+        
+        if self.row<max_row/2 and self.column<max_column/2+1:
+            return 2
+        elif self.row<max_row/2+1 and self.column>max_column/2:
+            return 1
+        elif self.row>max_row/2 and self.column<max_column/2:
+            
+            return 3
         else:
-            if self.column<max_column/2:
-                return 3
-            else:
-                return 4
+            return 4
         
     def __str__(self):
         rowSymbol=self.reactor_model.row_symbol
@@ -1106,11 +1106,11 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
         if reactor_position_symbol==4:
             sysm_relation={1:1,2:2,3:3,4:4}
         elif reactor_position_symbol==1: 
-            sysm_relation={3:1,4:2,1:3,2:4}
+            sysm_relation={3:1,1:2,4:3,2:4}
         elif reactor_position_symbol==2:
             sysm_relation={4:1,3:2,2:3,1:4}
         else:
-            sysm_relation={2:1,1:2,4:3,3:4}
+            sysm_relation={2:1,4:2,1:3,3:4}
             
         sysmetry_quadrant=[sysm_relation[i] for i in bpa_symbol]
         return sysmetry_quadrant

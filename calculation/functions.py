@@ -6,6 +6,10 @@ from tragopan.models import Plant,UnitParameter,Cycle,FuelAssemblyLoadingPattern
 from calculation.models import *
 from xml.dom import minidom
 from tragopan.functions import fuel_assembly_loading_pattern
+from django.conf import settings
+
+media_root=settings.MEDIA_ROOT
+
 def generate_prerobin_input(input_id):
     pri=PreRobinInput.objects.get(pk=input_id)
     #get segment id
@@ -349,14 +353,15 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
     
     xml_path=EgretInputXML.objects.get(unit=unit)
     
-    rela_basecore_xml=str(xml_path.base_core_xml).split(sep='/')
-    basecore_xml=os.path.join(media_root,*rela_basecore_xml)
+    rela_basecore_xml=xml_path.basecore_path
+    basecore_xml=os.path.join(media_root,rela_basecore_xml)
     
-    rela_base_component_xml=str(xml_path.base_component_xml).split(sep='/')
-    base_component_xml=os.path.join(media_root,*rela_base_component_xml)
+    #rela_base_component_xml=str(xml_path.base_component_xml).split(sep='/')
+    rela_base_component_xml=xml_path.base_component_path
+    base_component_xml=os.path.join(media_root,rela_base_component_xml)
     
-    rela_loading_pattern_xml=str(xml_path.loading_pattern_xml).split(sep='/')
-    loading_pattern_xml=os.path.join(media_root,*rela_loading_pattern_xml)
+    rela_loading_pattern_xml=xml_path.loading_pattern_path
+    loading_pattern_xml=os.path.join(media_root,rela_loading_pattern_xml)
     
     f.write('   basecoreXML = "{}"{}'.format(basecore_xml,sep))
     f.write('   basecomponentXML = "{}"{}'.format(base_component_xml,sep))
@@ -522,9 +527,14 @@ def generate_base_component(plant_name):
     
     base_control_rod_xml.appendChild(axial_length_xml)
     base_control_rod_xml.appendChild(axial_type_xml)
-        
-    f = open("/home/django/Desktop/book.xml","w")
-    print('ok')
+    
+    file_dir=os.path.join(media_root,plant_name)   
+    file_path=os.path.join(file_dir,'base_component.xml')
+    try:
+        os.makedirs(file_dir)
+    except OSError:
+        pass
+    f = open(file_path,"w")
     doc.writexml(f)
     f.close()
     print('finished')
@@ -648,9 +658,24 @@ def generate_loading_pattern(plant_name,unit_num):
         fuel_map_xml=doc.createElement("map")
         fuel_xml.appendChild(fuel_map_xml)
         fuel_map_xml.appendChild(doc.createTextNode((' '.join(fuel_lst))))
-    
-    f = open("/home/django/Desktop/fuel.xml","w")
-    print('ok')
+        
+        #handle the fuel assembly not from last cycle
+        for previous_cycle_info in previous_cycle_lst:
+            if int(previous_cycle_info[0])!=cycle.cycle-1:
+                
+                cycle_xml=doc.createElement("cycle")
+                cycle_xml.setAttribute('row',str(previous_cycle_info[1]))
+                cycle_xml.setAttribute('col',str(previous_cycle_info[2]))
+                cycle_xml.appendChild(doc.createTextNode(previous_cycle_info[0]))
+                fuel_xml.appendChild(cycle_xml)
+                
+    file_dir=os.path.join(os.path.join(media_root,plant_name),'unit'+str(unit_num))
+    file_path=os.path.join(file_dir,'loading_pattern.xml')
+    try:
+        os.makedirs(file_dir)
+    except OSError:
+        pass
+    f = open(file_path,"w")
     doc.writexml(f)
     f.close()
     print('finished') 
@@ -768,10 +793,15 @@ def generate_basecore(plant_name):
                     pass
                 
                 reflector_xml.appendChild(key_xml)
-                
-   
-    f = open("/home/django/Desktop/basecore.xml","w")
-    print('ok')
+    file_dir=os.path.join(media_root,basecore_id)            
+    file_path=os.path.join(file_dir,'basecore.xml')
+    try:
+        os.makedirs(file_dir)
+    except OSError:
+        pass
+          
+    f = open(file_path,"w")
+        
     doc.writexml(f)
     f.close()
     print('finished')

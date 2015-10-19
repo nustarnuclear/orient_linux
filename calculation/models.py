@@ -58,6 +58,7 @@ class BaseModel(models.Model):
     class Meta:
         abstract=True
 
+media_root=settings.MEDIA_ROOT
 #concrete model in DATABASE
 
     
@@ -312,9 +313,12 @@ def get_egret_input_xml_path(instance,filename):
 
 class EgretInputXML(models.Model):
     unit=models.ForeignKey('tragopan.UnitParameter')
-    base_component_xml=models.FileField(upload_to=get_egret_input_xml_path)
-    base_core_xml=models.FileField(upload_to=get_egret_input_xml_path)
-    loading_pattern_xml=models.FileField(upload_to=get_egret_input_xml_path)
+    base_component_path=models.FilePathField(path=media_root,match=".*base_component\.xml$",recursive=True,blank=True,null=True,max_length=200)
+    basecore_path=models.FilePathField(path=media_root,match=".*basecore\.xml$",recursive=True,blank=True,null=True,max_length=200)
+    loading_pattern_path=models.FilePathField(path=media_root,match=".*loading_pattern\.xml$",recursive=True,blank=True,null=True,max_length=200)
+    #base_component_xml=models.FileField(upload_to=get_egret_input_xml_path)
+    #base_core_xml=models.FileField(upload_to=get_egret_input_xml_path)
+    #loading_pattern_xml=models.FileField(upload_to=get_egret_input_xml_path)
     
     class Meta:
         db_table='egret_input_xml'
@@ -334,7 +338,7 @@ def get_egret_upload_path(instance,filename):
     task_name=instance.task_name
     return 'egret_task/{}/{}/unit{}/cycle{}/{}/{}'.format(username,plant_name,unit.unit, cycle.cycle,task_name,name) 
 
-media_root=settings.MEDIA_ROOT
+
 
 
 

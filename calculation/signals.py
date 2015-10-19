@@ -26,6 +26,7 @@ def del_task_file(sender, instance, **kwargs):
     
 @receiver(post_save,sender=FuelAssemblyLoadingPattern)
 def generate_egret_input_xml(sender,created, instance, **kwargs):
+    '''
     if not created:
         tmp_dir=settings.TMP_DIR
         os.chdir(tmp_dir)
@@ -65,4 +66,5 @@ def generate_egret_input_xml(sender,created, instance, **kwargs):
         #eix.base_core_xml=f2
         eix.loading_pattern_xml=f3
         eix.save()
-       
+    '''
+    pass  
