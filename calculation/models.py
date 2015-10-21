@@ -225,7 +225,7 @@ class Ibis(BaseModel):
         verbose_name_plural='Ibis'
         
     def __str__(self):
-        return '{}'.format(self.ibis_name)
+        return '{} {}'.format(self.plant,self.ibis_name)
     
 
 class RobinFile(BaseModel):
@@ -351,7 +351,8 @@ class EgretTask(BaseModel):
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32)
     cycle=models.ForeignKey('tragopan.Cycle')
-    result_xml=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
+    result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
+    #result_xml=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     follow_index=models.BooleanField()
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)

@@ -83,11 +83,11 @@ class ControlRodAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
 class CycleSerializer(serializers.ModelSerializer):
     #unit=UnitParameterSerializer()
     fuel_assembly_loading_patterns=FuelAssemblyLoadingPatternSerializer(many=True, read_only=True)
-    burnable_posison_assembly_positions=BurnablePoisonAssemblyLoadingPatternSerializer(many=True, read_only=True)
+    bpa_loading_patterns=BurnablePoisonAssemblyLoadingPatternSerializer(many=True, read_only=True)
     control_rod_assembly_loading_patterns=ControlRodAssemblyLoadingPatternSerializer(many=True, read_only=True)
     class Meta:
         model = Cycle
-        fields = ( 'fuel_assembly_loading_patterns','burnable_posison_assembly_positions','control_rod_assembly_loading_patterns')
+        fields = ( 'fuel_assembly_loading_patterns','bpa_loading_patterns','control_rod_assembly_loading_patterns')
         
 
 class GridListingField(serializers.RelatedField):

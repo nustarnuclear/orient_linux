@@ -441,12 +441,12 @@ class CycleAdmin(admin.ModelAdmin):
    
     
     def get_burnable_poison_assembly_num(self,obj):
-        num=obj.burnable_posison_assembly_positions.count()
+        num=obj.bpa_loading_patterns.count()
         return num
     get_burnable_poison_assembly_num.short_description='burnable poison assembly count'
     
     def get_source_assembly_num(self,obj):
-        num=obj.source_assembly_positions.count()
+        num=obj.source_assembly_positions.count()       
         return num
     get_source_assembly_num.short_description='source assembly count'
     
@@ -665,6 +665,8 @@ class ControlRodMapInline(admin.TabularInline):
 class ControlRodAssemblyAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[ControlRodMapInline,]
+    list_display=('__str__','type')
+    list_filter=('reactor_model',)
 admin.site.register(ControlRodAssembly, ControlRodAssemblyAdmin)
 
 class ControlRodAssemblyLoadingPatternAdmin(admin.ModelAdmin):

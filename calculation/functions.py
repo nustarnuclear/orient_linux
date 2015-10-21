@@ -347,7 +347,7 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
     cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
     #section DATABANK
     f.write('& DATABANK%s'%sep)
-    f.write('   coreID = "{}_U{}"{}'.format(unit.reactor_model.name,unit_num,sep))
+    f.write('   coreID = "{}_U{}"{}'.format(plant_name,unit_num,sep))
     f.write('   icycle = {}{}'.format(cycle_num,sep))
     #xml path
     
@@ -394,11 +394,29 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
         f.write("   DB_RITE = '{}'{}".format(tmp_write,sep))    
     f.write('/%s'%sep) 
       
+    print(plant_name)
     #section CORESTATE
     f.write('& CORESTATE%s'%sep)
-    core_state_lst=['   predictor_factor = 1.0','   system_pressure = 15.5','   rated_power = 1930.0','   ralative_power = 0.0','   CbPPM =    1300.0',
+    if plant_name=='QNPC_II':
+        core_state_lst=['   predictor_factor = 1.0','   system_pressure = 15.5','   rated_power = 1930.0','   ralative_power = 0.0','   CbPPM =    1300.0',
                     '   CBSEARCH = 1','   BOR_DEP_OPT = 1','   HCB = 1','   SDC = 1','   HTM = 1','   HTF = 1','   PPR = 1','   V_TOTAL = 165000000',
                     '   flowrate_in = 34331.49','   p2tmo_in(1:6) = 0.0,563.95, 0.50,565.25, 1.0,566.55','   bank_position(1:5) =  225, 225, 225, 225, 225']
+        
+    elif plant_name=='QNPC_I':
+        core_state_lst=['   system_pressure = 15.3','   rated_power = 966.0','   ralative_power = 0.0','   CbPPM =    1300.0',
+                    '   CBSEARCH = 1','   BOR_DEP_OPT = 1','   HCB = 1','   SDC = 1','   HTM = 1','   HTF = 1','   PPR = 1','   V_TOTAL = 150000000',
+                    '   flowrate_in = 21840.0','   p2tmo_in(1:6) = 0.0,553.15, 0.15,556.05, 1.0,561.95','   bank_position(1:6) =  298, 298, 298, 298, 298, 298']
+    elif plant_name=='FJS':
+        core_state_lst=[ 'system_pressure = 15.51','rated_power = 2895.0','ralative_power = 0.0',
+                    'CbPPM =    1300.0','BOR_DEP_OPT = 1','V_TOTAL = 202000000','CBSEARCH = 1',
+                    'HCB = 1','PPR = 1','HTF = 1','HTM = 1','flowrate_in = 50524.0',
+                    'p2tmo_in(1:6) = 0.0,564.55, 0.5,565.55, 1.0,566.55',
+                    'bank_position(1:9) =  225, 225, 225, 225, 225, 225, 225, 225, 225',]
+    else:
+        pass
+    
+    print('ok')
+        
     for i in range(len(core_state_lst)):
         core_state_lst[i]+=sep
        
@@ -429,6 +447,7 @@ def generate_base_component(plant_name):
     base_fuels=BaseFuel.objects.filter(plant=plant)
     unit=UnitParameter.objects.get(plant=plant,unit=1)
     reactor_model=unit.reactor_model
+    control_rod_assemblies=reactor_model.control_rod_assemblies.all()
     core_id=reactor_model.name
     #start xml 
     doc = minidom.Document()
@@ -489,12 +508,13 @@ def generate_base_component(plant_name):
                 grid=grid_position.grid
                 width=grid.sleeve_height
                 grid_type="1" if grid.functionality=='fix' else '2'
-                spacer_grid_xml=doc.createElement("spacer_grid")
-                spacer_grid_xml.appendChild(doc.createTextNode(grid_type))
-                
-                spacer_grid_xml.setAttribute("hight",str(hight))
-                spacer_grid_xml.setAttribute("width",str(width))
-                base_fuel_xml.appendChild(spacer_grid_xml)
+                if hight<active_length:
+                    spacer_grid_xml=doc.createElement("spacer_grid")
+                    spacer_grid_xml.appendChild(doc.createTextNode(grid_type))
+                    
+                    spacer_grid_xml.setAttribute("hight",str(hight))
+                    spacer_grid_xml.setAttribute("width",str(width))
+                    base_fuel_xml.appendChild(spacer_grid_xml)
         
         #offset
         else:
@@ -513,20 +533,25 @@ def generate_base_component(plant_name):
         
         #base_componenet_xml.appendChild(base_fuel_xml)        
         
-    #control rod xml        
-    base_control_rod_xml=doc.createElement("base_control_rod")
-    base_control_rod_xml.setAttribute("cr_id","CR1")
-    base_control_rod_xml.setAttribute("spider","0")
-    base_componenet_xml.appendChild(base_control_rod_xml)
-    
-    axial_length_xml=doc.createElement("axial_length")
-    axial_length_xml.appendChild(doc.createTextNode('400'))
-    
-    axial_type_xml=doc.createElement("axial_type")
-    axial_type_xml.appendChild(doc.createTextNode('1'))
-    
-    base_control_rod_xml.appendChild(axial_length_xml)
-    base_control_rod_xml.appendChild(axial_type_xml)
+    #control rod xml   
+    type_lst=[]
+    for item in control_rod_assemblies:
+        type=item.type
+        #grep rod
+        if type not in type_lst : 
+            type_lst.append(type)    
+            base_control_rod_xml=doc.createElement("base_control_rod")
+            base_control_rod_xml.setAttribute("cr_id","CR%d"%type)
+            base_control_rod_xml.setAttribute("spider","0")
+            base_componenet_xml.appendChild(base_control_rod_xml)
+
+            axial_length_xml=doc.createElement("axial_length")
+            axial_length_xml.appendChild(doc.createTextNode('400'))
+            
+            axial_type_xml=doc.createElement("axial_type")
+            axial_type_xml.appendChild(doc.createTextNode(str(type)))
+            base_control_rod_xml.appendChild(axial_length_xml)
+            base_control_rod_xml.appendChild(axial_type_xml)
     
     file_dir=os.path.join(media_root,plant_name)   
     file_path=os.path.join(file_dir,'base_component.xml')
@@ -550,7 +575,7 @@ def generate_loading_pattern(plant_name,unit_num):
     reactor_model=unit.reactor_model
     reactor_positions=reactor_model.positions.all()
     basecore_id=reactor_model.name
-    core_id=plant_name+'unit%d'%unit_num
+    core_id=plant_name+'_U%d'%unit_num
     #start xml 
     doc = minidom.Document()
     loading_pattern_xml = doc.createElement("loading_pattern")
@@ -574,7 +599,8 @@ def generate_loading_pattern(plant_name,unit_num):
                 cra_pattern=control_rod_assembly_loading_patterns.filter(reactor_position=reactor_position)
                 if cra_pattern:
                     cra=cra_pattern.get().control_rod_assembly
-                    cra_position_lst.append('CR1')
+                    type=cra.type
+                    cra_position_lst.append('CR%d'%type)
                 else:
                     cra_position_lst.append('0')
                     
@@ -584,10 +610,17 @@ def generate_loading_pattern(plant_name,unit_num):
     for cycle in cycles: 
         fuel_lst=[]
         previous_cycle_lst=[]
+        rotation_lst=[]
         for reactor_position in reactor_positions:
                 fuel_assembly_loading_pattern=cycle.fuel_assembly_loading_patterns.get(reactor_position=reactor_position)
                 bpa_patterns=cycle.bpa_loading_patterns.filter(reactor_position=reactor_position)
                 fuel_assembly_type=fuel_assembly_loading_pattern.fuel_assembly.type
+                
+                #rotation
+                rotation_degree=fuel_assembly_loading_pattern.rotation_degree
+                if rotation_degree!='0':
+                    rotation_lst.append([rotation_degree,reactor_position.row,reactor_position.column])
+                    
                 
                 #not fresh
                 if fuel_assembly_loading_pattern.get_previous():
@@ -611,11 +644,11 @@ def generate_loading_pattern(plant_name,unit_num):
                         #offset
                         if sub_bpa:
                             #contains bpa basefuel
-                            bpa_ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=sub_bpa)
+                            bpa_ibis=Ibis.objects.get(plant=plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=sub_bpa)
                             sub_base_fuel=bpa_ibis.base_fuels.get()
                             
                             #not contain bpa basefuel
-                            fuel_ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
+                            fuel_ibis=Ibis.objects.get(plant=plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
                             fuel_base_fuels=fuel_ibis.base_fuels.all()
                             
                             for item in fuel_base_fuels:
@@ -639,12 +672,12 @@ def generate_loading_pattern(plant_name,unit_num):
                                     
                                 
                         else:
-                            ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=bpa)
+                            ibis=Ibis.objects.get(plant=plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=bpa)
                             base_fuel=ibis.base_fuels.get()
                             
                         fuel_lst.append(base_fuel.fuel_identity)
                     else:
-                        ibis=Ibis.objects.get(fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
+                        ibis=Ibis.objects.get(plant=plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
                         base_fuels=ibis.base_fuels.all()     
                         for base_fuel in base_fuels:
                             if not base_fuel.if_insert_burnable_fuel():
@@ -668,6 +701,16 @@ def generate_loading_pattern(plant_name,unit_num):
                 cycle_xml.setAttribute('col',str(previous_cycle_info[2]))
                 cycle_xml.appendChild(doc.createTextNode(previous_cycle_info[0]))
                 fuel_xml.appendChild(cycle_xml)
+                
+        
+        #handle fuel assembly rotation
+        for item in rotation_lst:
+            rotation_xml=doc.createElement("rotation")
+            rotation_xml.setAttribute('row',str(item[1]))
+            rotation_xml.setAttribute('col',str(item[2]))
+            rotation_xml.appendChild(doc.createTextNode(str(int(item[0])/90+1)))
+            fuel_xml.appendChild(rotation_xml)
+            
                 
     file_dir=os.path.join(os.path.join(media_root,plant_name),'unit'+str(unit_num))
     file_path=os.path.join(file_dir,'loading_pattern.xml')
@@ -727,23 +770,23 @@ def generate_basecore(plant_name):
     basecore_xml.appendChild(rcca_xml)  
     
     control_rod_assembly_lst=[]
-    bank_id_lst=[]
+    bank_id_lst=reactor_model.control_rod_assemblies.all()
+
         
     for position in reactor_positions:
         try:
             cralp=ControlRodAssemblyLoadingPattern.objects.get(reactor_position=position,cycle=cycle)
             control_rod_assembly_lst.append(cralp.control_rod_assembly.cluster_name)
-            if cralp.control_rod_assembly.cluster_name not in bank_id_lst:
-                bank_id_lst.append(cralp.control_rod_assembly.cluster_name)
+            
         except Exception:
             control_rod_assembly_lst.append('0')
      
     index=1 
-    for name in bank_id_lst:
+    for item in bank_id_lst:
         bank_id_xml=doc.createElement('bank_id')
         bank_id_xml.setAttribute('index', str(index))
-        bank_id_xml.setAttribute('basez', '18.0')
-        bank_id_xml.appendChild(doc.createTextNode(name))
+        bank_id_xml.setAttribute('basez', str(item.basez))
+        bank_id_xml.appendChild(doc.createTextNode(item.cluster_name))
         index+=1
         rcca_xml.appendChild(bank_id_xml) 
         
@@ -752,13 +795,21 @@ def generate_basecore(plant_name):
     rcca_xml.appendChild(map_xml)
     
     step_size_xml=doc.createElement('step_size')
-    step_size_xml.appendChild(doc.createTextNode('1.0'))
+    step_size_xml.appendChild(doc.createTextNode(str(bank_id_lst[0].step_size)))
     rcca_xml.appendChild(step_size_xml)
     
     calc_xml=doc.createElement('calc')
     basecore_xml.appendChild(calc_xml)
+    if plant_name=='QNPC_I':
+        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'15.263','top_br_size':'15.263','fold_core':'1','axial_df':'0','axial_mesh':'15.3'}
+    elif plant_name=='FJS':
+        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20.0'}  
     
-    calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'15.263','top_br_size':'15.263','fold_core':'1','axial_df':'0','axial_mesh':'15.3'}
+    elif plant_name=='QNPC_II':
+        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20'}
+        
+    else:
+        pass
     
     for key,value in calc_data.items():
         key_xml=doc.createElement(key)
@@ -775,6 +826,29 @@ def generate_basecore(plant_name):
                         'radial_br':[('BR3  BR3  BR3  BR9  BR6  BR5  BR7  BR3  BR3  BR9  BR6  BR5  BR7  BR9',{'index':'1'}),
                                      ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12',{'index':'2'})]
         }
+    elif plant_name=='FJS':
+        reflector_data={'bot_br':'BR_BOT',
+                        'top_br':'BR_TOP',
+                        'radial_br':[('BR3  BR3  BR3  BR9  BR6  BR5  BR7  BR3  BR3  BR9  BR6  BR5  BR7  BR9  BR6 BR5',{'index':'1'}),
+                                     ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12 BR11 BR8 ',{'index':'2'})]
+        }
+        
+    elif plant_name=='FJS':
+        reflector_data={'bot_br':'BR_BOT',
+                        'top_br':'''BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP
+                        BR_TOP BR_TOP BR_TOP''',
+                        'radial_br':[('BR3  BR3  BR3  BR9  BR6  BR5  BR7  BR3  BR3  BR9  BR6  BR5  BR7  BR9 ',{'index':'1'}),
+                                     ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12',{'index':'2'})]
+        }  
+    else:
+        pass  
     
     for key,value in reflector_data.items():
         if type(value)==str:

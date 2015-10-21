@@ -531,7 +531,7 @@ class FuelAssemblyLoadingPattern(BaseModel):
     fuel_assembly=models.ForeignKey('FuelAssemblyRepository',related_name='cycle_positions',default=1)
     
     following_index=models.CharField(max_length=60,blank=True, null=True)
-    rotation_degree=models.CharField(max_length=3,choices=ROTATION_DEGREE_CHOICES,default='0')
+    rotation_degree=models.CharField(max_length=3,choices=ROTATION_DEGREE_CHOICES,default='0',help_text='anticlokwise')
     
     class Meta:
         db_table='fuel_assembly_loading_pattern'
@@ -1130,12 +1130,15 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
 #the following two models describe control rod assembly
 class ControlRodAssembly(BaseModel):
     TYPE_CHOICES=(
-                  ('shutdown','shutdown'),
-                  ('adjust','adjust'),
+                  (1,'black rod'),
+                  (2,'grep rod'),
     )
     cluster_name=models.CharField(max_length=5)
-    type=models.CharField(max_length=8,choices=TYPE_CHOICES)
-    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
+    reactor_model=models.ForeignKey(ReactorModel,blank=True,null=True,related_name='control_rod_assemblies')
+    #type=models.CharField(max_length=8,choices=TYPE_CHOICES,blank=True,null=True)
+    type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
+    basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     primary=models.BooleanField(default=False,verbose_name='if primary?')
     control_rod_map=models.ManyToManyField(FuelAssemblyPosition,through='ControlRodMap')
     
@@ -1145,7 +1148,7 @@ class ControlRodAssembly(BaseModel):
         verbose_name_plural='Control rod assemblies'
         
     def __str__(self):
-        return '{} {} control cluster'.format(self.fuel_assembly_model,self.cluster_name)
+        return '{} {}'.format(self.reactor_model,self.cluster_name)
     
 class ControlRodMap(BaseModel):
     control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='control_rods')

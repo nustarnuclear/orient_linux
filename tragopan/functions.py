@@ -297,6 +297,9 @@ def add_cycle(filename,plantname,unit_num):
     t=f.read()
     s=t.split(sep='/')
     lst=[]
+    print(s)
+    
+
     for item in s:
         value=item.split()
         lst.append(value)
@@ -325,11 +328,15 @@ def add_cycle(filename,plantname,unit_num):
                     row=int(tmp[0][1:3])
                     num_dic={'N':1,'M':2,'L':3,'K':4,'J':5,'H':6,'G':7,'F':8,'E':9,'D':10,'C':11,'B':12,'A':13}
                     column=num_dic[tmp[0][0]]
+                elif plantname=='FJS':
+                    row=int(tmp[0][1:3])
+                    num_dic={'R':1,'P':2,'N':3,'M':4,'L':5,'K':6,'J':7,'H':8,'G':9,'F':10,'E':11,'D':12,'C':13,'B':14,'A':15}
+                    column=num_dic[tmp[0][0]]
                 else:
                     pass
                 lst[i][j]=[cycle,row,column]
     f.close()
-    
+
     plant=Plant.objects.get(abbrEN=plantname)
     unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
     reactor_model=unit.reactor_model
