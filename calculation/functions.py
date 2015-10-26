@@ -1,6 +1,5 @@
 import os
 from django.core.files import File
-from django.conf import settings
 from decimal import Decimal
 from tragopan.models import Plant,UnitParameter,Cycle,FuelAssemblyLoadingPattern,ControlRodAssemblyLoadingPattern
 from calculation.models import *
@@ -882,7 +881,143 @@ def generate_basecore(plant_name):
                 
                 
                 
+def multiple_loading_pattern(cycle):
+
+    unit=cycle.unit
+    plant=unit.plant
+    
+     #start xml 
+    doc = minidom.Document()
+    loading_pattern_xml = doc.createElement("loading_pattern")
+    loading_pattern_xml.setAttribute("cycle_num",str(cycle.cycle))
+    loading_pattern_xml.setAttribute("unit_num",str(unit.unit))
+    loading_pattern_xml.setAttribute("plant_name",plant.abbrEN)
+    doc.appendChild(loading_pattern_xml)
+    
+    #FUEL INFO 
+    fuel_xml=doc.createElement('fuel')
+    loading_pattern_xml.appendChild(fuel_xml)
+    fuel_assembly_loading_patterns=cycle.fuel_assembly_loading_patterns.all()
+    
+    for item in fuel_assembly_loading_patterns:
+        #position info
+        fuel_position_xml=doc.createElement('position')
+        fuel_xml.appendChild(fuel_position_xml)
+        reactor_position=item.reactor_position
+        row=reactor_position.row
+        column=reactor_position.column
+        fuel_position_xml.setAttribute('row', str(row))
+        fuel_position_xml.setAttribute('column', str(column))
         
+        #assembly info
+        fuel_assembly_xml=doc.createElement('fuel_assembly')
+        fuel_position_xml.appendChild(fuel_assembly_xml)
+        fuel_assembly=item.fuel_assembly
+        pk=fuel_assembly.pk
+        type=fuel_assembly.type
+        enrichment=type.assembly_enrichment
+        fuel_assembly_xml.appendChild(doc.createTextNode(str(type.pk)))
+        fuel_assembly_xml.setAttribute('id', str(pk))
+        fuel_assembly_xml.setAttribute('enrichment', str(enrichment))
+        #previous cycle info
+        previous=item.get_previous()
+        if previous:
+            previous_xml=doc.createElement('previous')
+            fuel_position_xml.appendChild(previous_xml)
+            data=previous.split(sep='-') 
+            previous_xml.setAttribute('row', data[1])
+            previous_xml.setAttribute('column', data[2])
+            previous_xml.appendChild(doc.createTextNode(data[0]))
+            
+        first=fuel_assembly.get_first_loading_pattern()
+        first_cycle=first.cycle
+        first_position=first.reactor_position
+        first_xml=doc.createElement('first')
+        fuel_position_xml.appendChild(first_xml)
+        first_xml.setAttribute('row', str(first_position.row))
+        first_xml.setAttribute('column', str(first_position.column))
+        first_xml.appendChild(doc.createTextNode(str(first_cycle.cycle)))
+    
+    
+    #BPA
+    bpa_xml=doc.createElement('bpa')
+    loading_pattern_xml.appendChild(bpa_xml)
+    bpa_loading_patterns=cycle.bpa_loading_patterns.all()
+    for item in bpa_loading_patterns:
+        #position info
+        bpa_position_xml=doc.createElement('position')
+        bpa_xml.appendChild(bpa_position_xml)
+        reactor_position=item.reactor_position
+        row=reactor_position.row
+        column=reactor_position.column
+        bpa_position_xml.setAttribute('row', str(row))
+        bpa_position_xml.setAttribute('column', str(column))
+        
+        #bpa info
+        burnable_poison_assembly=item.burnable_poison_assembly
+        burnable_poison_assembly_xml=doc.createElement('burnable_poison_assembly')
+        bpa_position_xml.appendChild(burnable_poison_assembly_xml)
+        rod_num=burnable_poison_assembly.get_poison_rod_num()
+        rod_height=burnable_poison_assembly.get_poison_rod_height()
+        burnable_poison_assembly_xml.setAttribute('id', str(burnable_poison_assembly.pk))
+        burnable_poison_assembly_xml.setAttribute('height', str(rod_height))
+        burnable_poison_assembly_xml.appendChild(doc.createTextNode(str(rod_num)))
+    
+    
+    #CRA
+    cra_xml=doc.createElement('cra')
+    loading_pattern_xml.appendChild(cra_xml)
+    cra_loading_patterns=cycle.control_rod_assembly_loading_patterns.all()
+    for item in cra_loading_patterns:
+        #position info
+        cra_position_xml=doc.createElement('position')
+        cra_xml.appendChild(cra_position_xml)
+        reactor_position=item.reactor_position
+        row=reactor_position.row
+        column=reactor_position.column
+        cra_position_xml.setAttribute('row', str(row))
+        cra_position_xml.setAttribute('column', str(column))
+        
+        #cra info
+        control_rod_assembly=item.control_rod_assembly
+        control_rod_assembly_xml=doc.createElement('control_rod_assembly')
+        cra_position_xml.appendChild(control_rod_assembly_xml)
+        
+        cluster_name=control_rod_assembly.cluster_name
+        type=control_rod_assembly.type
+        step_size=control_rod_assembly.step_size
+        basez=control_rod_assembly.basez
+        control_rod_assembly_xml.setAttribute('id', str(control_rod_assembly.pk))
+        control_rod_assembly_xml.setAttribute('type', str(type))
+        control_rod_assembly_xml.setAttribute('step_size', str(step_size))
+        control_rod_assembly_xml.setAttribute('basez', str(basez))
+        control_rod_assembly_xml.appendChild(doc.createTextNode(cluster_name))
+    
+    f = open("/home/django/Desktop/test.xml","w")
+    doc.writexml(f)
+    
+    return File(f)
+
+
+
+
+def sum_fuel_node(*mlps):
+    doc = minidom.Document()
+    loading_pattern_xml=doc.createElement('loading_pattern')
+    doc.appendChild(loading_pattern_xml)
+    
+    for mlp in mlps:
+        fuel_node=mlp.generate_fuel_node()    
+        loading_pattern_xml.appendChild(fuel_node)  
+        print('ok') 
+            
+    
+    f = open("/home/django/Desktop/test1.xml","w+")
+    doc.writexml(f)
+    
+    f.close()   
+        
+       
     
         
     

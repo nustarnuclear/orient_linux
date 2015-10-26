@@ -514,6 +514,7 @@ admin.site.register(FuelAssemblyModel, FuelAssemblyModelAdmin)
 class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_filter=['type','plant','cycle_positions__cycle','cycle_positions__reactor_position']
+    list_display=['__str__','get_first_loading_pattern']
 admin.site.register(FuelAssemblyRepository, FuelAssemblyRepositoryAdmin)
 
 #fuel assembly type information

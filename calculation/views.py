@@ -470,10 +470,10 @@ def generate_egret_task(request,format=None):
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
         task_list=EgretTask.objects.filter(user=request.user,cycle=cycle)
-        try:
-            serializer = EgretTaskSerializer(task_list,many=True)
-        except Exception as e:
-            print(e)
+        if task_list is None:
+            return Response(data={})
+        
+        serializer = EgretTaskSerializer(task_list,many=True)
         return Response(data=serializer.data)
         
     if request.method == 'POST':
@@ -490,7 +490,7 @@ def generate_egret_task(request,format=None):
             plant=Plant.objects.get(abbrEN=plant_name)
             unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
             cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
-            reactor_model_name=unit.reactor_model.name
+            #reactor_model_name=unit.reactor_model.name
             tmp_str="{}_U{}.{}.xml".format(plant_name,unit_num,str(cycle_num).zfill(3))
         except Exception:
             error_message={'error_message':'the cycle is nonexistent in database!'}
@@ -504,7 +504,7 @@ def generate_egret_task(request,format=None):
             i+=1
         
         input_file=generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletion_lst)
-        print('file finished')
+      
         #check if the task_name repeated
         task=EgretTask.objects.filter(task_name=task_name,user=user,cycle=cycle)
         print(task)
@@ -570,7 +570,7 @@ def generate_egret_task(request,format=None):
             plant=Plant.objects.get(abbrEN=plant_name)
             unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
             cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
-            reactor_model_name=unit.reactor_model.name
+            #reactor_model_name=unit.reactor_model.name
             tmp_str="{}_U{}.{}.xml".format(plant_name,unit_num,str(cycle_num).zfill(3))
         except Exception:
             error_message={'error_message':'the cycle is nonexistent in database!'}
@@ -638,4 +638,44 @@ def generate_egret_task(request,format=None):
         
         if return_code is not None:
             return Response(data=success_message,status=200,headers={'cmd':3})
+        
+@api_view(('POST','PUT','GET'))
+@parser_classes((FileUploadParser,))
+@renderer_classes((XMLRenderer,)) 
+@authentication_classes((TokenAuthentication,))
+def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
+   
+    
+    try:
+        plant=Plant.objects.get(abbrEN=plantname)
+        unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+        cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
+    except plant.DoesNotExist or unit.DoesNotExist or cycle.DoesNotExist:
+        print('1')
+        return Response(status=status.HTTP_404_NOT_FOUND)
+        
+    data=request.data
+    print(data)
+    if request.method == 'POST':
+        file=data['file']
+        name=request.query_params['name']
+        try:
+            pre_pk=request.query_params['pre_pk']
+            print(pre_pk)
+            pre_loading_pattern=MultipleLoadingPattern.objects.get(pk=pre_pk)
+            mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle,pre_loading_pattern=pre_loading_pattern)
+        except:
+            mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle)
+        mlp.save()
+        success_message={'success_message':'your request has been handled successfully','pk':mlp.pk}
+        return Response(data=success_message,status=200)
+    
+    if request.method=='GET':
+        mlps=MultipleLoadingPattern.objects.filter(user=request.user,cycle=cycle)
+        print(mlps)
+        if mlps is None:
+            return Response(data={},status=200)
+        else:
+            serializer = MultipleLoadingPatternSerializer(mlps,many=True)
+            return Response(data=serializer.data,status=200)
 

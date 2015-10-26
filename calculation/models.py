@@ -1,9 +1,11 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator,MaxValueValidator
-from tragopan.models import ReactorModel
+from tragopan.models import FuelAssemblyType
 from django.conf import settings
 import os
+from xml.dom import minidom 
+
 # Create your models here.
 
 def get_ibis_upload_path(instance,filename):
@@ -224,6 +226,13 @@ class Ibis(BaseModel):
         order_with_respect_to='reactor_model'
         verbose_name_plural='Ibis'
         
+    def get_non_bpa_basefuel(self):
+        basefuels=self.base_fuels.all()
+
+        for basefuel in basefuels:
+            if not basefuel.if_insert_burnable_fuel():
+                return basefuel
+        
     def __str__(self):
         return '{} {}'.format(self.plant,self.ibis_name)
     
@@ -351,6 +360,7 @@ class EgretTask(BaseModel):
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32)
     cycle=models.ForeignKey('tragopan.Cycle')
+    #previous_follow_task=models.ForeignKey('self',related_name='post_tasks',limit_choices_to={'follow_index': True},blank=True,null=True)
     result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
     #result_xml=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
@@ -365,5 +375,100 @@ class EgretTask(BaseModel):
         
         
     def __str__(self):
+        if self.follow_index:
+            return '{} follow'.format(self.cycle)
         return '{}'.format(self.task_name)
+
+def get_custom_loading_pattern(instance,filename): 
+    username=instance.user.get_username()
+    name=instance.name
+    cycle=instance.cycle
+    unit=cycle.unit
+    plant=unit.plant
+    return 'multiple_loading_pattern/{}/{}/unit{}/cycle{}/{}'.format(username,plant.abbrEN,unit.unit, cycle.cycle,name+'.xml')
+    
+class MultipleLoadingPattern(BaseModel):
+    name=models.CharField(max_length=32)
+    pre_loading_pattern=models.ForeignKey('self',related_name='post_loading_patterns',blank=True,null=True)
+    cycle=models.ForeignKey('tragopan.Cycle')
+    xml_file=models.FileField(upload_to=get_custom_loading_pattern)
+    from_database=models.BooleanField(default=False)
+    
+    class Meta:
+        db_table='multiple_loading_pattern'
+        unique_together=('user','name')
+        
+    def generate_fuel_node(self):
+        xml_file=self.xml_file
+        cycle=self.cycle
+        if cycle.cycle==1:
+            return None
+        f=xml_file.path
+       
+        dom=minidom.parse(f)
+        fuel_node=dom.getElementsByTagName('fuel')[0]
+        position_nodes=fuel_node.childNodes
+        
+        fuel_lst=[]
+        num_lst=[]
+        pre_fuel_lst=[]
+        for position_node in position_nodes:
+            row=position_node.getAttribute('row')
+            column=position_node.getAttribute('column')
+            num_lst.append(100*row+column)
+            fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
+            previous_node=position_node.getElementsByTagName('previous')
+            
+            type_pk=fuel_assembl_node.childNodes.item(0).data
+           
+            fuel_assembly_type=FuelAssemblyType.objects.get(pk=type_pk)
+            
+            
+            
+            #fresh
+            if not previous_node:
+                #find basefuel(without bpa)
+                ibis=Ibis.objects.get(plant=cycle.unit.plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
+                non_bpa_basefuel=ibis.get_non_bpa_basefuel() 
+                   
+                fuel_lst.append(non_bpa_basefuel.fuel_identity)
+                
+            else:
+                previous_row=previous_node[0].getAttribute('row')
+                previous_column=previous_node[0].getAttribute('column')
+                previous_cycle=previous_node[0].childNodes.item(0).data
+                position='{}{}'.format(previous_row.zfill(2), previous_column.zfill(2))
+                fuel_lst.append(position)
+                
+                if previous_cycle!=cycle.cycle-1:
+                    pre_fuel_lst.append([row,column,previous_cycle])
+                    
+         
+        zipped_lst=list(zip(num_lst,fuel_lst))  
+        zipped_lst.sort() 
+        fuel_lst_sorted=[item[1] for item in zipped_lst] 
+
+        
+        doc = minidom.Document()
+        fuel_xml=doc.createElement('fuel')
+        fuel_xml.setAttribute('cycle', str(cycle.cycle))
+        map_xml=doc.createElement('map')
+        fuel_xml.appendChild(map_xml)
+        map_xml.appendChild(doc.createTextNode(' '.join(fuel_lst_sorted)))
+        
+        for item in pre_fuel_lst:
+            cycle_xml=doc.createElement('cycle')
+            fuel_xml.appendChild(cycle_xml)
+            cycle_xml.setAttribute('col', str(item[0]))
+            cycle_xml.setAttribute('row', str(item[1]))
+            cycle_xml.appendChild(doc.createTextNode(str(item[2])))
+        
+        return fuel_xml
+        
+        
+        
+    def __str__(self):
+        return self.name
+        
+    
      

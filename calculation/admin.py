@@ -102,7 +102,7 @@ admin.site.register(PreRobinInput, PreRobinInputAdmin)
 
 class IbisAdmin(admin.ModelAdmin):
     exclude=('remark','user')
-    list_display=('__str__','plant','ibis_file','last_modified','burnable_poison_assembly')
+    list_display=('__str__','plant','ibis_file','get_non_bpa_basefuel','burnable_poison_assembly')
     list_editable=('burnable_poison_assembly',)
     list_filter=('plant',)
 admin.site.register(Ibis, IbisAdmin)    
@@ -141,5 +141,9 @@ admin.site.register(EgretTask, EgretTaskAdmin)
 
 class EgretInputXMLAdmin(admin.ModelAdmin):  
     pass
-admin.site.register(EgretInputXML, EgretInputXMLAdmin)     
+admin.site.register(EgretInputXML, EgretInputXMLAdmin) 
+
+class MultipleLoadingPatternAdmin(admin.ModelAdmin):  
+    list_display=('pk','name','xml_file',)
+admin.site.register(MultipleLoadingPattern, MultipleLoadingPatternAdmin)      
 

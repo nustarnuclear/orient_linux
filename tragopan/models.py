@@ -294,6 +294,8 @@ class ReactorModel(BaseModel):
         max_column=positions.aggregate(Max('column'))['column__max']
         return [max_row,max_column]
     
+
+    
     def __str__(self):
         return '{}'.format(self.name)     
 
@@ -325,6 +327,8 @@ class ReactorPosition(BaseModel):
             return 3
         else:
             return 4
+        
+    
         
     def __str__(self):
         rowSymbol=self.reactor_model.row_symbol
@@ -627,6 +631,15 @@ class FuelAssemblyRepository(BaseModel):
     class Meta:
         db_table='fuel_assembly_repository'
         verbose_name_plural='Fuel assembly repository'
+        
+    def get_first_loading_pattern(self):
+        cycle_positions=self.cycle_positions.all()
+        first_loading_pattern=cycle_positions.first()
+        for item in cycle_positions:
+            if item.cycle.cycle<first_loading_pattern.cycle.cycle:
+                first_loading_pattern=item
+        return first_loading_pattern
+        
     def __str__(self):
         return "{} {}".format(self.pk, self.type)
     
