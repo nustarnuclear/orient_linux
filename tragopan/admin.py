@@ -437,7 +437,7 @@ class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
     inlines=[BurnablePoisonAssemblyLoadingPatternInline,ControlRodAssemblyLoadingPatternInline]
-    list_display=('pk','__str__','get_burnable_poison_assembly_num','get_source_assembly_num')
+    list_display=('pk','__str__','get_burnable_poison_assembly_num','get_pre_cycle')
    
     
     def get_burnable_poison_assembly_num(self,obj):

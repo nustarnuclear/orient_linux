@@ -464,8 +464,39 @@ class MultipleLoadingPattern(BaseModel):
             cycle_xml.appendChild(doc.createTextNode(str(item[2])))
         
         return fuel_xml
+     
+     
+    def get_pre_loading_pattern(self):
+        if self.pre_loading_pattern:
+            pre_loading_pattern=self.pre_loading_pattern
+        else:
+            cycle=self.cycle
+            pre_cycle=cycle.get_pre_cycle()
+            if pre_cycle:
+                pre_loading_pattern=MultipleLoadingPattern.objects.get(from_database=True,cycle=pre_cycle)
+            else:
+                pre_loading_pattern=None
         
+        return pre_loading_pattern
+            
+            
+    
+    def loading_pattern_chain(self):
+        lst=[self,]
+        pre_loading_pattern=self.get_pre_loading_pattern()
+        while pre_loading_pattern:
+            lst.insert(0, pre_loading_pattern)
+         
+            pre_loading_pattern=pre_loading_pattern.get_pre_loading_pattern()
         
+        print(lst) 
+          
+        return lst
+            
+        
+            
+      
+      
         
     def __str__(self):
         return self.name

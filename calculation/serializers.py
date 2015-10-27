@@ -94,4 +94,4 @@ class MultipleLoadingPatternSerializer(serializers.ModelSerializer):
     user=UserSerializer()
     class Meta:
         model = MultipleLoadingPattern
-        fields = ( 'pk','name','cycle','xml_file','user','from_database')
+        fields = ( 'pk','name','cycle','xml_file','user','from_database','pre_loading_pattern')

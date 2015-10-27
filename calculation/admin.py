@@ -143,7 +143,8 @@ class EgretInputXMLAdmin(admin.ModelAdmin):
     pass
 admin.site.register(EgretInputXML, EgretInputXMLAdmin) 
 
-class MultipleLoadingPatternAdmin(admin.ModelAdmin):  
-    list_display=('pk','name','xml_file',)
+class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
+    exclude=('remark',) 
+    list_display=('pk','name','loading_pattern_chain')
 admin.site.register(MultipleLoadingPattern, MultipleLoadingPatternAdmin)      
 

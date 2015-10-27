@@ -24,11 +24,6 @@ class FuelAssemblyListingField(serializers.RelatedField):
         
         return "{}~type~{}~enrichment~{}~first_cycle~{}~row~{}~column~{}".format(value.pk, value.type.pk,value.type.assembly_enrichment,first_cycle,first_position.row,first_position.column)
 
-class FuelAssemblyRepositorySerializer(serializers.ModelSerializer):
-    
-    class Meta:
-        model = FuelAssemblyRepository
-        fields = ( 'id','type', )
                
         
 class FuelAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
@@ -155,5 +150,22 @@ class PlantListSerializer(serializers.ModelSerializer):
         model =  Plant
         fields = ( 'abbrEN','units')
         
+class FuelAssemblyTypeSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model =  FuelAssemblyType
+        fields = ( 'pk','assembly_enrichment')   
         
+
+class FuelAssemblyRepositorySerializer(serializers.ModelSerializer):
+    type=FuelAssemblyTypeSerializer()
+    class Meta:
+        model = FuelAssemblyRepository
+        fields = ( 'type',)  
+        
+class FuelAssemblyLoadingPatternSerializer1(serializers.ModelSerializer):
+    
+    class Meta:
+        model = FuelAssemblyLoadingPattern
+        fields = ( 'get_all_previous','if_insert_bpa','if_insert_cra')  
         

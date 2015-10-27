@@ -520,6 +520,12 @@ class Cycle(BaseModel):
         unique_together = ('cycle', 'unit')
         verbose_name='Operation cycle'
         
+    def get_pre_cycle(self):
+        try:
+            pre_cycle=Cycle.objects.get(unit=self.unit,cycle=self.cycle-1)
+            return pre_cycle
+        except:
+            return None
     def __str__(self):
         return '{}C{}'.format(self.unit, self.cycle)
     
@@ -560,9 +566,42 @@ class FuelAssemblyLoadingPattern(BaseModel):
         except:
             return None
         
+    def get_all_previous(self):
+        fuel_assembly=self.fuel_assembly
+        cycle=self.cycle
+        try:
+            falp=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=fuel_assembly,cycle__cycle__lte=cycle.cycle,cycle__unit=cycle.unit)
+            lst=[]
+            
+            for item in falp:
+                data="{}-{}-{}".format(item.cycle.cycle,item.reactor_position.row,item.reactor_position.column)
+                lst.append(data)
+            return lst
+        except:
+            return None
+    
+    def if_insert_bpa(self):
+        cycle=self.cycle
+        reactor_position=self.reactor_position
+        try:
+            BurnablePoisonAssemblyLoadingPattern.objects.get(cycle=cycle,reactor_position=reactor_position)
+            return True
+        except:
+            return False
+    
+    def if_insert_cra(self):
+        cycle=self.cycle
+        reactor_position=self.reactor_position
+        
+        try:
+            ControlRodAssemblyLoadingPattern.objects.get(cycle=cycle,reactor_position=reactor_position)
+            return True
+        except:
+            return False
+            
+        
     def get_grid(self):
-        obj=FuelAssemblyLoadingPattern.objects.get(pk=self.pk)
-        fuel_assembly=obj.fuel_assembly
+        fuel_assembly=self.fuel_assembly
         grids=fuel_assembly.type.model.grids.all()
         tmp_lst=[]
         for grid in grids:
@@ -639,7 +678,8 @@ class FuelAssemblyRepository(BaseModel):
             if item.cycle.cycle<first_loading_pattern.cycle.cycle:
                 first_loading_pattern=item
         return first_loading_pattern
-        
+    
+    
     def __str__(self):
         return "{} {}".format(self.pk, self.type)
     

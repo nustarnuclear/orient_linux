@@ -283,7 +283,34 @@ def plant_list(request,format=None):
     
 
     
+@api_view(('GET',))
+def fuel_assembly_type_list(request,format=None):
+    
+    if request.method == 'GET':
+        fat=FuelAssemblyType.objects.all()
+        serializer=FuelAssemblyTypeSerializer(fat,many=True)
+        return Response(serializer.data)
 
 
+@api_view(('GET',))
+def fuel_assembly_detail(request,format=None):
+    
+    plant_name=request.query_params['plant_name']
+    unit_num=request.query_params['unit_num']
+    cycle_num=request.query_params['cycle_num']
+    pk=request.query_params['pk']
+    
+    plant=Plant.objects.get(abbrEN=plant_name)
+    unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+    cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
+    fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
+    falp=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,fuel_assembly=fuel_assembly)
+    if request.method == 'GET':
+        serializer1=FuelAssemblyRepositorySerializer(fuel_assembly)
+        
+        serializer2=FuelAssemblyLoadingPatternSerializer1(falp)
+        data=serializer1.data
+        data.update(serializer2.data)
+        return Response(data)
 
 

@@ -651,7 +651,7 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
     except plant.DoesNotExist or unit.DoesNotExist or cycle.DoesNotExist:
-        print('1')
+        
         return Response(status=status.HTTP_404_NOT_FOUND)
         
     data=request.data
@@ -661,7 +661,7 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
         name=request.query_params['name']
         try:
             pre_pk=request.query_params['pre_pk']
-            print(pre_pk)
+            
             pre_loading_pattern=MultipleLoadingPattern.objects.get(pk=pre_pk)
             mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle,pre_loading_pattern=pre_loading_pattern)
         except:
@@ -672,10 +672,23 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
     
     if request.method=='GET':
         mlps=MultipleLoadingPattern.objects.filter(user=request.user,cycle=cycle)
-        print(mlps)
+       
         if mlps is None:
             return Response(data={},status=200)
         else:
             serializer = MultipleLoadingPatternSerializer(mlps,many=True)
             return Response(data=serializer.data,status=200)
-
+    
+    if request.method == 'PUT':
+        file=data['file']
+        name=request.query_params['name']
+        try:
+            
+            loading_pattern=MultipleLoadingPattern.objects.get(name=name,cycle=cycle,user=request.user,)
+        except Exception as e:
+            return Response(data={'erro_message':str(e)},status=404)
+        loading_pattern.xml_file.delete()
+        loading_pattern.xml_file=file
+        loading_pattern.save()
+        success_message={'success_message':'your request has been handled successfully'}
+        return Response(data=success_message,status=200)
