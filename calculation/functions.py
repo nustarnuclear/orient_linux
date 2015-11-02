@@ -335,7 +335,6 @@ def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletio
     #path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'tempt_dir')
     #generate a file
     f=open(os.path.join(path, '_'.join([str(plant_name),str(unit_num),str(cycle_num)])),mode='w+')
-    media_root=settings.MEDIA_ROOT
     plant_dir=os.path.join(media_root, plant_name)
     unit_dir=os.path.join(plant_dir,'unit'+str(unit_num))
     ibis_dir=os.path.join(plant_dir,'ibis_files')
@@ -722,9 +721,9 @@ def generate_loading_pattern(plant_name,unit_num):
     f.close()
     print('finished') 
     
-def generate_basecore(plant_name):
+def generate_base_core(plant_name,unit_num):
     plant=Plant.objects.get(abbrEN=plant_name)
-    unit=plant.units.get(unit=1)
+    unit=plant.units.get(unit=unit_num)
     cycle=unit.cycles.get(cycle=1)
     reactor_model=unit.reactor_model
     reactor_positions=reactor_model.positions.all()
@@ -735,14 +734,64 @@ def generate_basecore(plant_name):
     active_height=reactor_model.active_height
     #start xml 
     doc = minidom.Document()
-    basecore_xml = doc.createElement("basecore")
-    basecore_xml.setAttribute("ID",basecore_id)
-    basecore_xml.setAttribute("core_type",core_type)
-    doc.appendChild(basecore_xml)
+    base_core_xml = doc.createElement("base_core")
+    base_core_xml.setAttribute("ID",basecore_id)
+    base_core_xml.setAttribute("core_type",core_type)
+    doc.appendChild(base_core_xml)
     
+    #PLANT DATA
+    plant_data_xml = doc.createElement("plant_data")
+    base_core_xml.appendChild(plant_data_xml)
+    system_pressure=unit.primary_system_pressure
+    rated_power=unit.electric_power
+    flowrate_inlet=unit.best_estimated_cool_mass_flow_rate
+    coolant_volume=unit.coolant_volume
+    
+    system_pressure_xml = doc.createElement("system_pressure")
+    system_pressure_xml.appendChild(doc.createTextNode(str(system_pressure)))
+    plant_data_xml.appendChild(system_pressure_xml)
+    
+    rated_power_xml = doc.createElement("rated_power")
+    rated_power_xml.appendChild(doc.createTextNode(str(rated_power)))
+    plant_data_xml.appendChild(rated_power_xml)
+    
+    flowrate_inlet_xml = doc.createElement("flowrate_inlet")
+    flowrate_inlet_xml.appendChild(doc.createTextNode(str(flowrate_inlet)))
+    plant_data_xml.appendChild(flowrate_inlet_xml)
+    
+    coolant_volume_xml = doc.createElement("coolant_volume")
+    coolant_volume_xml.appendChild(doc.createTextNode(str(coolant_volume)))
+    plant_data_xml.appendChild(coolant_volume_xml)
+    
+    HZP_cool_inlet_temp=unit.HZP_cool_inlet_temp
+    HFP_cool_inlet_temp=unit.HFP_cool_inlet_temp
+    mid_power_cool_inlet_temp=unit.mid_power_cool_inlet_temp
+    
+    inlet_temperature_xml = doc.createElement("inlet_temperature")
+    plant_data_xml.appendChild(inlet_temperature_xml)
+    #tin xml
+    HZP_tin_xml = doc.createElement("tin")
+    HZP_tin_xml.appendChild(doc.createTextNode(str(HZP_cool_inlet_temp)))
+    HZP_tin_xml.setAttribute('power', '0.0')
+    inlet_temperature_xml.appendChild(HZP_tin_xml)
+    
+    mid_tin_xml = doc.createElement("tin")
+    mid_tin_xml.appendChild(doc.createTextNode(str(mid_power_cool_inlet_temp)))
+    mid_tin_xml.setAttribute('power', '0.5')
+    inlet_temperature_xml.appendChild(mid_tin_xml)
+    
+    HFP_tin_xml = doc.createElement("tin")
+    HFP_tin_xml.appendChild(doc.createTextNode(str(HFP_cool_inlet_temp)))
+    HFP_tin_xml.setAttribute('power', '1.0')
+    inlet_temperature_xml.appendChild(HFP_tin_xml)
+    
+    
+    
+    
+    #core geometry
     core_geo_xml = doc.createElement("core_geo")
     core_geo_xml.setAttribute("num_side_asms",str(max_row))
-    basecore_xml.appendChild(core_geo_xml)
+    base_core_xml.appendChild(core_geo_xml)
     
     fuel_pitch_xml = doc.createElement("fuel_pitch")
     fuel_pitch_xml.appendChild(doc.createTextNode(str(fuel_pitch)))
@@ -766,7 +815,7 @@ def generate_basecore(plant_name):
     core_geo_xml.appendChild(fuel_map_xml)
     
     rcca_xml = doc.createElement("rcca")
-    basecore_xml.appendChild(rcca_xml)  
+    base_core_xml.appendChild(rcca_xml)  
     
     control_rod_assembly_lst=[]
     bank_id_lst=reactor_model.control_rod_assemblies.all()
@@ -797,15 +846,21 @@ def generate_basecore(plant_name):
     step_size_xml.appendChild(doc.createTextNode(str(bank_id_lst[0].step_size)))
     rcca_xml.appendChild(step_size_xml)
     
-    calc_xml=doc.createElement('calc')
-    basecore_xml.appendChild(calc_xml)
+    egret_calc_xml=doc.createElement('egret_calc')
+    base_core_xml.appendChild(egret_calc_xml)
     if plant_name=='QNPC_I':
-        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'15.263','top_br_size':'15.263','fold_core':'1','axial_df':'0','axial_mesh':'15.3'}
+        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'15.263','top_br_size':'15.263','fold_core':'1','axial_df':'0','axial_mesh':'15.3',
+                   'cyclen_std_bu':'50.0 150.0 500.0 1000.0 2000.0 3000.0 5000.0 7000.0 10000.0 13000.0 16000.0 20000.0 24000.0 28000.0 ',
+        }
     elif plant_name=='FJS':
-        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20.0'}  
+        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20.0',
+                   'cyclen_std_bu':'50.0 150.0 500.0 1000.0 2000.0 3000.0 5000.0 7000.0 10000.0 13000.0 16000.0 20000.0 24000.0 28000.0 ',
+        }  
     
     elif plant_name=='QNPC_II':
-        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20'}
+        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20',
+                   'cyclen_std_bu':'50.0 150.0 500.0 1000.0 2000.0 3000.0 5000.0 7000.0 10000.0 13000.0 16000.0 20000.0 24000.0 28000.0 ',
+        }
         
     else:
         pass
@@ -813,11 +868,11 @@ def generate_basecore(plant_name):
     for key,value in calc_data.items():
         key_xml=doc.createElement(key)
         key_xml.appendChild(doc.createTextNode(value))
-        calc_xml.appendChild(key_xml)
+        egret_calc_xml.appendChild(key_xml)
         
     #reflector
     reflector_xml=doc.createElement('reflector')
-    basecore_xml.appendChild(reflector_xml)
+    base_core_xml.appendChild(reflector_xml)
     
     if plant_name=='QNPC_I':
         reflector_data={'bot_br':'BR_BOT',
@@ -832,7 +887,7 @@ def generate_basecore(plant_name):
                                      ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12 BR11 BR8 ',{'index':'2'})]
         }
         
-    elif plant_name=='FJS':
+    elif plant_name=='QNPC_II':
         reflector_data={'bot_br':'BR_BOT',
                         'top_br':'''BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
                         BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
@@ -866,15 +921,14 @@ def generate_basecore(plant_name):
                     pass
                 
                 reflector_xml.appendChild(key_xml)
-    file_dir=os.path.join(media_root,basecore_id)            
-    file_path=os.path.join(file_dir,'basecore.xml')
+                
+    file_dir=os.path.join(os.path.join(media_root,plant_name),'unit'+str(unit_num))
+    file_path=os.path.join(file_dir,'base_core.xml')
     try:
         os.makedirs(file_dir)
     except OSError:
         pass
-          
     f = open(file_path,"w")
-        
     doc.writexml(f)
     f.close()
     print('finished')
@@ -886,7 +940,7 @@ def multiple_loading_pattern(cycle):
     unit=cycle.unit
     plant=unit.plant
     
-     #start xml 
+    #start xml 
     doc = minidom.Document()
     loading_pattern_xml = doc.createElement("loading_pattern")
     loading_pattern_xml.setAttribute("cycle_num",str(cycle.cycle))
@@ -1016,8 +1070,85 @@ def sum_fuel_node(*mlps):
     doc.writexml(f)
     
     f.close()   
+    
+def position_node_by_excel(cycle,row,column,position_or_type):
+    '''
+    cycle->current cycle object or previous cycle;
+    row column-> current position;
+    position_or_type->previous position(3_5),fresh fuel assembly type(pk);
+    '''
+    
+    
+    doc = minidom.Document()
+    position_node = doc.createElement("position")
+    position_node.setAttribute('row', str(row))
+    position_node.setAttribute('column', str(column))
+    
+    fuel_assembly_node=doc.createElement("fuel_assembly")
+    position_node.appendChild(fuel_assembly_node)
+    
+    
+    try:
+        #fresh
+        type_id=int(position_or_type)
         
+        fat=FuelAssemblyType.objects.get(pk=type_id)
+        #first node
+        first_node=doc.createElement("first")
+        first_node.setAttribute('row', str(row))
+        first_node.setAttribute('column', str(column))
+        first_node.appendChild(doc.createTextNode(str(cycle.cycle)))
+    except ValueError:
+        [pre_row,pre_column]=position_or_type.split(sep='_')
        
+        pre_falp=cycle.get_loading_pattern_by_pos(int(pre_row),int(pre_column))
+       
+        #previous node 
+        previous_node=doc.createElement("previous")
+        previous_node.setAttribute('row', pre_row)
+        previous_node.setAttribute('column', pre_column)
+        previous_node.appendChild(doc.createTextNode(str(cycle.cycle)))
+        position_node.appendChild(previous_node)
+       
+        fa=pre_falp.fuel_assembly
+        
+            
+        first_loading_pattern=fa.get_first_loading_pattern()
+        first_positon=first_loading_pattern.reactor_position
+        first_cycle=first_loading_pattern.cycle
+        #firt node
+        first_node=doc.createElement("first")
+        first_node.setAttribute('row', str(first_positon.row))
+        first_node.setAttribute('column', str(first_positon.column))
+        first_node.appendChild(doc.createTextNode(str(first_cycle.cycle)))
+        
+        id=fa.pk
+        
+        fuel_assembly_node.setAttribute('id', str(id))
+        fat=fa.type
+        type_id=fat.pk
+    
+    position_node.appendChild(first_node)
+    
+    enrichment=fat.assembly_enrichment
+    fuel_assembly_node.setAttribute('enrichment', str(enrichment))
+    fuel_assembly_node.appendChild(doc.createTextNode(str(type_id)))
+    
+    return position_node
+    
+
+
+        
+        
+        
+    
+    
+         
+          
+    
+    
+    
+    
     
         
     

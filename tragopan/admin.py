@@ -437,7 +437,7 @@ class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
     inlines=[BurnablePoisonAssemblyLoadingPatternInline,ControlRodAssemblyLoadingPatternInline]
-    list_display=('pk','__str__','get_burnable_poison_assembly_num','get_pre_cycle')
+    list_display=('pk','__str__','get_burnable_poison_assembly_num','get_pre_cycle','get_cra_cycle')
    
     
     def get_burnable_poison_assembly_num(self,obj):
@@ -515,6 +515,7 @@ class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_filter=['type','plant','cycle_positions__cycle','cycle_positions__reactor_position']
     list_display=['__str__','get_first_loading_pattern']
+    search_fields=('=PN',)
 admin.site.register(FuelAssemblyRepository, FuelAssemblyRepositoryAdmin)
 
 #fuel assembly type information
@@ -719,7 +720,14 @@ class ControlRodAssemblyStepInline(admin.TabularInline):
     exclude=('remark',)
     model=ControlRodAssemblyStep
 
+#operation data import 
+        
 class OperationParameterAdmin(admin.ModelAdmin):
+
     exclude=('remark',)
+    list_display=('cycle','date','burnup','relative_power','critical_boron_density','axial_power_shift',)
     inlines=[ControlRodAssemblyStepInline,]
 admin.site.register(OperationParameter, OperationParameterAdmin)
+
+
+        

@@ -493,6 +493,8 @@ class UnitParameter(BaseModel):
     ave_vol_power_density = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:KW/L', blank=True, null=True)
     ave_mass_power_density = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:KW/Kg (fuel)', blank=True, null=True)
     best_estimated_cool_vol_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3/h', blank=True, null=True)
+    best_estimated_cool_mass_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:kg/h', blank=True, null=True)
+    coolant_volume=models.DecimalField(max_digits=20, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3', blank=True, null=True)
     bypass_flow_fraction = models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%", blank=True, null=True)
     cold_state_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
     HZP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
@@ -526,6 +528,37 @@ class Cycle(BaseModel):
             return pre_cycle
         except:
             return None
+        
+    def get_nth_cycle(self,n):
+        try:
+            n_cycle=Cycle.objects.get(unit=self.unit,cycle=self.cycle+n)
+            return n_cycle
+        except:
+            return None
+        
+    def get_loading_pattern_by_pos(self,row,column):
+        reactor_model=self.unit.reactor_model
+        reactor_position=reactor_model.positions.get(row=row,column=column)
+        try:
+            falp=self.fuel_assembly_loading_patterns.get(reactor_position=reactor_position)
+            return falp
+        except:
+            return None
+        
+    def get_cra_cycle(self):
+        
+        this_cycle=self
+        while this_cycle:
+            cra=this_cycle.control_rod_assembly_loading_patterns.all()
+            
+            if cra:
+                return this_cycle
+            this_cycle=this_cycle.get_pre_cycle()
+
+    
+            
+            
+        
     def __str__(self):
         return '{}C{}'.format(self.unit, self.cycle)
     
@@ -594,7 +627,8 @@ class FuelAssemblyLoadingPattern(BaseModel):
         reactor_position=self.reactor_position
         
         try:
-            ControlRodAssemblyLoadingPattern.objects.get(cycle=cycle,reactor_position=reactor_position)
+            cra_cycle=cycle.get_cra_cycle()
+            ControlRodAssemblyLoadingPattern.objects.get(cycle=cra_cycle,reactor_position=reactor_position)
             return True
         except:
             return False
@@ -640,7 +674,7 @@ class FuelAssemblyModel(BaseModel):
 class FuelAssemblyType(BaseModel):
     model=models.ForeignKey(FuelAssemblyModel)
     assembly_enrichment=models.DecimalField(max_digits=4, decimal_places=3,validators=[MinValueValidator(0)],help_text='meaningful only if using the one unique enrichment fuel',blank=True,null=True)
-    fuel_element_Type_position=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
+    fuel_element_type_position=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
     
     class Meta:
         db_table='fuel_assembly_type'
@@ -670,6 +704,10 @@ class FuelAssemblyRepository(BaseModel):
     class Meta:
         db_table='fuel_assembly_repository'
         verbose_name_plural='Fuel assembly repository'
+        
+    @staticmethod
+    def autocomplete_search_fields():
+        return ("type__iexact", "PN__icontains",)
         
     def get_first_loading_pattern(self):
         cycle_positions=self.cycle_positions.all()
@@ -1311,26 +1349,25 @@ class NozzlePlugRodMap(BaseModel):
     
  
 class OperationParameter(BaseModel):
-    unit=models.ForeignKey(UnitParameter)
+    cycle=models.ForeignKey(Cycle)
     date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True) 
     burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU')
-    nuclear_power=models.DecimalField(max_digits=10, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:MW')
-    theoretical_boron_density=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:ppm')
-    measured_boron_density=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:ppm')
-    coolant_average_temperature=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
-    axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP")
+    relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
+    critical_boron_density=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm')
+    
+    axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
     control_rod_step=models.ManyToManyField(ControlRodAssembly,through='ControlRodAssemblyStep')
     
     class Meta:
         db_table='operation_parameter'
-        
+        order_with_respect_to = 'cycle'
     def __str__(self):
-        return '{} {}'.format(self.unit, self.date)  
+        return '{} {}'.format(self.cycle, self.date)  
     
 class ControlRodAssemblyStep(BaseModel):
     operation=models.ForeignKey(OperationParameter)
     control_rod_assembly=models.ForeignKey(ControlRodAssembly)
-    step=models.PositiveSmallIntegerField()
+    step=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)])
     
     class Meta:
         db_table='control_rod_assembly_step'

@@ -323,7 +323,7 @@ def get_egret_input_xml_path(instance,filename):
 class EgretInputXML(models.Model):
     unit=models.ForeignKey('tragopan.UnitParameter')
     base_component_path=models.FilePathField(path=media_root,match=".*base_component\.xml$",recursive=True,blank=True,null=True,max_length=200)
-    basecore_path=models.FilePathField(path=media_root,match=".*basecore\.xml$",recursive=True,blank=True,null=True,max_length=200)
+    basecore_path=models.FilePathField(path=media_root,match=".*base_core\.xml$",recursive=True,blank=True,null=True,max_length=200)
     loading_pattern_path=models.FilePathField(path=media_root,match=".*loading_pattern\.xml$",recursive=True,blank=True,null=True,max_length=200)
     #base_component_xml=models.FileField(upload_to=get_egret_input_xml_path)
     #base_core_xml=models.FileField(upload_to=get_egret_input_xml_path)
@@ -489,7 +489,6 @@ class MultipleLoadingPattern(BaseModel):
          
             pre_loading_pattern=pre_loading_pattern.get_pre_loading_pattern()
         
-        print(lst) 
           
         return lst
             

@@ -1,25 +1,19 @@
 from __future__ import unicode_literals
-from django.shortcuts import render
-from django.http import HttpResponse,HttpResponseRedirect
-from django.forms.formsets import formset_factory
-from django.db.models import Sum,F
+
 from .forms import *
-from tragopan.models import Element,Cycle
+from tragopan.models import OperationParameter,ControlRodAssemblyStep
 from calculation.models import *
-import os
-from django.db.models import Max
-#django rest framework
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework.renderers import JSONRenderer
-from rest_framework.parsers import JSONParser
+
+
 from tragopan.serializers import *
-from rest_framework.decorators import api_view,renderer_classes
+
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_xml.parsers import XMLParser
 from rest_framework_xml.renderers import XMLRenderer
 from rest_framework import viewsets
-
+from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
+from rest_framework.authentication import TokenAuthentication
 
 #custom xml render
 """
@@ -166,7 +160,7 @@ def fuel_assembly_loading_pattern_detail(request, pk,format=None):
 
     elif request.method == 'DELETE':
         fuel_assembly_loading_pattern.delete()
-        return HttpResponse(status=status.HTTP_204_NO_CONTENT)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 
@@ -313,4 +307,45 @@ def fuel_assembly_detail(request,format=None):
         data.update(serializer2.data)
         return Response(data)
 
+@api_view(('POST',))
+@parser_classes((XMLParser,))
+@renderer_classes((XMLRenderer,)) 
+@authentication_classes((TokenAuthentication,))
+def upload_operation_data(request,format=None):
+   
+    plantname=request.query_params['plant']
+    unit_num=request.query_params['unit']
+    cycle_num=request.query_params['cycle']
+   
+    try:
+        plant=Plant.objects.get(abbrEN=plantname)
+        
+        unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+        reactor_model=unit.reactor_model
+       
+        cycle=Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
+    except:
+        return Response(status=status.HTTP_404_NOT_FOUND)
 
+
+    if request.method == 'POST':
+        data=request.data
+        for item in data:
+            cluster_lst=[]
+            for key,value in item.items():
+                if key.startswith('CRD'):
+                    cluster_lst.append([key.split(sep='_')[-1],value])
+            
+            Bu=item['Bu']
+            AO=item['AO']
+            CB=item['CB']
+            P_rel=item['P_rel']
+            Date=item['Date']
+            
+            op=OperationParameter.objects.create(cycle=cycle,date=Date,burnup=Bu,relative_power=P_rel,critical_boron_density=CB,axial_power_shift=AO)
+            for cluster in cluster_lst:
+                cra=ControlRodAssembly.objects.get(reactor_model=reactor_model,cluster_name=cluster[0])
+                cras=ControlRodAssemblyStep.objects.create(operation=op,control_rod_assembly=cra,step=cluster[1])       
+            
+        success_message={'success_message':'your request has been handled successfully',}
+        return Response(data=success_message,status=200)
