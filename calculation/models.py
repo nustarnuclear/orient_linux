@@ -323,7 +323,7 @@ def get_egret_input_xml_path(instance,filename):
 class EgretInputXML(models.Model):
     unit=models.ForeignKey('tragopan.UnitParameter')
     base_component_path=models.FilePathField(path=media_root,match=".*base_component\.xml$",recursive=True,blank=True,null=True,max_length=200)
-    basecore_path=models.FilePathField(path=media_root,match=".*base_core\.xml$",recursive=True,blank=True,null=True,max_length=200)
+    base_core_path=models.FilePathField(path=media_root,match=".*base_core\.xml$",recursive=True,blank=True,null=True,max_length=200)
     loading_pattern_path=models.FilePathField(path=media_root,match=".*loading_pattern\.xml$",recursive=True,blank=True,null=True,max_length=200)
     #base_component_xml=models.FileField(upload_to=get_egret_input_xml_path)
     #base_core_xml=models.FileField(upload_to=get_egret_input_xml_path)
@@ -360,14 +360,14 @@ class EgretTask(BaseModel):
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32)
     cycle=models.ForeignKey('tragopan.Cycle')
-    #previous_follow_task=models.ForeignKey('self',related_name='post_tasks',limit_choices_to={'follow_index': True},blank=True,null=True)
+    loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
     result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
-    #result_xml=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
+   
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     follow_index=models.BooleanField()
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     restart_file=models.FilePathField(path=media_root,recursive=True,blank=True,null=True,max_length=200)
-    #depletion_composition=models.ManyToManyField('EgretDepletionCase')
+  
     
     class Meta:
         db_table='egret_task'

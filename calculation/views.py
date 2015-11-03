@@ -30,17 +30,17 @@ from rest_framework.authentication import TokenAuthentication
  
  
 @api_view(('GET','POST','PUT','DELETE'))
-@parser_classes((XMLParser,))
+@parser_classes((FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
 def generate_egret_task(request,format=None):
     if request.method == 'DELETE':
-        data=request.query_params
-        plant_name=data['plant']
-        unit_num=data['unit']
-        cycle_num=data['cycle']
-        task_name=data['task_name']
-        task_type=data['task_type']
+        query_params=request.query_params
+        plant_name=query_params['plant']
+        unit_num=query_params['unit']
+        cycle_num=query_params['cycle']
+        task_name=query_params['task_name']
+        task_type=query_params['task_type']
         try:
             plant=Plant.objects.get(abbrEN=plant_name)
             unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
@@ -60,10 +60,10 @@ def generate_egret_task(request,format=None):
         
      
     if request.method == 'GET':
-        data=request.GET
-        plant_name=data['plant']
-        unit_num=data['unit']
-        cycle_num=data['cycle']
+        query_params=request.query_params
+        plant_name=query_params['plant']
+        unit_num=query_params['unit']
+        cycle_num=query_params['cycle']
         plant=Plant.objects.get(abbrEN=plant_name)
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
@@ -75,33 +75,29 @@ def generate_egret_task(request,format=None):
         return Response(data=serializer.data)
         
     if request.method == 'POST':
+        query_params=request.query_params
         data=request.data
-        task_name=data['task_name']
-        task_type=data['task_type']
-        plant_name=data['plant']
-        unit_num=data['unit']
-        cycle_num=data['cycle']
-        follow_depletion=data['follow_depletion']
-        remark=data['remark']
+        task_name=query_params['task_name']
+        task_type=query_params['task_type']
+        plant_name=query_params['plant']
+        unit_num=query_params['unit']
+        cycle_num=query_params['cycle']
+        follow_depletion=query_params['follow_depletion']
+        remark=query_params['remark']
+        pk=query_params['pk']
         user=request.user
+        input_file=data['file']
         try:
             plant=Plant.objects.get(abbrEN=plant_name)
             unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
             cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
+            loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
             #reactor_model_name=unit.reactor_model.name
             tmp_str="{}_U{}.{}.xml".format(plant_name,unit_num,str(cycle_num).zfill(3))
         except Exception:
             error_message={'error_message':'the cycle is nonexistent in database!'}
             return Response(data=error_message,status=404)
             
-        #handle depletion case
-        i=1
-        depletion_lst=[]
-        while 'DEPL_CASE'+'_'+str(i) in data:
-            depletion_lst.append(data['DEPL_CASE'+'_'+str(i)])
-            i+=1
-        
-        input_file=generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletion_lst)
       
         #check if the task_name repeated
         task=EgretTask.objects.filter(task_name=task_name,user=user,cycle=cycle)
@@ -111,12 +107,9 @@ def generate_egret_task(request,format=None):
             return Response(data=error_message,status=404)
         else:
             
-            print(task_name,task_type,user,cycle,follow_depletion,remark)
-            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,cycle=cycle,follow_index=follow_depletion,remark=remark)
-            task_instance.egret_input_file.save(name=task_name+'.txt',content=input_file)
-            input_file.close()
+            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,cycle=cycle,follow_index=follow_depletion,remark=remark,egret_input_file=input_file)
+           
         
-        print(task_instance)
         media_root=settings.MEDIA_ROOT
         try:
             rela_file_path=task_instance.egret_input_file.name
