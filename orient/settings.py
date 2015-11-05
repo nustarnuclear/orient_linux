@@ -44,7 +44,7 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'tragopan',
     'calculation',
-    'import_export',
+    #'import_export',
     #'oauth2_provider',
     'rest_framework',
     'rest_framework.authtoken',
@@ -95,10 +95,10 @@ WSGI_APPLICATION = 'orient.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'tragopan',
+        'NAME': 'oasis',
         'USER': 'root',
         'PASSWORD': 'root123',
-        'HOST': 'localhost',
+        'HOST': '192.168.1.104',
         'PORT': '3306',
     },
     

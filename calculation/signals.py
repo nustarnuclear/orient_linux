@@ -1,13 +1,10 @@
-from django.db.models.signals import pre_delete,post_delete
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete
 from django.dispatch import receiver
-from calculation.models import EgretTask,EgretInputXML,MultipleLoadingPattern
-from tragopan.models import FuelAssemblyLoadingPattern
+from calculation.models import EgretTask,MultipleLoadingPattern
+
 from django.conf import settings
 import os
 import shutil
-from subprocess import Popen
-from django.core.files import File
 @receiver(post_delete,sender=EgretTask)
 def del_task_file(sender, instance, **kwargs):
     media_root=settings.MEDIA_ROOT

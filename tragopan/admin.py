@@ -19,16 +19,8 @@ class NuclideInline(admin.TabularInline):
     #list_display=('__str__','atom_mass','abundance',)
     readonly_fields=('atom_mass','abundance')
     
-
-class ElementResource(resources.ModelResource):
-
-    class Meta:
-        model = Element
-        fields = ('atomic_number', 'symbol', 'nameCH','nameEN','reference')
         
-        
-class ElementAdmin(ImportExportModelAdmin):
-    resource_class = ElementResource
+class ElementAdmin(admin.ModelAdmin):
     
     fieldsets=[
                (None,{'fields':['atomic_number','symbol']}),

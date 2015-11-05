@@ -293,41 +293,15 @@ class BaseFuelComposition(models.Model):
         return '{}'.format(self.base_fuel)
     
 
-#egret task    
-def get_egret_base_core_xml_path(instance,filename):
-    unit=instance.unit
-    reactor_model=unit.reactor_model
-    reactor_model_name=reactor_model.name
-    plant_name=unit.plant.abbrEN
-    return '{}/{}'.format(reactor_model_name,filename)
 
-def get_egret_base_component_xml_path(instance,filename):
-    unit=instance.unit
-    reactor_model=unit.reactor_model
-    reactor_model_name=reactor_model.name
-    plant_name=unit.plant.abbrEN
-    return '{}/unit{}/{}'.format(reactor_model_name,unit.unit, filename)       
 
-def get_egret_loading_pattern_xml_path(instance,filename):
-    unit=instance.unit
-    reactor_model=unit.reactor_model
-    reactor_model_name=reactor_model.name
-    plant_name=unit.plant.abbrEN
-    return '{}/unit{}/{}'.format(reactor_model_name,unit.unit, filename)   
-
-def get_egret_input_xml_path(instance,filename):
-    unit=instance.unit
-    plant_name=unit.plant.abbrEN
-    return '{}/unit{}/egret_input_xml/{}'.format(plant_name,unit.unit, filename)
 
 class EgretInputXML(models.Model):
     unit=models.ForeignKey('tragopan.UnitParameter')
     base_component_path=models.FilePathField(path=media_root,match=".*base_component\.xml$",recursive=True,blank=True,null=True,max_length=200)
     base_core_path=models.FilePathField(path=media_root,match=".*base_core\.xml$",recursive=True,blank=True,null=True,max_length=200)
     loading_pattern_path=models.FilePathField(path=media_root,match=".*loading_pattern\.xml$",recursive=True,blank=True,null=True,max_length=200)
-    #base_component_xml=models.FileField(upload_to=get_egret_input_xml_path)
-    #base_core_xml=models.FileField(upload_to=get_egret_input_xml_path)
-    #loading_pattern_xml=models.FileField(upload_to=get_egret_input_xml_path)
+   
     
     class Meta:
         db_table='egret_input_xml'
@@ -339,7 +313,7 @@ class EgretInputXML(models.Model):
 
 def get_egret_upload_path(instance,filename):
     username=instance.user.get_username()
-    cycle=instance.cycle
+    cycle=instance.get_cycle()
     unit=cycle.unit
     plant=unit.plant
     plant_name=plant.abbrEN
@@ -359,10 +333,8 @@ class EgretTask(BaseModel):
     )
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32)
-    cycle=models.ForeignKey('tragopan.Cycle')
     loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
     result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
-   
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     follow_index=models.BooleanField()
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
@@ -372,11 +344,42 @@ class EgretTask(BaseModel):
     class Meta:
         db_table='egret_task'
         
+    
+    def get_cycle(self):
+        cycle=self.loading_pattern.cycle
+        return cycle
+     
+    def get_cwd(self):
+        rela_file_path=self.egret_input_file.name
+        abs_file_path=os.path.join(media_root,*(rela_file_path.split(sep='/'))) 
+        dir_path=os.path.dirname(abs_file_path)
+        return dir_path
         
-        
+    
+    def get_lp_res_filename(self):
+        cycle=self.get_cycle()
+        unit=cycle.unit
+        plant=unit.plant
+        filename="{}_U{}.{}".format(plant.abbrEN,unit.unit,str(cycle.cycle).zfill(3))   
+        return filename
+    
+    def get_follow_task_chain(self,username='public'):
+        user=User.objects.get(username=username)
+        loading_pattern=self.loading_pattern
+        current_loading_pattern=loading_pattern.get_pre_loading_pattern()
+        follow_task_chain=[]
+        while current_loading_pattern:
+            try:
+                follow_task=EgretTask.objects.get(user=user,loading_pattern=current_loading_pattern,follow_index=True)
+                follow_task_chain.insert(0, follow_task)
+                current_loading_pattern=current_loading_pattern.get_pre_loading_pattern()
+            except Exception as e:
+                print(e)
+                return None   
+        return follow_task_chain
+    
     def __str__(self):
-        if self.follow_index:
-            return '{} follow'.format(self.cycle)
+    
         return '{}'.format(self.task_name)
 
 def get_custom_loading_pattern(instance,filename): 
@@ -401,8 +404,6 @@ class MultipleLoadingPattern(BaseModel):
     def generate_fuel_node(self):
         xml_file=self.xml_file
         cycle=self.cycle
-        if cycle.cycle==1:
-            return None
         f=xml_file.path
        
         dom=minidom.parse(f)
@@ -436,11 +437,12 @@ class MultipleLoadingPattern(BaseModel):
             else:
                 previous_row=previous_node[0].getAttribute('row')
                 previous_column=previous_node[0].getAttribute('column')
-                previous_cycle=previous_node[0].childNodes.item(0).data
+                previous_cycle=int(previous_node[0].childNodes.item(0).data)
                 position='{}{}'.format(previous_row.zfill(2), previous_column.zfill(2))
                 fuel_lst.append(position)
                 
                 if previous_cycle!=cycle.cycle-1:
+                    print(previous_cycle,cycle.cycle,type(previous_cycle))
                     pre_fuel_lst.append([row,column,previous_cycle])
                     
          
@@ -492,10 +494,6 @@ class MultipleLoadingPattern(BaseModel):
           
         return lst
             
-        
-            
-      
-      
         
     def __str__(self):
         return self.name

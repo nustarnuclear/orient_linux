@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import *
-from .functions import *
+from .functions import generate_prerobin_input
 # Register your models here.
 
     
@@ -136,7 +136,7 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('task_name','task_type','cycle')
+    list_display=('task_name','task_type','get_cycle')
 admin.site.register(EgretTask, EgretTaskAdmin)
 
 class EgretInputXMLAdmin(admin.ModelAdmin):  
@@ -145,6 +145,6 @@ admin.site.register(EgretInputXML, EgretInputXMLAdmin)
 
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 
-    list_display=('pk','name','loading_pattern_chain')
+    list_display=('pk','name','loading_pattern_chain','get_pre_loading_pattern',)
 admin.site.register(MultipleLoadingPattern, MultipleLoadingPatternAdmin)      
 

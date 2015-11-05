@@ -1060,16 +1060,49 @@ def sum_fuel_node(*mlps):
     loading_pattern_xml=doc.createElement('loading_pattern')
     doc.appendChild(loading_pattern_xml)
     
+
+    unit=mlps[0].cycle.unit
+    reactor_model=unit.reactor_model
+    reactor_positions=reactor_model.positions.all()
+    basecore_id=reactor_model.name
+    core_id=unit.plant.abbrEN+'_U%d'%(unit.unit)
+    
+    loading_pattern_xml.setAttribute("basecore_ID",basecore_id)
+    loading_pattern_xml.setAttribute("core_id",core_id)
+    
+    #control rod xml
+
     for mlp in mlps:
-        fuel_node=mlp.generate_fuel_node()    
-        loading_pattern_xml.appendChild(fuel_node)  
-        print('ok') 
+        current_cycle=mlp.cycle
+        control_rod_assembly_loading_patterns=current_cycle.control_rod_assembly_loading_patterns.all()
+        if control_rod_assembly_loading_patterns:
+            control_rod_xml=doc.createElement("control_rod")
+            control_rod_xml.setAttribute("cycle",str(current_cycle.cycle))
+            loading_pattern_xml.appendChild(control_rod_xml)
             
+            map_xml=doc.createElement("map")
+            control_rod_xml.appendChild(map_xml)
+            cra_position_lst=[]
+            for reactor_position in reactor_positions:
+                cra_pattern=control_rod_assembly_loading_patterns.filter(reactor_position=reactor_position)
+                if cra_pattern:
+                    cra=cra_pattern.get().control_rod_assembly
+                    type=cra.type
+                    cra_position_lst.append('CR%d'%type)
+                else:
+                    cra_position_lst.append('0')
+                    
+            map_xml.appendChild(doc.createTextNode((' '.join(cra_position_lst))))
+            
+    #fuel xml
+        fuel_node=mlp.generate_fuel_node()    
+        loading_pattern_xml.appendChild(fuel_node) 
+        print(fuel_node) 
     
-    f = open("/home/django/Desktop/test1.xml","w+")
-    doc.writexml(f)
-    
-    f.close()   
+    #f=open('/home/django/Desktop/test001.xml','w')
+    #doc.writexml(f)        
+    #f.close()
+    return doc
     
 def position_node_by_excel(cycle,row,column,position_or_type):
     '''
