@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator,MaxValueValidator
-from tragopan.models import FuelAssemblyType
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly
 from django.conf import settings
 import os
 from xml.dom import minidom 
@@ -232,6 +232,12 @@ class Ibis(BaseModel):
         for basefuel in basefuels:
             if not basefuel.if_insert_burnable_fuel():
                 return basefuel
+    def get_bpa_basefuel(self):
+        bpa=self.burnable_poison_assembly
+        if bpa:
+            basefuel=self.base_fuels.get()
+            return basefuel
+        return None
         
     def __str__(self):
         return '{} {}'.format(self.plant,self.ibis_name)
@@ -306,7 +312,21 @@ class EgretInputXML(models.Model):
     class Meta:
         db_table='egret_input_xml'
         
+    def generate_loading_pattern_doc(self,max_cycle=1):
+        loading_pattern_path=self.loading_pattern_path
+        dom=minidom.parse(loading_pattern_path)
+        loading_pattern_node=dom.documentElement
+        fuel_nodes=loading_pattern_node.getElementsByTagName('fuel')
+        for fuel_node in fuel_nodes:
+            cycle_num=int(fuel_node.getAttribute('cycle'))
+            if cycle_num>max_cycle:
+                loading_pattern_node.removeChild(fuel_node)
         
+        doc = minidom.Document()
+        doc.appendChild(loading_pattern_node)
+        return doc
+        
+            
         
     def __str__(self):
         return '{}'.format(self.unit)
@@ -336,10 +356,8 @@ class EgretTask(BaseModel):
     loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
     result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
-    follow_index=models.BooleanField()
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
-    restart_file=models.FilePathField(path=media_root,recursive=True,blank=True,null=True,max_length=200)
-  
+    pre_egret_task=models.ForeignKey('self',related_name='post_egret_tasks',blank=True,null=True)
     
     class Meta:
         db_table='egret_task'
@@ -350,12 +368,10 @@ class EgretTask(BaseModel):
         return cycle
      
     def get_cwd(self):
-        rela_file_path=self.egret_input_file.name
-        abs_file_path=os.path.join(media_root,*(rela_file_path.split(sep='/'))) 
+        abs_file_path=self.egret_input_file.path
         dir_path=os.path.dirname(abs_file_path)
         return dir_path
         
-    
     def get_lp_res_filename(self):
         cycle=self.get_cycle()
         unit=cycle.unit
@@ -363,19 +379,13 @@ class EgretTask(BaseModel):
         filename="{}_U{}.{}".format(plant.abbrEN,unit.unit,str(cycle.cycle).zfill(3))   
         return filename
     
-    def get_follow_task_chain(self,username='public'):
-        user=User.objects.get(username=username)
-        loading_pattern=self.loading_pattern
-        current_loading_pattern=loading_pattern.get_pre_loading_pattern()
+    def get_follow_task_chain(self):
+        cur_task=self.pre_egret_task
         follow_task_chain=[]
-        while current_loading_pattern:
-            try:
-                follow_task=EgretTask.objects.get(user=user,loading_pattern=current_loading_pattern,follow_index=True)
-                follow_task_chain.insert(0, follow_task)
-                current_loading_pattern=current_loading_pattern.get_pre_loading_pattern()
-            except Exception as e:
-                print(e)
-                return None   
+        while cur_task:
+            follow_task_chain.insert(0, cur_task)
+            cur_task=cur_task.pre_egret_task  
+             
         return follow_task_chain
     
     def __str__(self):
@@ -407,16 +417,31 @@ class MultipleLoadingPattern(BaseModel):
         f=xml_file.path
        
         dom=minidom.parse(f)
-        fuel_node=dom.getElementsByTagName('fuel')[0]
-        position_nodes=fuel_node.childNodes
+        #handle bpa
+        bpa_nodes=dom.getElementsByTagName('bpa')
+        bpa_dic={}
+        if bpa_nodes:
+            bpa_node=bpa_nodes[0]
+            bpa_position_nodes=bpa_node.childNodes
+            for bpa_position in bpa_position_nodes:
+                bpa_row=bpa_position.getAttribute('row')
+                bpa_column=bpa_position.getAttribute('column')
+                bpa=bpa_position.getElementsByTagName('burnable_poison_assembly')[0]
+                bpa_id=bpa.getAttribute('id')
+                bpa=BurnablePoisonAssembly.objects.get(pk=bpa_id)
+                bpa_dic[(bpa_row,bpa_column)]=bpa
         
+        #handle fuel     
+        fuel_node=dom.getElementsByTagName('fuel')[0]
+        position_nodes=fuel_node.getElementsByTagName('position')
         fuel_lst=[]
-        num_lst=[]
+        #num_lst=[]
         pre_fuel_lst=[]
         for position_node in position_nodes:
+            
             row=position_node.getAttribute('row')
             column=position_node.getAttribute('column')
-            num_lst.append(100*row+column)
+            #num_lst.append(100*row+column)
             fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
             previous_node=position_node.getElementsByTagName('previous')
             
@@ -428,11 +453,16 @@ class MultipleLoadingPattern(BaseModel):
             
             #fresh
             if not previous_node:
-                #find basefuel(without bpa)
-                ibis=Ibis.objects.get(plant=cycle.unit.plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
-                non_bpa_basefuel=ibis.get_non_bpa_basefuel() 
-                   
-                fuel_lst.append(non_bpa_basefuel.fuel_identity)
+                #get bpa if exist
+                try:
+                    burnable_poison_assembly=bpa_dic[(row,column)]
+                    ibis=Ibis.objects.get(plant=cycle.unit.plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=burnable_poison_assembly)
+                    bpa_basefuel=ibis.get_bpa_basefuel() 
+                    fuel_lst.append(bpa_basefuel.fuel_identity)
+                except:
+                    ibis=Ibis.objects.get(plant=cycle.unit.plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
+                    non_bpa_basefuel=ibis.get_non_bpa_basefuel() 
+                    fuel_lst.append(non_bpa_basefuel.fuel_identity)
                 
             else:
                 previous_row=previous_node[0].getAttribute('row')
@@ -442,13 +472,12 @@ class MultipleLoadingPattern(BaseModel):
                 fuel_lst.append(position)
                 
                 if previous_cycle!=cycle.cycle-1:
-                    print(previous_cycle,cycle.cycle,type(previous_cycle))
                     pre_fuel_lst.append([row,column,previous_cycle])
                     
-         
-        zipped_lst=list(zip(num_lst,fuel_lst))  
-        zipped_lst.sort() 
-        fuel_lst_sorted=[item[1] for item in zipped_lst] 
+     
+        #zipped_lst=list(zip(num_lst,fuel_lst))  
+        #zipped_lst.sort() 
+        #fuel_lst_sorted=[item[1] for item in zipped_lst] 
 
         
         doc = minidom.Document()
@@ -456,7 +485,7 @@ class MultipleLoadingPattern(BaseModel):
         fuel_xml.setAttribute('cycle', str(cycle.cycle))
         map_xml=doc.createElement('map')
         fuel_xml.appendChild(map_xml)
-        map_xml.appendChild(doc.createTextNode(' '.join(fuel_lst_sorted)))
+        map_xml.appendChild(doc.createTextNode(' '.join(fuel_lst)))
         
         for item in pre_fuel_lst:
             cycle_xml=doc.createElement('cycle')
@@ -480,7 +509,8 @@ class MultipleLoadingPattern(BaseModel):
                 pre_loading_pattern=None
         
         return pre_loading_pattern
-            
+    
+                   
             
     
     def loading_pattern_chain(self):
@@ -493,6 +523,25 @@ class MultipleLoadingPattern(BaseModel):
         
           
         return lst
+    
+    def get_dividing_point(self):
+        chain=self.loading_pattern_chain()
+        chain.reverse()
+        for item in chain:
+            if item.from_database:
+                return item
+        
+    
+    def get_custom_fuel_nodes(self):
+        fuel_node_lst=[]
+        chain=self.loading_pattern_chain()
+        chain.reverse()
+        for item in chain:
+            if not item.from_database:
+                fuel_node=item.generate_fuel_node()
+                fuel_node_lst.insert(0, fuel_node)
+                
+        return fuel_node_lst
             
         
     def __str__(self):

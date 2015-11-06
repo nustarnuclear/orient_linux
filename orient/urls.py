@@ -1,16 +1,14 @@
-from django.conf.urls import include,patterns, url
+from django.conf.urls import include, url
 from django.contrib import admin
 admin.autodiscover()
 from django.conf import settings
-from django.views.generic import TemplateView
 from filebrowser.sites import site
 from django.conf.urls.static import static
 from django.contrib.auth.models import User,Group
-
 from rest_framework import permissions, routers, serializers, viewsets
 from rest_framework.authentication import SessionAuthentication, BasicAuthentication
 from rest_framework.authtoken import views
-#from oauth2_provider.ext.rest_framework import TokenHasReadWriteScope, TokenHasScope
+
 # first we define the serializers
 class UserSerializer(serializers.HyperlinkedModelSerializer):
     class Meta:
@@ -49,18 +47,12 @@ router.register(r'groups', GroupViewSet)
 
 
 urlpatterns = [
-    # Examples:
-    # url(r'^$', 'orient.views.home', name='home'),
-    # url(r'^blog/', include('blog.urls')),
-    
     url(r'^', include(router.urls)),
     url(r'^admin/filebrowser/', include(site.urls)),
-    #url(r'^o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
     url(r'^grappelli/', include('grappelli.urls')), # grappelli URLS
     url(r'^admin/', include(admin.site.urls)),
     url(r'^tragopan/', include('tragopan.urls',namespace="tragopan")),
     url(r'^calculation/', include('calculation.urls',namespace="calculation")),
-  
     url(r'^api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     url(r'^api-token-auth/', views.obtain_auth_token) 
       

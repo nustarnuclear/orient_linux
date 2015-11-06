@@ -102,7 +102,7 @@ admin.site.register(PreRobinInput, PreRobinInputAdmin)
 
 class IbisAdmin(admin.ModelAdmin):
     exclude=('remark','user')
-    list_display=('__str__','plant','ibis_file','get_non_bpa_basefuel','burnable_poison_assembly')
+    list_display=('__str__','plant','ibis_file','get_non_bpa_basefuel','burnable_poison_assembly','get_bpa_basefuel')
     list_editable=('burnable_poison_assembly',)
     list_filter=('plant',)
 admin.site.register(Ibis, IbisAdmin)    
@@ -120,7 +120,7 @@ class BaseFuelCompositionInline(admin.TabularInline):
 class BaseFuelAdmin(admin.ModelAdmin):
     exclude=('remark','user')
     inlines=(BaseFuelCompositionInline,)
-    list_display=('__str__','get_ibis_composition','if_insert_burnable_fuel','offset')
+    list_display=('__str__','get_ibis_composition','if_insert_burnable_fuel','offset',)
     list_filter=('plant',)
     list_editable=('offset',)
     def get_ibis_composition(self,obj):
@@ -136,15 +136,16 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('task_name','task_type','get_cycle')
+    list_display=('task_name','task_type','get_cwd')
 admin.site.register(EgretTask, EgretTaskAdmin)
 
 class EgretInputXMLAdmin(admin.ModelAdmin):  
-    pass
+    exclude=('remark',)
+    list_display=('unit','generate_loading_pattern_doc')
 admin.site.register(EgretInputXML, EgretInputXMLAdmin) 
 
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 
-    list_display=('pk','name','loading_pattern_chain','get_pre_loading_pattern',)
+    list_display=('pk','name','loading_pattern_chain','generate_fuel_node','get_custom_fuel_nodes')
 admin.site.register(MultipleLoadingPattern, MultipleLoadingPatternAdmin)      
 

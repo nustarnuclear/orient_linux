@@ -1,6 +1,6 @@
 from rest_framework import serializers
-from tragopan.models import *
-from calculation.models import *
+from tragopan.models import Element,ReactorPosition,FuelAssemblyLoadingPattern,Plant,UnitParameter,BurnablePoisonAssembly,BurnablePoisonAssemblyLoadingPattern,\
+ControlRodAssembly,ControlRodAssemblyLoadingPattern,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository
 
 class ElementSerializer(serializers.ModelSerializer):
     

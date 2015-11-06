@@ -81,13 +81,11 @@ class UserSerializer(serializers.ModelSerializer):
            
                
 class EgretTaskSerializer(serializers.ModelSerializer):
-   
-    cycle=EgretCycleSerializer()
     user=UserSerializer()
     result_path=serializers.FilePathField(path='')
     class Meta:
         model = EgretTask
-        fields = ( 'task_name','task_type','egret_input_file','follow_index','task_status','remark','user','result_path')       
+        fields = ( 'pk','task_name','task_type','egret_input_file','task_status','remark','user','result_path','pre_egret_task')       
    
 class MultipleLoadingPatternSerializer(serializers.ModelSerializer): 
     cycle=EgretCycleSerializer()

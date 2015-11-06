@@ -98,7 +98,7 @@ DATABASES = {
         'NAME': 'oasis',
         'USER': 'root',
         'PASSWORD': 'root123',
-        'HOST': '192.168.1.104',
+        'HOST': 'localhost',
         'PORT': '3306',
     },
     

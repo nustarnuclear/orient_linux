@@ -1,17 +1,15 @@
 from __future__ import unicode_literals
+from tragopan.models import OperationParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,ReactorPosition,UnitParameter,\
+Plant,FuelAssemblyRepository,FuelAssemblyType,ControlRodAssembly
 
-from .forms import *
-from tragopan.models import OperationParameter,ControlRodAssemblyStep
-from calculation.models import *
+from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,CycleSerializer,PlantListSerializer,FuelAssemblyTypeSerializer\
+,FuelAssemblyRepositorySerializer,FuelAssemblyLoadingPatternSerializer1
 
-
-from tragopan.serializers import *
-
+from django.db.models import Max
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework_xml.parsers import XMLParser
 from rest_framework_xml.renderers import XMLRenderer
-from rest_framework import viewsets
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from rest_framework.authentication import TokenAuthentication
 
@@ -22,7 +20,7 @@ Provides XML rendering support.
 
 from django.utils import six
 from django.utils.xmlutils import SimplerXMLGenerator
-from django.utils.six.moves import StringIO
+from django.utils.six import StringIO
 from django.utils.encoding import smart_text
 from rest_framework.renderers import BaseRenderer
 
@@ -92,31 +90,6 @@ class CustomXMLRenderer(BaseRenderer):
 
 
        
-class ElementViewSet(viewsets.ModelViewSet):
-    queryset = Element.objects.all()
-    serializer_class = ElementSerializer
-    parser_classes = (XMLParser,)
-    renderer_classes = (XMLRenderer,)
-    
-class CylcleViewSet(viewsets.ModelViewSet):
-    
-    serializer_class = CycleSerializer
-    parser_classes = (XMLParser,)
-    renderer_classes = (XMLRenderer,)
-    
-    def get_queryset(self):
-       
-        plantname = self.kwargs['plantname']
-        unit_num = self.kwargs['unit_num']
-        cycle_num = self.kwargs['cycle_num']
-        
-        try:
-            plant=Plant.objects.get(abbrEN=plantname)
-            unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
-            cycle = Cycle.objects.get(unit=unit,cycle=cycle_num)
-            return cycle
-        except Cycle.DoesNotExist or Plant.DoesNotExist or UnitParameter.DoesNotExist:
-            return Response(status=status.HTTP_404_NOT_FOUND)
     
     
 @api_view(['GET', 'POST'])

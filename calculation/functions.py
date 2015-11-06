@@ -1,8 +1,7 @@
 import os
 from django.core.files import File
-from decimal import Decimal
 from tragopan.models import Plant,UnitParameter,Cycle,FuelAssemblyLoadingPattern,ControlRodAssemblyLoadingPattern
-from calculation.models import *
+from calculation.models import PreRobinInput,Ibis,BaseFuelComposition,FuelAssemblyType,BaseFuel,EgretInputXML
 from xml.dom import minidom
 from tragopan.functions import fuel_assembly_loading_pattern
 from django.conf import settings
@@ -743,7 +742,7 @@ def generate_base_core(plant_name,unit_num):
     plant_data_xml = doc.createElement("plant_data")
     base_core_xml.appendChild(plant_data_xml)
     system_pressure=unit.primary_system_pressure
-    rated_power=unit.electric_power
+    rated_power=unit.thermal_power
     flowrate_inlet=unit.best_estimated_cool_mass_flow_rate
     coolant_volume=unit.coolant_volume
     
@@ -775,9 +774,15 @@ def generate_base_core(plant_name,unit_num):
     HZP_tin_xml.setAttribute('power', '0.0')
     inlet_temperature_xml.appendChild(HZP_tin_xml)
     
+    
     mid_tin_xml = doc.createElement("tin")
-    mid_tin_xml.appendChild(doc.createTextNode(str(mid_power_cool_inlet_temp)))
-    mid_tin_xml.setAttribute('power', '0.5')
+    #handle QNPC_I specially
+    if plant_name=='QNPC_I':
+        mid_tin_xml.appendChild(doc.createTextNode('556.05'))
+        mid_tin_xml.setAttribute('power', '0.15')
+    else:  
+        mid_tin_xml.appendChild(doc.createTextNode(str(mid_power_cool_inlet_temp)))
+        mid_tin_xml.setAttribute('power', '0.5')
     inlet_temperature_xml.appendChild(mid_tin_xml)
     
     HFP_tin_xml = doc.createElement("tin")
@@ -1097,11 +1102,6 @@ def sum_fuel_node(*mlps):
     #fuel xml
         fuel_node=mlp.generate_fuel_node()    
         loading_pattern_xml.appendChild(fuel_node) 
-        print(fuel_node) 
-    
-    #f=open('/home/django/Desktop/test001.xml','w')
-    #doc.writexml(f)        
-    #f.close()
     return doc
     
 def position_node_by_excel(cycle,row,column,position_or_type):

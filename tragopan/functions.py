@@ -1,57 +1,9 @@
 #function that handle the transformation between weight and mole
 from decimal import Decimal
-from .models import *
+from .models import FuelAssemblyType,FuelElementTypePosition,FuelElementType,Plant,Cycle,FuelAssemblyLoadingPattern,FuelAssemblyRepository,UnitParameter,FuelAssemblyModel \
+,ControlRodAssembly,ControlRodType,FuelAssemblyPosition,ControlRodMap,WimsNuclideData,WmisElementComposition,WmisElementData
 import os
-'''
-def weight_to_mole(*args, inverse=False):
-    'transform the weight percent of nuclide to mole fraction;
-    input  a couple of lists with format[atom_mass,weight_percent];
-    the result is list of mole fraction with the corresponding order;
-    when set inverse=True,you can transform mole to weight'
-    import numpy as np
-    length=len(args)
-    matrix=np.array(args)
-    atom_mass=matrix[range(length),0]
-    mole_or_weight=matrix[range(length),1]
 
-    if abs(mole_or_weight.sum()-1) >1e-10:
-        print(mole_or_weight.sum())
-        raise Exception("the weight percent or mole fraction sum don't equal to 1")
-    if not inverse:
-        B=np.zeros((length,1))
-        A=np.zeros((length,length))
-        diagonal_num=[]
-        row_num=[]
-        for arg in args:
-            mass=arg[0]
-            percent=arg[1]
-            row_num.append(mass)
-            diagonal_num.append(mass-mass/percent)
-       
-        for i in range(length):
-            A[i]=row_num
-            A[i,i]=diagonal_num[i]
-
-        A[length-1]=1
-        B[length-1]=1
-        result=np.linalg.solve(A,B)
-        lst=[]
-        element_mass=0
-        for i in range(length):
-            lst.append(Decimal(result[i,0]))
-            element_mass +=Decimal(result[i,0])*Decimal(atom_mass[i])
-        
-        
-    else:
-        B=atom_mass*mole_or_weight
-
-        element_mass=atom_mass.T.dot(mole_or_weight)
-
-        result=B/element_mass
-        lst=[Decimal(i) for i in list(result)]
-
-    return [Decimal(element_mass),lst]
-'''
 
 def generate_assembly_position(number=17):
     positions=[]
