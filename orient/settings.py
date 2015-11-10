@@ -116,13 +116,13 @@ EGRET_WORKSPACE=os.path.join(DJANGO_WORKSPACE,'egret_workspace')
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'Asia/Chongqing'
+TIME_ZONE = 'Asia/Shanghai'
 
 USE_I18N = True
 
 USE_L10N = True
 
-USE_TZ = True
+USE_TZ = False
 
 #open transaction
 ATOMIC_REQUESTS=True

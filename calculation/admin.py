@@ -136,7 +136,7 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('task_name','task_type','get_cwd')
+    list_display=('user','task_name','task_type','get_cycle','time_inserted')
 admin.site.register(EgretTask, EgretTaskAdmin)
 
 class EgretInputXMLAdmin(admin.ModelAdmin):  

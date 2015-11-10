@@ -196,14 +196,10 @@ class UnitParameterInline(admin.TabularInline):
     #show_change_link=True
 
 
-class PlantResource(resources.ModelResource):
 
-    class Meta:
-        model = Plant
-        fields=('id','nameCH','abbrCH','nameEN','abbrEN',)
         
-class PlantAdmin(ImportExportModelAdmin):
-    resource_class = PlantResource
+class PlantAdmin(admin.ModelAdmin):
+  
     
     exclude=('remark',)
     list_display=('nameEN','nameCH','get_unit_num')

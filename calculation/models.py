@@ -390,7 +390,7 @@ class EgretTask(BaseModel):
     
     def __str__(self):
     
-        return '{}'.format(self.task_name)
+        return '{} {}'.format(self.user,self.task_name)
 
 def get_custom_loading_pattern(instance,filename): 
     username=instance.user.get_username()

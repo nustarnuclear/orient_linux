@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.files import File
 from rest_framework.response import Response
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
-from calculation.functions import position_node_by_excel,sum_fuel_node
+from calculation.functions import position_node_by_excel,get_same_group_users
 from calculation.serializers import EgretTaskSerializer,MultipleLoadingPatternSerializer
 from tragopan.models import Plant,UnitParameter,Cycle
 from calculation.models import EgretTask,MultipleLoadingPattern,EgretInputXML
@@ -25,11 +25,18 @@ from django.contrib.auth.models import User
 @authentication_classes((TokenAuthentication,))
 def generate_egret_task(request,format=None):
     if request.method == 'DELETE':
+        request_user=request.user
         query_params=request.query_params
         task_pk=query_params['pk']
         
         try:
             delete_task=EgretTask.objects.get(pk=task_pk)
+            delete_user=delete_task.user
+            #check if you have delete permission
+            if request_user!=delete_user:
+                error_message={'error_message':"you cannot delete others' task"}
+                return Response(data=error_message,status=404)
+                
             delete_task.delete()     
             return Response(data={'sucess_message':'delete finished'},status=200)
         except Exception as e:
@@ -42,9 +49,12 @@ def generate_egret_task(request,format=None):
         try:
             query_params=request.query_params
             pk=query_params['pk']
+            
             loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
-    
-            task_list=EgretTask.objects.filter(user=request.user,loading_pattern=loading_pattern)
+            user=request.user
+            same_group_users=get_same_group_users(user)  
+                 
+            task_list=EgretTask.objects.filter(user__in=same_group_users,loading_pattern=loading_pattern)
             if task_list is None:
                 return Response(data={})
             
@@ -65,13 +75,6 @@ def generate_egret_task(request,format=None):
         user=request.user
         input_file=data['file']
         
-        #previous egret task
-        try:
-            pre_pk=query_params['pre_pk']
-            pre_task=EgretTask.objects.get(pk=pre_pk)
-        except:
-            pre_task=None
-            
         try:
             loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
             #reactor_model_name=unit.reactor_model.name
@@ -86,8 +89,23 @@ def generate_egret_task(request,format=None):
         except Exception as e:
             error_message={'error_message':e}
             return Response(data=error_message,status=404)
+        
+        #previous egret task
+        if 'pre_pk' in query_params:
+            pre_pk=query_params['pre_pk'] 
+            try:
+                pre_task=EgretTask.objects.get(pk=pre_pk)
+            except Exception as e:
+                error_message={'error_message':e}
+                print(e)
+                return Response(data=error_message,status=404)
+        elif cycle_num==1:
+            pre_task=None
+        else:
+            error_message={'error_message':'you need to provide a previous egret task'}
+            print(error_message)
+            return Response(data=error_message,status=404) 
             
-      
         #check if the task_name repeated
         try:
             EgretTask.objects.get(task_name=task_name,user=user,loading_pattern=loading_pattern)
@@ -230,8 +248,9 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
         return Response(data=success_message,status=200)
     
     if request.method=='GET':
-        public=User.objects.get(username='public')
-        mlps=MultipleLoadingPattern.objects.filter(user__in=[request.user,public],cycle=cycle)
+        user=request.user
+        same_group_users=get_same_group_users(user)   
+        mlps=MultipleLoadingPattern.objects.filter(user__in=same_group_users,cycle=cycle)
        
         if mlps is None:
             return Response(data={},status=200)
@@ -240,6 +259,7 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
             return Response(data=serializer.data,status=200)
     
     if request.method == 'PUT':
+        
         file=data['file']
         name=request.query_params['name']
         try:

@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from tragopan.models import FuelAssemblyType,FuelAssemblyModel,Grid,GridPosition,UnitParameter,Cycle
 from calculation.models import EgretTask,Ibis,BaseFuelComposition,BaseFuel,MultipleLoadingPattern
-from django.contrib.auth.models import User
+from django.contrib.auth.models import User,Group
 
 class GridSerializer(serializers.ModelSerializer):
     
@@ -74,7 +74,14 @@ class EgretCycleSerializer(serializers.ModelSerializer):
         model = Cycle
         fields = ( 'unit','cycle')
         
+class GroupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Group
+        fields=('name','user_set')
+
+        
 class UserSerializer(serializers.ModelSerializer):
+    
     class Meta:
         model = User
         fields=('username',)

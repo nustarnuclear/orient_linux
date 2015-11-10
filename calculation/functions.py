@@ -5,7 +5,7 @@ from calculation.models import PreRobinInput,Ibis,BaseFuelComposition,FuelAssemb
 from xml.dom import minidom
 from tragopan.functions import fuel_assembly_loading_pattern
 from django.conf import settings
-
+from django.contrib.auth.models import User
 media_root=settings.MEDIA_ROOT
 
 def generate_prerobin_input(input_id):
@@ -1064,8 +1064,6 @@ def sum_fuel_node(*mlps):
     doc = minidom.Document()
     loading_pattern_xml=doc.createElement('loading_pattern')
     doc.appendChild(loading_pattern_xml)
-    
-
     unit=mlps[0].cycle.unit
     reactor_model=unit.reactor_model
     reactor_positions=reactor_model.positions.all()
@@ -1172,10 +1170,22 @@ def position_node_by_excel(cycle,row,column,position_or_type):
 
 
         
+def get_same_group_users(user):
+    public=User.objects.get(username='public')
+    user_lst=[public,]
+    if user not in user_lst:
+        user_lst.append(user)
         
+    groups=user.groups.all()
+    for group in groups:
+        for item in group.user_set.all():
+            if item not in user_lst:
+                user_lst.append(item)
+                
+    return user_lst
         
     
-    
+
          
           
     

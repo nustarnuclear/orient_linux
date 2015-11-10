@@ -1,2 +1,3 @@
 #!/bin/bash
 cd /home/django/orient
+su- l -c "source /home/django/virtual_python3/bin/activate;uwsgi --ini /home/django/orient/uwsgi.ini&" django
