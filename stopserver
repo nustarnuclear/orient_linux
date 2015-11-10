@@ -1,0 +1,3 @@
+#!/bin/bash
+source /home/django/virtual_python3/bin/activate
+uwsgi --stop /tmp/orient-master.pid
