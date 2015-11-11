@@ -185,20 +185,7 @@ class MaterialAttribute(BaseModel):
     def __str__(self):
         return str(self.material)+"'s attribute"
     
-#delete  MaterialNuclide model   
-'''
-class MaterialNuclide(BaseModel):
-    'only describe the non natural element composition in material'
-    material=models.ForeignKey(Material,related_name='nuclides',related_query_name='nuclide')
-    nuclide=models.ForeignKey(Nuclide)
-    weight_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
-    
-    class Meta:
-        db_table='material_nuclide'
-    
-    def __str__(self):
-        return str(self.material)+' '+str(self.nuclide)
-'''
+
     
 class Vendor(BaseModel):
     TYPE_CHOICES=(
@@ -500,6 +487,16 @@ class UnitParameter(BaseModel):
     class Meta:
         db_table = 'unit_parameter'
         unique_together = ('plant', 'unit')
+        
+    def get_current_cycle(self):
+        cycles=self.cycles.all()
+        max_cycle=cycles.aggregate(Max('cycle'))['cycle__max']
+        result_cycle=cycles.get(cycle=max_cycle)
+        while result_cycle:
+            if result_cycle.fuel_assembly_loading_patterns.all():
+                return result_cycle
+            result_cycle=result_cycle.get_pre_cycle()
+    get_current_cycle.short_description='current cycle'   
     
     def __str__(self):
         return '{} U{}'.format(self.plant, self.unit)
@@ -696,6 +693,8 @@ class FuelAssemblyRepository(BaseModel):
     plant=models.ForeignKey(Plant)
     vendor=models.ForeignKey(Vendor,default=1)
     availability=models.BooleanField(default=True)
+    broken=models.BooleanField(default=False)
+    unit=models.ForeignKey(UnitParameter,related_name='fuel_assemblies',blank=True,null=True)
     class Meta:
         db_table='fuel_assembly_repository'
         verbose_name_plural='Fuel assembly repository'
@@ -712,6 +711,25 @@ class FuelAssemblyRepository(BaseModel):
                 first_loading_pattern=item
         return first_loading_pattern
     
+    def get_all_loading_patterns(self):
+        cycle_positions=self.cycle_positions.all()
+        loading_pattern_lst=["C{} {}".format(item.cycle.cycle,item.reactor_position) for item in cycle_positions]
+        return loading_pattern_lst
+    get_all_loading_patterns.short_description='all_loading_patterns'
+    
+    @property
+    def get_fuel_assembly_status(self):
+        loading_patterns=self.cycle_positions.all()
+        current_cycle=self.unit.get_current_cycle()
+        if loading_patterns:
+            if loading_patterns.filter(cycle=current_cycle):
+                return 'In core'
+            else:
+                return 'Spent fuel pool'
+        else:
+            return 'Fresh'
+        
+        
     
     def __str__(self):
         return "{} {}".format(self.pk, self.type)

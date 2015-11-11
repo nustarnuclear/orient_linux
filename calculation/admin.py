@@ -146,6 +146,6 @@ admin.site.register(EgretInputXML, EgretInputXMLAdmin)
 
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 
-    list_display=('pk','name','loading_pattern_chain','generate_fuel_node','get_custom_fuel_nodes')
+    list_display=('pk','name',)
 admin.site.register(MultipleLoadingPattern, MultipleLoadingPatternAdmin)      
 

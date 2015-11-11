@@ -15,11 +15,11 @@ from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.parsers import FileUploadParser
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.authentication import TokenAuthentication
-from django.contrib.auth.models import User
+from django.db.models import Q
         
  
  
-@api_view(('POST','GET','DELETE'))
+@api_view(('POST','GET','DELETE','PUT'))
 @parser_classes((FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
@@ -54,7 +54,7 @@ def generate_egret_task(request,format=None):
             user=request.user
             same_group_users=get_same_group_users(user)  
                  
-            task_list=EgretTask.objects.filter(user__in=same_group_users,loading_pattern=loading_pattern)
+            task_list=EgretTask.objects.filter(Q(user__in=same_group_users)&Q(visibility=2)|Q(user=user)|Q(visibility=3),loading_pattern=loading_pattern)
             if task_list is None:
                 return Response(data={})
             
@@ -72,6 +72,7 @@ def generate_egret_task(request,format=None):
         task_type=query_params['task_type']
         remark=query_params['remark']
         pk=query_params['pk']
+        visibility=int(query_params['visibility'])
         user=request.user
         input_file=data['file']
         
@@ -116,7 +117,7 @@ def generate_egret_task(request,format=None):
             
         #start creating egret task
         try:
-            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,remark=remark,egret_input_file=input_file,loading_pattern=loading_pattern,pre_egret_task=pre_task)
+            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,remark=remark,egret_input_file=input_file,loading_pattern=loading_pattern,pre_egret_task=pre_task,visibility=visibility)
             current_workdirectory=task_instance.get_cwd()
             workspace_dir=os.path.join(current_workdirectory,'.workspace')
             xml_path=os.path.join(workspace_dir,task_instance.get_lp_res_filename()+'.xml')
@@ -214,7 +215,26 @@ def generate_egret_task(request,format=None):
             return Response(data=success_message,status=200,headers={'cmd':3})
         
     if request.method =='PUT':
-        pass
+        query_params=request.query_params
+        try:
+            task_pk=query_params['pk']
+            visibility=int(query_params['visibility'])
+            task=EgretTask.objects.get(pk=task_pk)
+            if task.user!=request.user:
+                error_message={'error_message':"you have no permission"}
+                print(error_message)
+                return Response(data=error_message,status=404)
+                
+            task.visibility=visibility
+            task.save()
+            success_message={'success_message':'your request has been handled successfully'}
+            return Response(data=success_message,status=200,)
+        except Exception as e:
+            error_message={'error_message':e}
+            print(e)
+            return Response(data=error_message,status=404)
+            
+        
         
 @api_view(('POST','PUT','GET'))
 @parser_classes((FileUploadParser,))
@@ -227,9 +247,9 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
         plant=Plant.objects.get(abbrEN=plantname)
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
-    except plant.DoesNotExist or unit.DoesNotExist or cycle.DoesNotExist:
-        
-        return Response(status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        error_message={'error_message':e}
+        return Response(data=error_message,status=404)
         
     data=request.data
  
@@ -250,13 +270,13 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
     if request.method=='GET':
         user=request.user
         same_group_users=get_same_group_users(user)   
-        mlps=MultipleLoadingPattern.objects.filter(user__in=same_group_users,cycle=cycle)
+        mlps=MultipleLoadingPattern.objects.filter(Q(user__in=same_group_users)&Q(visibility=2)|Q(user=user)|Q(visibility=3),cycle=cycle)
        
-        if mlps is None:
-            return Response(data={},status=200)
-        else:
+        if mlps.exists():
             serializer = MultipleLoadingPatternSerializer(mlps,many=True)
-            return Response(data=serializer.data,status=200)
+            return Response(data=serializer.data,status=200)  
+        else:
+            return Response(data={},status=200)
     
     if request.method == 'PUT':
         

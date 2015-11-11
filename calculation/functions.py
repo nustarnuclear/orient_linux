@@ -1171,11 +1171,8 @@ def position_node_by_excel(cycle,row,column,position_or_type):
 
         
 def get_same_group_users(user):
-    public=User.objects.get(username='public')
-    user_lst=[public,]
-    if user not in user_lst:
-        user_lst.append(user)
-        
+   
+    user_lst=[] 
     groups=user.groups.all()
     for group in groups:
         for item in group.user_set.all():

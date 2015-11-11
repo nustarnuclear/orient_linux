@@ -217,6 +217,7 @@ class Ibis(BaseModel):
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
     ibis_file=models.FileField(upload_to=get_ibis_upload_path)
+    ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
     
     
     
@@ -343,7 +344,11 @@ def get_egret_upload_path(instance,filename):
 
 
 
-
+VISIBILITY_CHOICES=(
+                         (1,'private'),
+                         (2,'share to group'),
+                         (3,'share to all'),
+    )
 
        
 class EgretTask(BaseModel):
@@ -351,6 +356,7 @@ class EgretTask(BaseModel):
                          (0,'not yet'),
                          (1,'finished'),
     )
+    
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32)
     loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
@@ -358,6 +364,7 @@ class EgretTask(BaseModel):
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     pre_egret_task=models.ForeignKey('self',related_name='post_egret_tasks',blank=True,null=True)
+    visibility=models.PositiveSmallIntegerField(choices=VISIBILITY_CHOICES,default=2)
     
     class Meta:
         db_table='egret_task'
@@ -406,7 +413,7 @@ class MultipleLoadingPattern(BaseModel):
     cycle=models.ForeignKey('tragopan.Cycle')
     xml_file=models.FileField(upload_to=get_custom_loading_pattern)
     from_database=models.BooleanField(default=False)
-    
+    visibility=models.PositiveSmallIntegerField(choices=VISIBILITY_CHOICES,default=3)
     class Meta:
         db_table='multiple_loading_pattern'
         unique_together=('user','name')

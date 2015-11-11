@@ -3,6 +3,7 @@ from .models import *
 from django.db.models import Sum,F,Count
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
+from django.utils.translation import ugettext_lazy as _
 # Register your models here.
 
 #################################################
@@ -357,6 +358,7 @@ admin.site.register(ReactorModel,ReactorModelAdmin)
 
 class UnitParameterAdmin(admin.ModelAdmin):
     exclude=('remark',)
+    list_display=('__str__','get_current_cycle')
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
             return ('plant','unit','reactor_model','electric_power','thermal_power','heat_fraction_in_fuel','primary_system_pressure',
@@ -498,10 +500,55 @@ class FuelAssemblyModelAdmin(admin.ModelAdmin):
     
 admin.site.register(FuelAssemblyModel, FuelAssemblyModelAdmin)
 
+class FuelAssemblyStatusListFilter(admin.SimpleListFilter):
+    # Human-readable title which will be displayed in the
+    # right admin sidebar just above the filter options.
+    title = _('Fuel assembly status')
+    # Parameter for the filter that will be used in the URL query.
+    # Parameter for the filter that will be used in the URL query.
+    parameter_name = 'status_code'
+
+    def lookups(self, request, model_admin):
+        """
+        Returns a list of tuples. The first element in each
+        tuple is the coded value for the option that will
+        appear in the URL query. The second element is the
+        human-readable name for the option that will appear
+        in the right sidebar.
+        """
+        return (
+            ('1', _('In core')),
+            ('2', _('Spent fuel pool')),
+            ('3', _('Fresh')),
+        )
+
+    def queryset(self, request, queryset):
+        """
+        Returns the filtered queryset based on the value
+        provided in the query string and retrievable via
+        `self.value()`.
+        """
+        # Compare the requested value (either '80s' or '90s')
+        # to decide how to filter the queryset.
+      
+        if self.value() == '1':
+            return queryset.filter(get_fuel_assembly_status='In core')
+        if self.value() == '2':
+            for item in queryset:
+                if item.get_fuel_assembly_status()!='Spent fuel pool':
+                    queryset.remove(item)
+            return queryset
+        
+        if self.value() == '3':
+            for item in queryset:
+                if item.get_fuel_assembly_status()!='Fresh':
+                    queryset.remove(item)
+            return queryset
+    
 class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_filter=['type','plant','cycle_positions__cycle','cycle_positions__reactor_position']
-    list_display=['__str__','get_first_loading_pattern']
+    list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position',FuelAssemblyStatusListFilter]
+    list_display=['__str__','unit','get_all_loading_patterns','get_fuel_assembly_status','broken','availability']
     search_fields=('=PN',)
 admin.site.register(FuelAssemblyRepository, FuelAssemblyRepositoryAdmin)
 

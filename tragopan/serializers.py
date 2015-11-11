@@ -151,10 +151,10 @@ class PlantListSerializer(serializers.ModelSerializer):
         fields = ( 'abbrEN','units')
         
 class FuelAssemblyTypeSerializer(serializers.ModelSerializer):
-    
+    model=FuelAssemblyModelSerializer()
     class Meta:
         model =  FuelAssemblyType
-        fields = ( 'pk','assembly_enrichment')   
+        fields = ( 'pk','assembly_enrichment','model')   
         
 
 class FuelAssemblyRepositorySerializer(serializers.ModelSerializer):
