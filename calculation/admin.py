@@ -102,8 +102,8 @@ admin.site.register(PreRobinInput, PreRobinInputAdmin)
 
 class IbisAdmin(admin.ModelAdmin):
     exclude=('remark','user')
-    list_display=('__str__','plant','ibis_file','get_non_bpa_basefuel','burnable_poison_assembly','get_bpa_basefuel')
-    list_editable=('burnable_poison_assembly',)
+    list_display=('__str__','plant','burnable_poison_assembly','ibis_path')
+    list_editable=('burnable_poison_assembly','ibis_path')
     list_filter=('plant',)
 admin.site.register(Ibis, IbisAdmin)    
 

@@ -222,8 +222,7 @@ class ReactorPositionAdmin(admin.ModelAdmin):
     exclude=('remark',)
     search_fields=('=row','=column')
     list_filter=('reactor_model__name',)
-    list_display=('reactor_model','__str__','control_rod_mechanism','get_quadrant_symbol')
-    list_editable=('control_rod_mechanism',)
+    list_display=('reactor_model','__str__','control_rod_cluster','get_quadrant_symbol')
     list_per_page=200
     ordering=('row','column')
     
@@ -701,16 +700,21 @@ class ControlRodMapInline(admin.TabularInline):
 class ControlRodAssemblyAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[ControlRodMapInline,]
-    list_display=('__str__','type')
-    list_filter=('reactor_model',)
+    list_display=('__str__','type','cluster',)
 admin.site.register(ControlRodAssembly, ControlRodAssemblyAdmin)
 
 class ControlRodAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('reactor_position','control_rod_assembly','cycle',)
+    list_filter=('cycle','control_rod_assembly__cluster')
     
 admin.site.register(ControlRodAssemblyLoadingPattern, ControlRodAssemblyLoadingPatternAdmin)
 
+class ControlRodClusterAdmin(admin.ModelAdmin):
+    exclude=('remark',)
+   
+    list_display=('__str__','reactor_model','get_control_rod_assembly_num')
+admin.site.register(ControlRodCluster, ControlRodClusterAdmin)
 
 ##############################################################################
 #source assembly 

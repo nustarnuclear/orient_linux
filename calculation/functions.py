@@ -328,123 +328,14 @@ def generate_base_fuel():
             base_fuel_composition=BaseFuelComposition(base_fuel=base_fuel,ibis=ibis_file,height=365.8000)
             base_fuel_composition.save()
         
-def generate_egret_input(follow_depletion,plant_name,unit_num,cycle_num,depletion_lst):
-    #get this file path
-    path=settings.TMP_DIR
-    #path=os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),'tempt_dir')
-    #generate a file
-    f=open(os.path.join(path, '_'.join([str(plant_name),str(unit_num),str(cycle_num)])),mode='w+')
-    plant_dir=os.path.join(media_root, plant_name)
-    unit_dir=os.path.join(plant_dir,'unit'+str(unit_num))
-    ibis_dir=os.path.join(plant_dir,'ibis_files')
-    restart_dir=os.path.join(unit_dir,'restart_files')
-    sep='\n'
-    plant=Plant.objects.get(abbrEN=plant_name)
-    unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
-    cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
-    #section DATABANK
-    f.write('& DATABANK%s'%sep)
-    f.write('   coreID = "{}_U{}"{}'.format(plant_name,unit_num,sep))
-    f.write('   icycle = {}{}'.format(cycle_num,sep))
-    #xml path
-    
-    xml_path=EgretInputXML.objects.get(unit=unit)
-    
-    rela_basecore_xml=xml_path.basecore_path
-    basecore_xml=os.path.join(media_root,rela_basecore_xml)
-    
-    #rela_base_component_xml=str(xml_path.base_component_xml).split(sep='/')
-    rela_base_component_xml=xml_path.base_component_path
-    base_component_xml=os.path.join(media_root,rela_base_component_xml)
-    
-    rela_loading_pattern_xml=xml_path.loading_pattern_path
-    loading_pattern_xml=os.path.join(media_root,rela_loading_pattern_xml)
-    
-    f.write('   basecoreXML = "{}"{}'.format(basecore_xml,sep))
-    f.write('   basecomponentXML = "{}"{}'.format(base_component_xml,sep))
-    f.write('   loadingpatternXML = "{}"{}'.format(loading_pattern_xml,sep))
-    f.write('   ibis_dir = "{}"{}'.format(ibis_dir,sep))
-    if cycle_num==1:
-        f.write("   DB_READ = ''%s"%sep)
-        
-    else:
-        fuel_patterns=cycle.fuel_assembly_loading_patterns.all()
-        cycle_lst=[]
-        for fuel_pattern in fuel_patterns:
-            fuel_assembly=fuel_pattern.fuel_assembly
-            falp=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=fuel_assembly,cycle__cycle__lt=cycle_num)
-            for item in falp:
-                if item.cycle.cycle not in cycle_lst:
-                    cycle_lst.append(item.cycle.cycle)
-                    
-        read_restart_file_lst=[]
-        for i in cycle_lst:        
-            read_restart_file=os.path.join(restart_dir,'C%d'%i)
-            read_restart_file_lst.append("'"+read_restart_file+".RES'")
-        read_restart_file_str=','.join(read_restart_file_lst)
-        f.write("   DB_READ = {}{}".format(read_restart_file_str,sep))
-    if follow_depletion:
-        write_restart_file=os.path.join(restart_dir,'C%d'%(cycle_num))  
-        f.write("   DB_RITE = '{}.RES'{}".format(write_restart_file,sep))
-    else:
-        tmp_write=os.path.join(path,'ld_zh_lw_hy.tmp')
-        f.write("   DB_RITE = '{}'{}".format(tmp_write,sep))    
-    f.write('/%s'%sep) 
-      
-    print(plant_name)
-    #section CORESTATE
-    f.write('& CORESTATE%s'%sep)
-    if plant_name=='QNPC_II':
-        core_state_lst=['   predictor_factor = 1.0','   system_pressure = 15.5','   rated_power = 1930.0','   ralative_power = 0.0','   CbPPM =    1300.0',
-                    '   CBSEARCH = 1','   BOR_DEP_OPT = 1','   HCB = 1','   SDC = 1','   HTM = 1','   HTF = 1','   PPR = 1','   V_TOTAL = 165000000',
-                    '   flowrate_in = 34331.49','   p2tmo_in(1:6) = 0.0,563.95, 0.50,565.25, 1.0,566.55','   bank_position(1:5) =  225, 225, 225, 225, 225']
-        
-    elif plant_name=='QNPC_I':
-        core_state_lst=['   system_pressure = 15.3','   rated_power = 966.0','   ralative_power = 0.0','   CbPPM =    1300.0',
-                    '   CBSEARCH = 1','   BOR_DEP_OPT = 1','   HCB = 1','   SDC = 1','   HTM = 1','   HTF = 1','   PPR = 1','   V_TOTAL = 150000000',
-                    '   flowrate_in = 21840.0','   p2tmo_in(1:6) = 0.0,553.15, 0.15,556.05, 1.0,561.95','   bank_position(1:6) =  298, 298, 298, 298, 298, 298']
-    elif plant_name=='FJS':
-        core_state_lst=[ 'system_pressure = 15.51','rated_power = 2895.0','ralative_power = 0.0',
-                    'CbPPM =    1300.0','BOR_DEP_OPT = 1','V_TOTAL = 202000000','CBSEARCH = 1',
-                    'HCB = 1','PPR = 1','HTF = 1','HTM = 1','flowrate_in = 50524.0',
-                    'p2tmo_in(1:6) = 0.0,564.55, 0.5,565.55, 1.0,566.55',
-                    'bank_position(1:9) =  225, 225, 225, 225, 225, 225, 225, 225, 225',]
-    else:
-        pass
-    
-    print('ok')
-        
-    for i in range(len(core_state_lst)):
-        core_state_lst[i]+=sep
-       
-    f.writelines(core_state_lst)
-    f.write('/%s'%sep) 
-    
-    #section egret default
-    f.write('& egret_default%s'%sep)
-    egret_default_lst=['   nem_version = 2','   submesh_mode = 1','   drwm_mode = 1','   overlap_def(1:9,1) = 5,225, 4,100, 3,100, 2,100, 1']
-    for i in range(len(egret_default_lst)):
-        egret_default_lst[i]+=sep
-       
-    f.writelines(egret_default_lst)  
-    f.write('/%s'%sep)
-    
-    #depletion case
-    for depletion_case in depletion_lst:
-        f.write('& DEPL_CASE%s'%sep)
-        for key,value in depletion_case.items():
-            f.write('{} = {}{}'.format(key,value,sep))
-        f.write('/%s'%sep)
-        
-    
-    return File(f)
+
 
 def generate_base_component(plant_name):
     plant=Plant.objects.get(abbrEN=plant_name)
     base_fuels=BaseFuel.objects.filter(plant=plant)
     unit=UnitParameter.objects.get(plant=plant,unit=1)
     reactor_model=unit.reactor_model
-    control_rod_assemblies=reactor_model.control_rod_assemblies.all()
+    control_rod_clusters=reactor_model.control_rod_clusters.all()
     core_id=reactor_model.name
     #start xml 
     doc = minidom.Document()
@@ -532,7 +423,7 @@ def generate_base_component(plant_name):
         
     #control rod xml   
     type_lst=[]
-    for item in control_rod_assemblies:
+    for item in control_rod_clusters:
         type=item.type
         #grep rod
         if type not in type_lst : 
@@ -822,17 +713,16 @@ def generate_base_core(plant_name,unit_num):
     rcca_xml = doc.createElement("rcca")
     base_core_xml.appendChild(rcca_xml)  
     
-    control_rod_assembly_lst=[]
-    bank_id_lst=reactor_model.control_rod_assemblies.all()
+    control_rod_cluster_lst=[]
+    bank_id_lst=reactor_model.control_rod_clusters.all()
 
         
     for position in reactor_positions:
-        try:
-            cralp=ControlRodAssemblyLoadingPattern.objects.get(reactor_position=position,cycle=cycle)
-            control_rod_assembly_lst.append(cralp.control_rod_assembly.cluster_name)
-            
-        except Exception:
-            control_rod_assembly_lst.append('0')
+        control_rod_cluster=position.control_rod_cluster
+        if control_rod_cluster:
+            control_rod_cluster_lst.append(control_rod_cluster.cluster_name)
+        else:
+            control_rod_cluster_lst.append('0')
      
     index=1 
     for item in bank_id_lst:
@@ -844,7 +734,7 @@ def generate_base_core(plant_name,unit_num):
         rcca_xml.appendChild(bank_id_xml) 
         
     map_xml=doc.createElement('map')
-    map_xml.appendChild(doc.createTextNode(' '.join(control_rod_assembly_lst)))
+    map_xml.appendChild(doc.createTextNode(' '.join(control_rod_cluster_lst)))
     rcca_xml.appendChild(map_xml)
     
     step_size_xml=doc.createElement('step_size')

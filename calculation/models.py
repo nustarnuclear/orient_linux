@@ -1,7 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator,MaxValueValidator
-from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,\
+    FuelAssemblyRepository, FuelAssemblyLoadingPattern
 from django.conf import settings
 import os
 from xml.dom import minidom 
@@ -216,7 +217,7 @@ class Ibis(BaseModel):
     reactor_model=models.ForeignKey('tragopan.ReactorModel')
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
-    ibis_file=models.FileField(upload_to=get_ibis_upload_path)
+    #ibis_file=models.FileField(upload_to=get_ibis_upload_path)
     ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
     
     
@@ -417,6 +418,43 @@ class MultipleLoadingPattern(BaseModel):
     class Meta:
         db_table='multiple_loading_pattern'
         unique_together=('user','name')
+        
+    def write_to_database(self):
+        xml_file=self.xml_file
+        cycle=self.cycle
+        unit=cycle.unit
+        reactor_model=unit.reactor_model
+        reactor_positions=reactor_model.positions.all()
+        f=xml_file.path
+       
+        dom=minidom.parse(f)
+        #handle fuel     
+        fuel_node=dom.getElementsByTagName('fuel')[0]
+        position_nodes=fuel_node.getElementsByTagName('position')
+        
+        for position_node in position_nodes:
+            
+            row=position_node.getAttribute('row')
+            column=position_node.getAttribute('column')
+            reactor_position=reactor_positions.get(row=int(row),column=int(column))
+            fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
+        
+            
+            
+            pk=fuel_assembl_node.getAttribute('id')
+            #check if fresh
+            if pk:
+                fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
+                
+            else: 
+                type_pk=fuel_assembl_node.childNodes.item(0).data  
+                fuel_assembly_type=FuelAssemblyType.objects.get(pk=type_pk)
+                fuel_assembly=FuelAssemblyRepository.objects.create(type=fuel_assembly_type,unit=unit)
+                
+            falp=FuelAssemblyLoadingPattern.objects.create(reactor_position=reactor_position,fuel_assembly=fuel_assembly,cycle=cycle)
+            print(falp)
+        
+        
         
     def generate_fuel_node(self):
         xml_file=self.xml_file

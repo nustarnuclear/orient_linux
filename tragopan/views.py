@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 from tragopan.models import OperationParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,ReactorPosition,UnitParameter,\
-Plant,FuelAssemblyRepository,FuelAssemblyType,ControlRodAssembly
+Plant,FuelAssemblyRepository,FuelAssemblyType,ControlRodAssembly,\
+    ControlRodCluster
 
 from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,CycleSerializer,PlantListSerializer,FuelAssemblyTypeSerializer\
 ,FuelAssemblyRepositorySerializer,FuelAssemblyLoadingPatternSerializer1
@@ -322,8 +323,8 @@ def upload_operation_data(request,format=None):
             
             op=OperationParameter.objects.create(cycle=cycle,date=Date,burnup=Bu,relative_power=P_rel,critical_boron_density=CB,axial_power_shift=AO)
             for cluster in cluster_lst:
-                cra=ControlRodAssembly.objects.get(reactor_model=reactor_model,cluster_name=cluster[0])
-                cras=ControlRodAssemblyStep.objects.create(operation=op,control_rod_assembly=cra,step=cluster[1])       
+                cra=ControlRodCluster.objects.get(reactor_model=reactor_model,cluster_name=cluster[0])
+                cras=ControlRodAssemblyStep.objects.create(operation=op,control_rod_cluster=cra,step=cluster[1])       
             
         success_message={'success_message':'your request has been handled successfully',}
         return Response(data=success_message,status=200)

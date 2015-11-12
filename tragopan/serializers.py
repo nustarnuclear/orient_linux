@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from tragopan.models import Element,ReactorPosition,FuelAssemblyLoadingPattern,Plant,UnitParameter,BurnablePoisonAssembly,BurnablePoisonAssemblyLoadingPattern,\
-ControlRodAssembly,ControlRodAssemblyLoadingPattern,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository
+ControlRodAssembly,ControlRodAssemblyLoadingPattern,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster
 
 class ElementSerializer(serializers.ModelSerializer):
     
@@ -60,12 +60,18 @@ class BurnablePoisonAssemblyLoadingPatternSerializer(serializers.ModelSerializer
         model = BurnablePoisonAssemblyLoadingPattern
         fields = ( 'reactor_position','burnable_poison_assembly')
         
-
+        
+class ControlRodClusterSerializer(serializers.ModelSerializer):
+    
+    class Meta:
+        model = ControlRodCluster
+        fields = ( 'cluster_name',) 
+        
 class ControlRodAssemblySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ControlRodAssembly
-        fields = ( 'cluster_name',)        
+        fields = ( 'cluster','pk')        
 
 class ControlRodAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
     reactor_position=ReactorPositionSerializer()

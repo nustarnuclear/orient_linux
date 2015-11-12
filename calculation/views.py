@@ -332,6 +332,7 @@ def upload_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
                 position_node=position_node_by_excel(nth_cycle,int(row),int(column),position_or_type)
             except Exception as e:
                 error_message={'error':str(e)}
+                print(error_message)
                 return Response(data=error_message,status=404)
         
             fuel_xml.appendChild(position_node)

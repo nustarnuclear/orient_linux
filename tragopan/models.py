@@ -285,7 +285,8 @@ class ReactorPosition(BaseModel):
     reactor_model=models.ForeignKey(ReactorModel,related_name='positions',related_query_name='position')
     row=models.PositiveSmallIntegerField()
     column=models.PositiveSmallIntegerField()
-    control_rod_mechanism=models.BooleanField(default=False,help_text='whether contain control rod mechanism',verbose_name='Whether can be inserted control rod assembly?')
+    #control_rod_mechanism=models.BooleanField(default=False,help_text='whether contain control rod mechanism',verbose_name='Whether can be inserted control rod assembly?')
+    control_rod_cluster=models.ForeignKey('ControlRodCluster',related_name='positions',related_query_name='position',blank=True,null=True)
     class Meta:
         db_table='reactor_position'
         unique_together=('reactor_model','row','column')
@@ -564,8 +565,6 @@ class FuelAssemblyLoadingPattern(BaseModel):
     cycle=models.ForeignKey(Cycle,related_name='fuel_assembly_loading_patterns')
     reactor_position=models.ForeignKey(ReactorPosition)
     fuel_assembly=models.ForeignKey('FuelAssemblyRepository',related_name='cycle_positions',default=1)
-    
-    following_index=models.CharField(max_length=60,blank=True, null=True)
     rotation_degree=models.CharField(max_length=3,choices=ROTATION_DEGREE_CHOICES,default='0',help_text='anticlokwise')
     
     class Meta:
@@ -690,7 +689,6 @@ class FuelAssemblyRepository(BaseModel):
     batch_number=models.PositiveSmallIntegerField(blank=True,null=True)
     manufacturing_date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True)
     arrival_date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True)
-    plant=models.ForeignKey(Plant)
     vendor=models.ForeignKey(Vendor,default=1)
     availability=models.BooleanField(default=True)
     broken=models.BooleanField(default=False)
@@ -1231,15 +1229,31 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
     
     
 ###############################################################################
+class ControlRodCluster(BaseModel):
+    reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_clusters')
+    cluster_name=models.CharField(max_length=5)
+    basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    
+    class Meta:
+        db_table='control_rod_cluster'
+        
+    def get_control_rod_assembly_num(self):
+        return self.control_rod_assemblies.count()
+    
+    get_control_rod_assembly_num.short_description='same cluster number'
+    
+    def __str__(self):
+        return '{}'.format(self.cluster_name)
+    
 #the following two models describe control rod assembly
 class ControlRodAssembly(BaseModel):
     TYPE_CHOICES=(
                   (1,'black rod'),
                   (2,'grep rod'),
     )
-    cluster_name=models.CharField(max_length=5)
-    reactor_model=models.ForeignKey(ReactorModel,blank=True,null=True,related_name='control_rod_assemblies')
-    #type=models.CharField(max_length=8,choices=TYPE_CHOICES,blank=True,null=True)
+    cluster=models.ForeignKey(ControlRodCluster,related_name='control_rod_assemblies',blank=True,null=True)
+    #reactor_model=models.ForeignKey(ReactorModel,blank=True,null=True,related_name='control_rod_assemblies')
     type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
     basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
@@ -1251,8 +1265,16 @@ class ControlRodAssembly(BaseModel):
        
         verbose_name_plural='Control rod assemblies'
         
+    @property
+    def cluster_name(self):
+        return self.cluster.cluster_name
+    
+    @property
+    def reactor_model(self):
+        return self.cluster.reactor_model
+        
     def __str__(self):
-        return '{} {}'.format(self.reactor_model,self.cluster_name)
+        return '{} {}'.format(self.pk,self.cluster)
     
 class ControlRodMap(BaseModel):
     control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='control_rods')
@@ -1268,8 +1290,8 @@ class ControlRodMap(BaseModel):
     
 class ControlRodAssemblyLoadingPattern(BaseModel):
     cycle=models.ForeignKey(Cycle,related_name='control_rod_assembly_loading_patterns',blank=True,null=True)
-    reactor_position=models.ForeignKey(ReactorPosition,related_name='control_rod_assembly_pattern',limit_choices_to={'control_rod_mechanism':True})
-    control_rod_assembly=models.ForeignKey(ControlRodAssembly)
+    reactor_position=models.ForeignKey(ReactorPosition,related_name='control_rod_assembly_pattern',)
+    control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='loading_patterns',)
     
     
 
@@ -1369,7 +1391,7 @@ class OperationParameter(BaseModel):
     critical_boron_density=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm')
     
     axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
-    control_rod_step=models.ManyToManyField(ControlRodAssembly,through='ControlRodAssemblyStep')
+    control_rod_step=models.ManyToManyField(ControlRodCluster,through='ControlRodAssemblyStep')
     
     class Meta:
         db_table='operation_parameter'
@@ -1379,14 +1401,14 @@ class OperationParameter(BaseModel):
     
 class ControlRodAssemblyStep(BaseModel):
     operation=models.ForeignKey(OperationParameter)
-    control_rod_assembly=models.ForeignKey(ControlRodAssembly)
+    control_rod_cluster=models.ForeignKey(ControlRodCluster)
     step=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)])
     
     class Meta:
         db_table='control_rod_assembly_step'
         
     def __str__(self):
-        return '{} {}'.format(self.control_rod_assembly, self.step)
+        return '{} {}'.format(self.control_rod_cluster, self.step)
 
 
 
