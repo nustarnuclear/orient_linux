@@ -35,10 +35,9 @@ class CustomIndexDashboard(Dashboard):
                 ),
                 modules.AppList(
                     _('Applications'),
-                    column=1,
-                   
+                    column=2,
                     css_classes=('collapse closed',),
-                    exclude=('django.contrib.*',),
+                    exclude=('django.contrib.*','rest_framework.authtoken.*',),
                 )
             ]
         ))
@@ -114,7 +113,7 @@ class CustomIndexDashboard(Dashboard):
         self.children.append(modules.RecentActions(
             _('Recent Actions'),
             limit=5,
-            collapsible=False,
+            collapsible=True,
             column=3,
         ))
 

@@ -14,26 +14,8 @@ class ReactorPositionSerializer(serializers.ModelSerializer):
     class Meta:
         model = ReactorPosition
         fields = ( 'row','column', )
+  
 
-class FuelAssemblyListingField(serializers.RelatedField):
-    def to_representation(self, value):
-        
-        first_loading_pattern=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=value).first()
-        first_cycle=first_loading_pattern.cycle.cycle
-        first_position=first_loading_pattern.reactor_position
-        
-        return "{}~type~{}~enrichment~{}~first_cycle~{}~row~{}~column~{}".format(value.pk, value.type.pk,value.type.assembly_enrichment,first_cycle,first_position.row,first_position.column)
-
-               
-        
-class FuelAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
-    reactor_position=ReactorPositionSerializer()
-    fuel_assembly=FuelAssemblyListingField(read_only=True)
-    #previous_reactor_position=serializers.PrimaryKeyRelatedField(query_set=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=fuel_assembly))
-    
-    class Meta:
-        model = FuelAssemblyLoadingPattern
-        fields = ( 'reactor_position','fuel_assembly', 'get_previous',)
         
 class PlantSerializer(serializers.ModelSerializer):
     
@@ -81,14 +63,7 @@ class ControlRodAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
         model = ControlRodAssemblyLoadingPattern
         fields = ( 'reactor_position','control_rod_assembly')       
 
-class CycleSerializer(serializers.ModelSerializer):
-    #unit=UnitParameterSerializer()
-    fuel_assembly_loading_patterns=FuelAssemblyLoadingPatternSerializer(many=True, read_only=True)
-    bpa_loading_patterns=BurnablePoisonAssemblyLoadingPatternSerializer(many=True, read_only=True)
-    control_rod_assembly_loading_patterns=ControlRodAssemblyLoadingPatternSerializer(many=True, read_only=True)
-    class Meta:
-        model = Cycle
-        fields = ( 'fuel_assembly_loading_patterns','bpa_loading_patterns','control_rod_assembly_loading_patterns')
+
         
 
 class GridListingField(serializers.RelatedField):
@@ -167,9 +142,9 @@ class FuelAssemblyRepositorySerializer(serializers.ModelSerializer):
     type=FuelAssemblyTypeSerializer()
     class Meta:
         model = FuelAssemblyRepository
-        fields = ( 'type',)  
+        fields = ( 'type','remark','broken','availability')  
         
-class FuelAssemblyLoadingPatternSerializer1(serializers.ModelSerializer):
+class FuelAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = FuelAssemblyLoadingPattern

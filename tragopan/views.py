@@ -1,19 +1,12 @@
-from __future__ import unicode_literals
-from tragopan.models import OperationParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,ReactorPosition,UnitParameter,\
-Plant,FuelAssemblyRepository,FuelAssemblyType,ControlRodAssembly,\
-    ControlRodCluster
-
-from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,CycleSerializer,PlantListSerializer,FuelAssemblyTypeSerializer\
-,FuelAssemblyRepositorySerializer,FuelAssemblyLoadingPatternSerializer1
-
-from django.db.models import Max
+from tragopan.models import OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,UnitParameter,Plant,FuelAssemblyRepository,FuelAssemblyType,ControlRodCluster
+from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,PlantListSerializer,FuelAssemblyTypeSerializer,FuelAssemblyRepositorySerializer
 from rest_framework.response import Response
-from rest_framework import status
 from rest_framework_xml.parsers import XMLParser
 from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from rest_framework.authentication import TokenAuthentication
 
+'''
 #custom xml render
 """
 Provides XML rendering support.
@@ -89,7 +82,6 @@ class CustomXMLRenderer(BaseRenderer):
 
 
 
-
        
     
     
@@ -135,30 +127,14 @@ def fuel_assembly_loading_pattern_detail(request, pk,format=None):
     elif request.method == 'DELETE':
         fuel_assembly_loading_pattern.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+'''
 
 
 
-@api_view(['GET', 'POST'])
-def cycle_list(request,format=None):
-    """
-    List all code snippets, or create a new snippet.
-    """
-    if request.method == 'GET':
-        cycles = Cycle.objects.all()
-        serializer = CycleSerializer(cycles, many=True)
-        return Response(serializer.data)
-
-    elif request.method == 'POST':
-        serializer = CycleSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-   
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
  
  
  
-    
+'''   
 @api_view(('GET','POST','PUT','DELETE'))
 @renderer_classes((CustomXMLRenderer,))
 def cycle_detail(request, plantname,unit_num,cycle_num,format=None):
@@ -238,9 +214,27 @@ def cycle_detail(request, plantname,unit_num,cycle_num,format=None):
             return Response(status=status.HTTP_404_NOT_FOUND)
         serializer = CycleSerializer(cycle)
         return Response(serializer.data)
+
+
+@api_view(['GET', 'POST'])
+def cycle_list(request,format=None):
+    """
+    List all code snippets, or create a new snippet.
+    """
+    if request.method == 'GET':
+        cycles = Cycle.objects.all()
+        serializer = CycleSerializer(cycles, many=True)
+        return Response(serializer.data)
+
+    elif request.method == 'POST':
+        serializer = CycleSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+   
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+'''
     
-
-
 @api_view(('GET',))
 def plant_list(request,format=None):
     
@@ -260,30 +254,60 @@ def fuel_assembly_type_list(request,format=None):
         return Response(serializer.data)
 
 
-@api_view(('GET',))
+@api_view(('GET','PUT'))
 def fuel_assembly_detail(request,format=None):
-    
-    plant_name=request.query_params['plant_name']
-    unit_num=request.query_params['unit_num']
-    cycle_num=request.query_params['cycle_num']
-    pk=request.query_params['pk']
-    try:
-        plant=Plant.objects.get(abbrEN=plant_name)
-        unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
-        cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
-        fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
-        falp=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,fuel_assembly=fuel_assembly)
-        if request.method == 'GET':
-            serializer1=FuelAssemblyRepositorySerializer(fuel_assembly)
+    if request.method=='GET':
+        try:
+            plant_name=request.query_params['plant']
+            unit_num=request.query_params['unit']
+            cycle_num=request.query_params['cycle']
+            pk=request.query_params['pk']
+        
+            plant=Plant.objects.get(abbrEN=plant_name)
+            unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+            cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
+            fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
+            falp=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,fuel_assembly=fuel_assembly)
+            if request.method == 'GET':
+                serializer1=FuelAssemblyRepositorySerializer(fuel_assembly)
+                
+                serializer2=FuelAssemblyLoadingPatternSerializer(falp)
+                data=serializer1.data
+                data.update(serializer2.data)
+                return Response(data,status=200)
+        except Exception as e:
+            print(e)
+            error_message={'error_message':e}
+            return Response(data=error_message,status=404)
+        
+    if request.method=='PUT':
+        if not request.user.is_superuser:
+            error_message={'error_message':'you have no permission'}
+            return Response(data=error_message,status=550)
             
-            serializer2=FuelAssemblyLoadingPatternSerializer1(falp)
-            data=serializer1.data
-            data.update(serializer2.data)
-            return Response(data)
-    except Exception as e:
-        print(e)
-        error_message={'error_message':e}
-        return Response(data=error_message,status=404)
+        query_params=request.query_params
+        try:
+            pk=query_params['pk']
+            remark=query_params['remark']
+            fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
+            fuel_assembly.remark="{} {}:{}".format(fuel_assembly.remark,request.user,remark)
+            if 'broken' in query_params:
+                broken=query_params['broken']
+                fuel_assembly.broken=int(broken)
+                 
+            if 'availability' in query_params:
+                availability=query_params['availability']
+                print(availability)
+                fuel_assembly.availability=int(availability)
+            fuel_assembly.save()
+            print(fuel_assembly.availability)
+            success_message={'success_message':'your request has been handled successfully'}
+            return Response(data=success_message,status=200,)
+        except Exception as e:
+            print(e)
+            error_message={'error_message':e}
+            return Response(data=error_message,status=404)    
+        
         
 
 @api_view(('POST',))
@@ -303,8 +327,10 @@ def upload_operation_data(request,format=None):
         reactor_model=unit.reactor_model
        
         cycle=Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
-    except:
-        return Response(status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        error_message={'error_message':e}
+        print(error_message)
+        return Response(data=error_message,status=404)
 
 
     if request.method == 'POST':
@@ -321,7 +347,7 @@ def upload_operation_data(request,format=None):
             P_rel=item['P_rel']
             Date=item['Date']
             
-            op=OperationParameter.objects.create(cycle=cycle,date=Date,burnup=Bu,relative_power=P_rel,critical_boron_density=CB,axial_power_shift=AO)
+            op=OperationDailyParameter.objects.create(cycle=cycle,date=Date,burnup=Bu,relative_power=P_rel,critical_boron_density=CB,axial_power_shift=AO)
             for cluster in cluster_lst:
                 cra=ControlRodCluster.objects.get(reactor_model=reactor_model,cluster_name=cluster[0])
                 cras=ControlRodAssemblyStep.objects.create(operation=op,control_rod_cluster=cra,step=cluster[1])       

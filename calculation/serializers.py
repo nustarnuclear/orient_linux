@@ -92,7 +92,7 @@ class EgretTaskSerializer(serializers.ModelSerializer):
     result_path=serializers.FilePathField(path='')
     class Meta:
         model = EgretTask
-        fields = ( 'pk','task_name','task_type','egret_input_file','task_status','remark','user','result_path','pre_egret_task','visibility')       
+        fields = ( 'pk','task_name','task_type','egret_input_file','task_status','remark','user','result_path','pre_egret_task','visibility','authorized')       
    
 class MultipleLoadingPatternSerializer(serializers.ModelSerializer): 
     cycle=EgretCycleSerializer()

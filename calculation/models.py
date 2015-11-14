@@ -6,6 +6,8 @@ from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,\
 from django.conf import settings
 import os
 from xml.dom import minidom 
+from django.core.exceptions import ValidationError
+from django.utils.translation import ugettext_lazy as _
 
 # Create your models here.
 
@@ -217,7 +219,6 @@ class Ibis(BaseModel):
     reactor_model=models.ForeignKey('tragopan.ReactorModel')
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
-    #ibis_file=models.FileField(upload_to=get_ibis_upload_path)
     ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
     
     
@@ -228,12 +229,30 @@ class Ibis(BaseModel):
         order_with_respect_to='reactor_model'
         verbose_name_plural='Ibis'
         
+    #validating objects(clean_fields->clean->validate_unique)
+    def clean(self):
+        ibis_name=self.ibis_name
+        ibis_path=self.ibis_path
+        units=self.plant.units.all()
+        reactor_model=self.reactor_model
+        reactor_model_lst=[unit.reactor_model for unit in units]
+        if reactor_model not in reactor_model_lst:
+            raise ValidationError({'plant':_('plant and reactor model are not compatible'), 
+                                 'reactor_model':_('plant and reactor model are not compatible'),                          
+            })
+            
+        if os.path.basename(ibis_path).split(sep='.',maxsplit=1)[0] !=ibis_name:
+            raise ValidationError({'ibis_name':_('your ibis name should be the pathname stripped .TAB'),               
+            })
+                
+        
     def get_non_bpa_basefuel(self):
         basefuels=self.base_fuels.all()
 
         for basefuel in basefuels:
             if not basefuel.if_insert_burnable_fuel():
                 return basefuel
+            
     def get_bpa_basefuel(self):
         bpa=self.burnable_poison_assembly
         if bpa:
@@ -263,10 +282,21 @@ class RobinFile(BaseModel):
     def __str__(self):
         return '{}'.format(self.fuel_assembly_type)
 
+
+def fuel_identity_default():
+    last_fuel_identity=BaseFuel.objects.filter(offset=False).last().fuel_identity
+    str_num=last_fuel_identity[1:]
+    try:
+        num=int(str_num)+1
+        return 'B'+str(num)
+    except:
+        return None
+        
     
+
 class BaseFuel(BaseModel):
     plant=models.ForeignKey('tragopan.Plant')
-    fuel_identity=models.CharField(max_length=32)
+    fuel_identity=models.CharField(max_length=32,unique=True,default=fuel_identity_default)
     quadrant_one=models.ForeignKey('self',blank=True,null=True,related_name='one')
     quadrant_two=models.ForeignKey('self',blank=True,null=True,related_name='two')
     quadrant_three=models.ForeignKey('self',blank=True,null=True,related_name='three')
@@ -360,16 +390,28 @@ class EgretTask(BaseModel):
     
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32)
-    loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
+    loading_pattern=models.ForeignKey('MultipleLoadingPattern',)
     result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     pre_egret_task=models.ForeignKey('self',related_name='post_egret_tasks',blank=True,null=True)
     visibility=models.PositiveSmallIntegerField(choices=VISIBILITY_CHOICES,default=2)
+    authorized=models.BooleanField(default=False)
     
     class Meta:
         db_table='egret_task'
         
+        
+    #validating objects(clean_fields->clean->validate_unique)
+    def clean(self):
+        loading_pattern=self.loading_pattern
+        pre_egret_task=self.pre_egret_task
+        if pre_egret_task:
+            pre_loading_pattern=pre_egret_task.loading_pattern
+            if loading_pattern.get_pre_loading_pattern()!=pre_loading_pattern:
+                raise ValidationError({'loading_pattern':_('loading_pattern and pre_egret_task are not compatible'),
+                                       'pre_egret_task':_('loading_pattern and pre_egret_task are not compatible'),                
+                })
     
     def get_cycle(self):
         cycle=self.loading_pattern.cycle

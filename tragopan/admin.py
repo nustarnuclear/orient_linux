@@ -1,9 +1,9 @@
 from django.contrib import admin
 from .models import *
 from django.db.models import Sum,F,Count
+from django.utils.translation import ugettext_lazy as _
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
-from django.utils.translation import ugettext_lazy as _
 # Register your models here.
 
 #################################################
@@ -18,6 +18,7 @@ class NuclideInline(admin.TabularInline):
     exclude=('reference','remark')
     #list_display=('__str__','atom_mass','abundance',)
     readonly_fields=('atom_mass','abundance')
+    
     
         
 class ElementAdmin(admin.ModelAdmin):
@@ -176,9 +177,19 @@ class MaterialAdmin(admin.ModelAdmin):
         return ()
 admin.site.register(Material, MaterialAdmin)
 
-class VendorAdmin(admin.ModelAdmin):
+
+class VendorResource(resources.ModelResource):
+
+    class Meta:
+        model = Vendor
+        import_id_fields = ('nameCH',)
+        fields=('nameCH','nameEN','abbrCH','abbrEN','type')
+        export_order = ('type','nameCH','nameEN','abbrCH','abbrEN',)
+
+class VendorAdmin(ImportExportModelAdmin):
+    resource_class = VendorResource
     exclude=('remark',)
-    list_display=('nameEN','nameCH','type')
+    list_display=('pk','nameEN','nameCH','type')
     list_display_links=('nameEN','nameCH')
     
     def get_readonly_fields(self,request, obj=None):
@@ -376,8 +387,8 @@ class FuelAssemblyLoadingPatternInline(admin.TabularInline):
 class FuelAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_filter=['fuel_assembly','reactor_position','cycle']
-    list_display=['cycle','reactor_position','fuel_assembly','get_previous']
-    
+    list_display=['cycle','reactor_position','fuel_assembly',]
+    list_select_related = ('cycle', 'fuel_assembly')
     raw_id_fields = ("fuel_assembly",)
     ordering=('cycle','reactor_position')
     #list_editable=("fuel_assembly",)
@@ -402,6 +413,7 @@ class BurnablePoisonAssemblyLoadingPatternInline(admin.TabularInline):
     model=BurnablePoisonAssemblyLoadingPattern
     raw_id_fields=('burnable_poison_assembly',)    
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        print(request.body,request.path,request.POST,request.META)
         if db_field.name == "reactor_position":
             try:
                 kwargs["queryset"] = ReactorPosition.objects.filter(reactor_model=Cycle.objects.get(pk=int(request.path.split(sep='/')[-2])).unit.reactor_model)
@@ -424,8 +436,8 @@ class SourceAssemblyLoadingPatternInline(admin.TabularInline):
 class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
-    inlines=[BurnablePoisonAssemblyLoadingPatternInline,ControlRodAssemblyLoadingPatternInline]
-    list_display=('pk','__str__','get_burnable_poison_assembly_num','get_pre_cycle','get_cra_cycle')
+    #inlines=[BurnablePoisonAssemblyLoadingPatternInline,ControlRodAssemblyLoadingPatternInline]
+    list_display=('pk','__str__','get_pre_cycle','get_cra_cycle')
    
     
     def get_burnable_poison_assembly_num(self,obj):
@@ -529,26 +541,72 @@ class FuelAssemblyStatusListFilter(admin.SimpleListFilter):
         """
         # Compare the requested value (either '80s' or '90s')
         # to decide how to filter the queryset.
+        query_lst=list(queryset)
       
         if self.value() == '1':
-            return queryset.filter(get_fuel_assembly_status='In core')
+            
+            for item in queryset:
+                if item.get_fuel_assembly_status()!='In core':
+                    query_lst.remove(item)
+            return query_lst
         if self.value() == '2':
             for item in queryset:
                 if item.get_fuel_assembly_status()!='Spent fuel pool':
-                    queryset.remove(item)
+                    query_lst.remove(item)
             return queryset
         
         if self.value() == '3':
             for item in queryset:
                 if item.get_fuel_assembly_status()!='Fresh':
-                    queryset.remove(item)
-            return queryset
+                    query_lst.remove(item)
+            return query_lst
+
+
+      
     
 class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
+    actions=['make_disable','make_broken','make_broken_and_disable']
     exclude=('remark',)
-    list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position',FuelAssemblyStatusListFilter]
-    list_display=['__str__','unit','get_all_loading_patterns','get_fuel_assembly_status','broken','availability']
-    search_fields=('=PN',)
+    list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position','availability','broken',FuelAssemblyStatusListFilter]
+    list_display=['pk','type','unit','get_all_loading_patterns','broken','availability',]
+    search_fields=('=id',)
+    
+    #actions
+    def make_disable(self, request, queryset):
+        if request.user.is_superuser:
+            rows_updated=queryset.update(availability=False)
+            if rows_updated == 1:
+                message_bit = "1 fuel assembly was"
+            else:
+                message_bit = "%s fuel assemblies were" % rows_updated
+            self.message_user(request, "%s successfully marked as disabled." % message_bit)
+        else:
+            self.message_user(request, "you have no permission")   
+    make_disable.short_description='Mark selected fuel assemblies disabled'  
+    
+    def make_broken(self, request, queryset):
+        if request.user.is_superuser:
+            rows_updated=queryset.update(broken=True)
+            if rows_updated == 1:
+                message_bit = "1 fuel assembly was"
+            else:
+                message_bit = "%s fuel assemblies were" % rows_updated
+            self.message_user(request, "%s successfully marked as broken." % message_bit)
+        else:
+            self.message_user(request, "you have no permission")   
+    make_broken.short_description='Mark selected fuel assemblies broken'
+    
+    def make_broken_and_disable(self, request, queryset):
+        if request.user.is_superuser:
+            rows_updated=queryset.update(broken=True,availability=False)
+            if rows_updated == 1:
+                message_bit = "1 fuel assembly was"
+            else:
+                message_bit = "%s fuel assemblies were" % rows_updated
+            self.message_user(request, "%s successfully marked as broken and disable." % message_bit)
+        else:
+            self.message_user(request, "you have no permission")   
+    make_broken_and_disable.short_description='Mark selected fuel assemblies broken and disabled'
 admin.site.register(FuelAssemblyRepository, FuelAssemblyRepositoryAdmin)
 
 #fuel assembly type information
@@ -759,13 +817,13 @@ class ControlRodAssemblyStepInline(admin.TabularInline):
     model=ControlRodAssemblyStep
 
 #operation data import 
-        
-class OperationParameterAdmin(admin.ModelAdmin):
+     
+class OperationDailyParameterAdmin(admin.ModelAdmin):
 
     exclude=('remark',)
     list_display=('cycle','date','burnup','relative_power','critical_boron_density','axial_power_shift',)
     inlines=[ControlRodAssemblyStepInline,]
-admin.site.register(OperationParameter, OperationParameterAdmin)
+admin.site.register(OperationDailyParameter, OperationDailyParameterAdmin)
 
 
         

@@ -137,6 +137,12 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
     list_display=('user','task_name','task_type','get_cycle','time_inserted')
+    list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
+    def get_queryset(self, request):
+        qs = super(EgretTaskAdmin, self).get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(user=request.user)
 admin.site.register(EgretTask, EgretTaskAdmin)
 
 class EgretInputXMLAdmin(admin.ModelAdmin):  
@@ -147,5 +153,10 @@ admin.site.register(EgretInputXML, EgretInputXMLAdmin)
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 
     list_display=('pk','name',)
+    def get_queryset(self, request):
+        qs = super(MultipleLoadingPatternAdmin, self).get_queryset(request)
+        if request.user.is_superuser:
+            return qs
+        return qs.filter(user=request.user)
 admin.site.register(MultipleLoadingPattern, MultipleLoadingPatternAdmin)      
 

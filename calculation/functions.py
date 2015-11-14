@@ -1,11 +1,10 @@
 import os
 from django.core.files import File
-from tragopan.models import Plant,UnitParameter,Cycle,FuelAssemblyLoadingPattern,ControlRodAssemblyLoadingPattern
-from calculation.models import PreRobinInput,Ibis,BaseFuelComposition,FuelAssemblyType,BaseFuel,EgretInputXML
+from tragopan.models import Plant,UnitParameter
+from calculation.models import PreRobinInput,Ibis,BaseFuelComposition,FuelAssemblyType,BaseFuel
 from xml.dom import minidom
 from tragopan.functions import fuel_assembly_loading_pattern
 from django.conf import settings
-from django.contrib.auth.models import User
 media_root=settings.MEDIA_ROOT
 
 def generate_prerobin_input(input_id):

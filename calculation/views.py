@@ -1,5 +1,4 @@
 import os
-import shutil
 from django.conf import settings
 from django.core.files import File
 from rest_framework.response import Response
@@ -10,7 +9,6 @@ from tragopan.models import Plant,UnitParameter,Cycle
 from calculation.models import EgretTask,MultipleLoadingPattern,EgretInputXML
 from xml.dom import minidom
 from subprocess import Popen
-from rest_framework import status
 from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.parsers import FileUploadParser
 from rest_framework_xml.parsers import XMLParser
@@ -23,7 +21,7 @@ from django.db.models import Q
 @parser_classes((FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
-def generate_egret_task(request,format=None):
+def egret_task(request,format=None):
     if request.method == 'DELETE':
         request_user=request.user
         query_params=request.query_params
@@ -35,7 +33,7 @@ def generate_egret_task(request,format=None):
             #check if you have delete permission
             if request_user!=delete_user:
                 error_message={'error_message':"you cannot delete others' task"}
-                return Response(data=error_message,status=404)
+                return Response(data=error_message,status=550)
                 
             delete_task.delete()     
             return Response(data={'sucess_message':'delete finished'},status=200)
@@ -117,7 +115,9 @@ def generate_egret_task(request,format=None):
             
         #start creating egret task
         try:
-            task_instance=EgretTask.objects.create(task_name=task_name,task_type=task_type,user=user,remark=remark,egret_input_file=input_file,loading_pattern=loading_pattern,pre_egret_task=pre_task,visibility=visibility)
+            task_instance=EgretTask(task_name=task_name,task_type=task_type,user=user,remark=remark,egret_input_file=input_file,loading_pattern=loading_pattern,pre_egret_task=pre_task,visibility=visibility)
+            task_instance.full_clean()
+            task_instance.save()
             current_workdirectory=task_instance.get_cwd()
             workspace_dir=os.path.join(current_workdirectory,'.workspace')
             xml_path=os.path.join(workspace_dir,task_instance.get_lp_res_filename()+'.xml')
@@ -184,15 +184,15 @@ def generate_egret_task(request,format=None):
             doc.writexml(run_egret_file)
             run_egret_file.close()
        
-            #you can give other user(default is public)
+
             follow_task_chain=task_instance.get_follow_task_chain()
             for follow_task in follow_task_chain:
                 cwd=follow_task.get_cwd()
                 lp_res_filename=follow_task.get_lp_res_filename()
                 lp_file=os.path.join(cwd,lp_res_filename+'.LP')
                 res_file=os.path.join(cwd,lp_res_filename+'.RES')
-                shutil.copy(lp_file, current_workdirectory, follow_symlinks=True)
-                shutil.copy(res_file, current_workdirectory, follow_symlinks=True)
+                os.link(lp_file,lp_res_filename+'.LP' )
+                os.link(res_file,lp_res_filename+'.RES')
         except Exception as e:
             error_message={'error_message':e}
             print(e)
@@ -218,15 +218,28 @@ def generate_egret_task(request,format=None):
         query_params=request.query_params
         try:
             task_pk=query_params['pk']
-            visibility=int(query_params['visibility'])
             task=EgretTask.objects.get(pk=task_pk)
-            if task.user!=request.user:
-                error_message={'error_message':"you have no permission"}
-                print(error_message)
-                return Response(data=error_message,status=404)
+            if 'visibility' in query_params:
+                visibility=int(query_params['visibility'])
+                if task.user!=request.user:
+                    error_message={'error_message':"you have no permission"}
+                    print(error_message)
+                    return Response(data=error_message,status=550)
                 
-            task.visibility=visibility
-            task.save()
+                task.visibility=visibility
+                task.save()
+            
+            if 'authorized' in query_params:
+                authorized=query_params['authorized']
+                task_name=query_params['task_name']
+                if not request.user.is_superuser:
+                    error_message={'error_message':"you have no permission"}
+                    print(error_message)
+                    return Response(data=error_message,status=550)
+                
+                task.authorized=int(authorized)
+                task.task_name=task_name
+                task.save()          
             success_message={'success_message':'your request has been handled successfully'}
             return Response(data=success_message,status=200,)
         except Exception as e:
@@ -240,10 +253,13 @@ def generate_egret_task(request,format=None):
 @parser_classes((FileUploadParser,))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
-def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
-   
-    
+def multiple_loading_pattern(request,format=None):
     try:
+        query_params=request.query_params
+        plantname=query_params['plant']
+        unit_num=query_params['unit']
+        cycle_num=query_params['cycle']
+    
         plant=Plant.objects.get(abbrEN=plantname)
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
@@ -286,7 +302,8 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
             
             loading_pattern=MultipleLoadingPattern.objects.get(name=name,cycle=cycle,user=request.user,)
         except Exception as e:
-            return Response(data={'erro_message':e},status=404)
+            print(e)
+            return Response(data={'error_message':e},status=404)
         loading_pattern.xml_file.delete()
         loading_pattern.xml_file=file
         loading_pattern.save()
@@ -297,20 +314,25 @@ def generate_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
 @parser_classes((XMLParser,))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
-def upload_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
-   
-    
+def upload_loading_pattern(request,format=None):
     try:
+        query_params=request.query_params
+        plantname=query_params['plant']
+        unit_num=query_params['unit']
+        cycle_num=query_params['cycle']
+    
         plant=Plant.objects.get(abbrEN=plantname)
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
-    except:
-        return Response(status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        error_message={'error_message':e}
+        print(e)
+        return Response(data=error_message,status=404)
     
     
     
     if request.method == 'POST':
-        name=request.query_params['name']
+        name=query_params['name']
         data=request.data
     
         doc = minidom.Document()
@@ -326,12 +348,11 @@ def upload_loading_pattern(request, plantname,unit_num,cycle_num,format=None):
             [n,row,column,position_or_type]=item.split()
             
             nth_cycle=cycle.get_nth_cycle(int(n))
-            print(nth_cycle,row,column,position_or_type)
             try:
  
                 position_node=position_node_by_excel(nth_cycle,int(row),int(column),position_or_type)
             except Exception as e:
-                error_message={'error':str(e)}
+                error_message={'error_message':e}
                 print(error_message)
                 return Response(data=error_message,status=404)
         

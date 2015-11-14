@@ -44,7 +44,7 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'tragopan',
     'calculation',
-    #'import_export',
+    'import_export',
     #'oauth2_provider',
     'rest_framework',
     'rest_framework.authtoken',

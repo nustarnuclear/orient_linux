@@ -6,10 +6,16 @@ from django.conf import settings
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from rest_framework.authtoken.models import Token
+from django.core.exceptions import ValidationError
+from django.utils.translation import ugettext_lazy as _
 
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
+        Token.objects.create(user=instance)
+    else:
+        token=Token.objects.get(user=instance)
+        token.delete()
         Token.objects.create(user=instance)
 
     
@@ -279,18 +285,22 @@ class ReactorModel(BaseModel):
 
     
     def __str__(self):
-        return '{}'.format(self.name)     
+        return '{}'.format(self.name)  
+    
+  
 
 class ReactorPosition(BaseModel):
     reactor_model=models.ForeignKey(ReactorModel,related_name='positions',related_query_name='position')
     row=models.PositiveSmallIntegerField()
     column=models.PositiveSmallIntegerField()
-    #control_rod_mechanism=models.BooleanField(default=False,help_text='whether contain control rod mechanism',verbose_name='Whether can be inserted control rod assembly?')
-    control_rod_cluster=models.ForeignKey('ControlRodCluster',related_name='positions',related_query_name='position',blank=True,null=True)
+    control_rod_cluster=models.ForeignKey('ControlRodCluster',related_name='positions',related_query_name='position',blank=True,null=True,)
+    
     class Meta:
         db_table='reactor_position'
         unique_together=('reactor_model','row','column')
         ordering=['row','column']
+        
+   
         
         
     def get_quadrant_symbol(self):
@@ -490,9 +500,7 @@ class UnitParameter(BaseModel):
         unique_together = ('plant', 'unit')
         
     def get_current_cycle(self):
-        cycles=self.cycles.all()
-        max_cycle=cycles.aggregate(Max('cycle'))['cycle__max']
-        result_cycle=cycles.get(cycle=max_cycle)
+        result_cycle=Cycle.get_max_cycle_by_unit(self) 
         while result_cycle:
             if result_cycle.fuel_assembly_loading_patterns.all():
                 return result_cycle
@@ -514,6 +522,19 @@ class Cycle(BaseModel):
         db_table = 'cycle'
         unique_together = ('cycle', 'unit')
         verbose_name='Operation cycle'
+        
+    @classmethod
+    def get_max_cycle_by_unit(cls,unit):
+        return cls.objects.filter(unit=unit).order_by('cycle').last()
+        
+    #validating objects(clean_fields->clean->validate_unique)
+    def clean(self):
+        cycle_num=self.cycle
+        if cycle_num!=1:
+            pre_cycle=self.get_pre_cycle()
+            if not pre_cycle:
+                raise ValidationError({'cycle':_('the cycle number is not consistent')})
+            
         
     def get_pre_cycle(self):
         try:
@@ -572,6 +593,13 @@ class FuelAssemblyLoadingPattern(BaseModel):
        
         unique_together=(('cycle','reactor_position'),('cycle','fuel_assembly'))
         verbose_name='Incore fuel loading pattern'
+        
+    def clean(self):
+        if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
+            raise ValidationError({'cycle':_('the cycle and reactor_position are not compatible'),
+                                   'reactor_position':_('the cycle and reactor_position are not compatible')
+                                   
+            })
     
     def get_previous(self):
         fuel_assembly=self.fuel_assembly
@@ -684,7 +712,7 @@ class FuelAssemblyType(BaseModel):
 
     
 class FuelAssemblyRepository(BaseModel):
-    PN=models.CharField(max_length=50,unique=True,blank=True,null=True)
+    PN=models.CharField(max_length=50,blank=True,null=True)
     type=models.ForeignKey(FuelAssemblyType)
     batch_number=models.PositiveSmallIntegerField(blank=True,null=True)
     manufacturing_date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True)
@@ -693,13 +721,14 @@ class FuelAssemblyRepository(BaseModel):
     availability=models.BooleanField(default=True)
     broken=models.BooleanField(default=False)
     unit=models.ForeignKey(UnitParameter,related_name='fuel_assemblies',blank=True,null=True)
+    
     class Meta:
         db_table='fuel_assembly_repository'
         verbose_name_plural='Fuel assembly repository'
         
     @staticmethod
     def autocomplete_search_fields():
-        return ("type__iexact", "PN__icontains",)
+        return ("pk__iexact", "PN__icontains",)
         
     def get_first_loading_pattern(self):
         cycle_positions=self.cycle_positions.all()
@@ -716,6 +745,10 @@ class FuelAssemblyRepository(BaseModel):
     get_all_loading_patterns.short_description='all_loading_patterns'
     
     @property
+    def plant(self):
+        return self.unit.plant
+    
+
     def get_fuel_assembly_status(self):
         loading_patterns=self.cycle_positions.all()
         current_cycle=self.unit.get_current_cycle()
@@ -1200,6 +1233,13 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
         verbose_name='Burnable absorber assembly'
         verbose_name_plural='Burnable absorber assemblies'
         
+    def clean(self):
+        if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
+            raise ValidationError({'cycle':_('the cycle and reactor_position are not compatible'),
+                                   'reactor_position':_('the cycle and reactor_position are not compatible')
+                                   
+            }) 
+        
     def get_sysmetry_quadrant(self):
         reactor_position=self.reactor_position
         reactor_position_symbol=reactor_position.get_quadrant_symbol()
@@ -1298,7 +1338,12 @@ class ControlRodAssemblyLoadingPattern(BaseModel):
     class Meta:
         db_table='control_rod_assembly_loading_pattern'
         
-     
+    def clean(self):
+        if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
+            raise ValidationError({'cycle':_('the cycle and reactor_position are not compatible'),
+                                   'reactor_position':_('the cycle and reactor_position are not compatible')
+                                   
+            })
         
     
     def __str__(self):
@@ -1382,25 +1427,24 @@ class NozzlePlugRodMap(BaseModel):
     def __str__(self):
         return '{} {}'.format(self.nozzle_plug_assembly, self.nozzle_plug_rod)
     
- 
-class OperationParameter(BaseModel):
+
+class OperationDailyParameter(BaseModel):
     cycle=models.ForeignKey(Cycle)
     date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True) 
     burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU')
     relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
     critical_boron_density=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm')
-    
     axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
     control_rod_step=models.ManyToManyField(ControlRodCluster,through='ControlRodAssemblyStep')
     
     class Meta:
-        db_table='operation_parameter'
+        db_table='operation_daily_parameter'
         order_with_respect_to = 'cycle'
     def __str__(self):
-        return '{} {}'.format(self.cycle, self.date)  
+        return '{}'.format(self.date)  
     
 class ControlRodAssemblyStep(BaseModel):
-    operation=models.ForeignKey(OperationParameter)
+    operation=models.ForeignKey(OperationDailyParameter)
     control_rod_cluster=models.ForeignKey(ControlRodCluster)
     step=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)])
     
@@ -1409,10 +1453,21 @@ class ControlRodAssemblyStep(BaseModel):
         
     def __str__(self):
         return '{} {}'.format(self.control_rod_cluster, self.step)
-
-
-
-        
+'''
+class OperationMonthlyParameter(BaseModel):
+    cycle=models.ForeignKey(Cycle)
+    date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True) 
+    burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU')
+    relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
+    critical_boron_density=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm')
+    axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
+    
+    class Meta:
+        db_table='operation_monthly_parameter'
+        order_with_respect_to = 'cycle'
+    def __str__(self):
+        return '{}'.format(self.date)  
+'''        
 
         
     
