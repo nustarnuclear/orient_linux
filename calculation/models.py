@@ -386,6 +386,7 @@ class EgretTask(BaseModel):
     TASK_STATUS_CHOICES=(
                          (0,'not yet'),
                          (1,'finished'),
+                         (2,'suspended'),
     )
     
     task_name=models.CharField(max_length=32)
@@ -397,6 +398,9 @@ class EgretTask(BaseModel):
     pre_egret_task=models.ForeignKey('self',related_name='post_egret_tasks',blank=True,null=True)
     visibility=models.PositiveSmallIntegerField(choices=VISIBILITY_CHOICES,default=2)
     authorized=models.BooleanField(default=False)
+    start_time=models.DateTimeField(blank=True,null=True)
+    end_time=models.DateTimeField(blank=True,null=True)
+    calculation_identity=models.CharField(max_length=128,blank=True)
     
     class Meta:
         db_table='egret_task'
@@ -416,6 +420,7 @@ class EgretTask(BaseModel):
     def get_cycle(self):
         cycle=self.loading_pattern.cycle
         return cycle
+    get_cycle.short_description='cycle'
      
     def get_cwd(self):
         abs_file_path=self.egret_input_file.path
@@ -437,6 +442,21 @@ class EgretTask(BaseModel):
             cur_task=cur_task.pre_egret_task  
              
         return follow_task_chain
+    
+    def get_input_filename(self):
+        cycle=self.get_cycle()
+        unit=cycle.unit
+        return 'U{}C{}.xml'.format(cycle.cycle,unit.unit)
+    
+    @property
+    def time_cost(self):
+        start_time=self.start_time
+        end_time=self.end_time
+        if start_time and end_time:
+            time_cost=self.end_time-start_time
+        else:
+            time_cost=None
+        return time_cost
     
     def __str__(self):
     

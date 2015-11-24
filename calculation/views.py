@@ -1,4 +1,5 @@
 import os
+import time
 from django.conf import settings
 from django.core.files import File
 from rest_framework.response import Response
@@ -8,14 +9,14 @@ from calculation.serializers import EgretTaskSerializer,MultipleLoadingPatternSe
 from tragopan.models import Plant,UnitParameter,Cycle
 from calculation.models import EgretTask,MultipleLoadingPattern,EgretInputXML
 from xml.dom import minidom
-from subprocess import Popen
+import signal
 from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.parsers import FileUploadParser
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.authentication import TokenAuthentication
 from django.db.models import Q
-        
- 
+from calculation.tasks import EgretCalculationTask
+
  
 @api_view(('POST','GET','DELETE','PUT'))
 @parser_classes((FileUploadParser,XMLParser))
@@ -25,22 +26,57 @@ def egret_task(request,format=None):
     if request.method == 'DELETE':
         request_user=request.user
         query_params=request.query_params
-        task_pk=query_params['pk']
-        
-        try:
-            delete_task=EgretTask.objects.get(pk=task_pk)
-            delete_user=delete_task.user
-            #check if you have delete permission
-            if request_user!=delete_user:
-                error_message={'error_message':"you cannot delete others' task"}
-                return Response(data=error_message,status=550)
-                
-            delete_task.delete()     
-            return Response(data={'sucess_message':'delete finished'},status=200)
-        except Exception as e:
-            print(e)
-            error_message={'error_message':e}
-            return Response(data=error_message,status=404)
+        #stop operation
+        if 'pid' in query_params:
+            
+            #from orient.celery import app
+            #calculation_identity=query_params['calculation_identity']
+            pid=int(query_params['pid'])
+            #app.control.revoke(calculation_identity,terminate=True)
+            os.kill(pid,signal.SIGKILL)
+            try:
+                task_pk=query_params['pk']
+                suspend_task=EgretTask.objects.get(pk=task_pk)
+                suspend_user=suspend_task.user
+                #check if you have delete permission
+                if request_user!=suspend_user:
+                    error_message={'error_message':"you cannot stop others' task"}
+                    return Response(data=error_message,status=550)
+    
+            except Exception as e:
+                print(e)
+                error_message={'error_message':e}
+                return Response(data=error_message,status=404)
+            while True:
+                if suspend_task.task_status==1:
+                    suspend_task.task_status=2
+                    suspend_task.save()
+                    break
+                else:
+                    time.sleep(5)
+                    suspend_task.refresh_from_db()
+            return Response(data={'sucess_message':'stop operation finished'},status=200)
+            
+            
+        #delete operation      
+        if 'pk' in query_params:
+            task_pk=query_params['pk']
+            
+            
+            try:
+                delete_task=EgretTask.objects.get(pk=task_pk)
+                delete_user=delete_task.user
+                #check if you have delete permission
+                if request_user!=delete_user:
+                    error_message={'error_message':"you cannot delete others' task"}
+                    return Response(data=error_message,status=550)
+                    
+                delete_task.delete()     
+                return Response(data={'sucess_message':'delete operation finished'},status=200)
+            except Exception as e:
+                print(e)
+                error_message={'error_message':e}
+                return Response(data=error_message,status=404)
         
      
     if request.method == 'GET':
@@ -57,11 +93,11 @@ def egret_task(request,format=None):
                 return Response(data={})
             
             serializer = EgretTaskSerializer(task_list,many=True)
-            return Response(data=serializer.data,headers={'cmd':2})
+            return Response(data=serializer.data)
         except Exception as e:
             print(e)
             error_message={'error_message':e}
-            return Response(data=error_message,status=404,headers={'cmd':2})
+            return Response(data=error_message,status=404)
         
     if request.method == 'POST':
         query_params=request.query_params
@@ -179,7 +215,7 @@ def egret_task(request,format=None):
             ibis_path_xml=doc.createElement('ibis_dir')
             ibis_path_xml.appendChild(doc.createTextNode(ibis_dir))
             run_egret_xml.appendChild(ibis_path_xml)
-            input_filename='U{}C{}.xml'.format(unit_num,cycle_num)
+            input_filename=task_instance.get_input_filename()
             run_egret_file=open(input_filename,'w')
             doc.writexml(run_egret_file)
             run_egret_file.close()
@@ -193,26 +229,20 @@ def egret_task(request,format=None):
                 res_file=os.path.join(cwd,lp_res_filename+'.RES')
                 os.link(lp_file,lp_res_filename+'.LP' )
                 os.link(res_file,lp_res_filename+'.RES')
+                
+            #begin egret calculation
+            egret_calculation_instance=EgretCalculationTask(egret_instance=task_instance)
+            calculation_identity=egret_calculation_instance.start_calculation()
         except Exception as e:
             error_message={'error_message':e}
             print(e)
             return Response(data=error_message,status=404)
         
         
-        
-        #begin egret calculation
-        process=Popen(['runegret','-i',input_filename])
-        return_code=process.wait()
-        
-        success_message={'task_ID':task_instance.pk,'task_name':task_name,'task_type':task_type,}
-        success_message['xml_path']=xml_path
+        success_message={'pk':task_instance.pk,'task_name':task_name,'task_type':task_type,'calculation_identity':calculation_identity}
+        success_message['egret_input_file']=task_instance.egret_input_file.url
         success_message['success_message']='your request has been handled successfully'
-        
-        task_instance.task_status=1
-        task_instance.save()
-        
-        if return_code is not None:
-            return Response(data=success_message,status=200,headers={'cmd':3})
+        return Response(data=success_message,status=200)
         
     if request.method =='PUT':
         query_params=request.query_params

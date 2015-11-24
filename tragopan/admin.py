@@ -563,15 +563,32 @@ class FuelAssemblyStatusListFilter(admin.SimpleListFilter):
 
 
       
+#action with parameter
+from django.contrib.admin.helpers import ActionForm
+from django import forms
+class BatchNumberForm(ActionForm):
+    batch_number = forms.IntegerField(required=False,label='batch number',min_value=1)
     
+
+
 class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
-    actions=['make_disable','make_broken','make_broken_and_disable']
+    actions=['update_batch_number','make_disable','make_broken','make_broken_and_disable']
+    action_form = BatchNumberForm
     exclude=('remark',)
-    list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position','availability','broken',FuelAssemblyStatusListFilter]
-    list_display=['pk','type','unit','get_all_loading_patterns','broken','availability',]
+    list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position','availability','broken','batch_number',FuelAssemblyStatusListFilter]
+    list_display=['pk','type','unit','batch_number']
     search_fields=('=id',)
     
     #actions
+    def update_batch_number(self, request, queryset):
+        batch_number = int(request.POST['batch_number'])
+        if batch_number<=0:
+            self.message_user(request, "you can not input a negative number" ,)
+        else:
+            queryset.update(batch_number=batch_number)
+            self.message_user(request, "Successfully updated batch number for %d rows" % queryset.count(),)
+    update_batch_number.short_description = 'Update batch number of selected rows by input batch number besides'
+
     def make_disable(self, request, queryset):
         if request.user.is_superuser:
             rows_updated=queryset.update(availability=False)

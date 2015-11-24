@@ -738,6 +738,11 @@ class FuelAssemblyRepository(BaseModel):
                 first_loading_pattern=item
         return first_loading_pattern
     
+    def set_batch_number(self):
+        first_loading_pattern=self.get_first_loading_pattern()
+        self.batch_number=first_loading_pattern.cycle.cycle
+        self.save()
+    
     def get_all_loading_patterns(self):
         cycle_positions=self.cycle_positions.all()
         loading_pattern_lst=["C{} {}".format(item.cycle.cycle,item.reactor_position) for item in cycle_positions]
