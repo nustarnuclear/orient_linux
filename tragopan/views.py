@@ -267,13 +267,15 @@ def fuel_assembly_detail(request,format=None):
             unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
             cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
             fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
-            falp=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,fuel_assembly=fuel_assembly)
+            
             if request.method == 'GET':
                 serializer1=FuelAssemblyRepositorySerializer(fuel_assembly)
-                
-                serializer2=FuelAssemblyLoadingPatternSerializer(falp)
                 data=serializer1.data
-                data.update(serializer2.data)
+                if FuelAssemblyLoadingPattern.objects.filter(cycle=cycle,fuel_assembly=fuel_assembly):
+                    falp=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,fuel_assembly=fuel_assembly)
+                    serializer2=FuelAssemblyLoadingPatternSerializer(falp)
+                    data.update(serializer2.data)
+                    
                 return Response(data,status=200)
         except Exception as e:
             print(e)

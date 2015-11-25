@@ -107,7 +107,7 @@ class BaseFuelAssemblySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = FuelAssemblyType
-        fields = ( 'assembly_enrichment','model',)
+        fields = ( 'assembly_enrichment','model','name')
 
 
         
@@ -135,7 +135,7 @@ class FuelAssemblyTypeSerializer(serializers.ModelSerializer):
     model=FuelAssemblyModelSerializer()
     class Meta:
         model =  FuelAssemblyType
-        fields = ( 'pk','assembly_enrichment','model')   
+        fields = ( 'pk','assembly_enrichment','model','assembly_name')   
         
 
 class FuelAssemblyRepositorySerializer(serializers.ModelSerializer):

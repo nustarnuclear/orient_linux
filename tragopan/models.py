@@ -697,6 +697,10 @@ class FuelAssemblyType(BaseModel):
     
     class Meta:
         db_table='fuel_assembly_type'
+    
+    @property   
+    def assembly_name(self):
+        return self.model.name
         
     def __str__(self):
         obj=FuelAssemblyType.objects.get(pk=self.pk)
@@ -729,6 +733,8 @@ class FuelAssemblyRepository(BaseModel):
     @staticmethod
     def autocomplete_search_fields():
         return ("pk__iexact", "PN__icontains",)
+    
+    
         
     def get_first_loading_pattern(self):
         cycle_positions=self.cycle_positions.all()
@@ -737,6 +743,22 @@ class FuelAssemblyRepository(BaseModel):
             if item.cycle.cycle<first_loading_pattern.cycle.cycle:
                 first_loading_pattern=item
         return first_loading_pattern
+    
+    def generate_section_num(self):
+        type=self.type
+        first_loading_pattern=self.get_first_loading_pattern()
+        first_cycle=first_loading_pattern.cycle
+        
+        first_position=first_loading_pattern.reactor_position
+        try:
+            bpa_pattern=BurnablePoisonAssemblyLoadingPattern.objects.get(cycle=first_cycle,reactor_position=first_position)
+            bpa=bpa_pattern.burnable_poison_assembly
+            bp_num=bpa.get_poison_rod_num()
+        except:
+            bp_num=0
+            
+        return (type.pk,first_cycle.pk,bp_num)
+
     
     def set_batch_number(self):
         first_loading_pattern=self.get_first_loading_pattern()

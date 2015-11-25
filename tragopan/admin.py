@@ -576,7 +576,7 @@ class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
     action_form = BatchNumberForm
     exclude=('remark',)
     list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position','availability','broken','batch_number',FuelAssemblyStatusListFilter]
-    list_display=['pk','type','unit','batch_number']
+    list_display=['pk','type','unit','batch_number',]
     search_fields=('=id',)
     
     #actions

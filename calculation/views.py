@@ -36,8 +36,8 @@ def egret_task(request,format=None):
             os.kill(pid,signal.SIGKILL)
             try:
                 task_pk=query_params['pk']
-                suspend_task=EgretTask.objects.get(pk=task_pk)
-                suspend_user=suspend_task.user
+                stopped_task=EgretTask.objects.get(pk=task_pk)
+                suspend_user=stopped_task.user
                 #check if you have delete permission
                 if request_user!=suspend_user:
                     error_message={'error_message':"you cannot stop others' task"}
@@ -48,13 +48,15 @@ def egret_task(request,format=None):
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
             while True:
-                if suspend_task.task_status==1:
-                    suspend_task.task_status=2
-                    suspend_task.save()
+                if stopped_task.task_status==4:
+                    stopped_task.task_status=3
+                    stopped_task.save()
                     break
                 else:
-                    time.sleep(5)
-                    suspend_task.refresh_from_db()
+                    time.sleep(3)
+                    stopped_task.refresh_from_db()
+                    
+            print('stop operation finished')
             return Response(data={'sucess_message':'stop operation finished'},status=200)
             
             
@@ -100,17 +102,18 @@ def egret_task(request,format=None):
             return Response(data=error_message,status=404)
         
     if request.method == 'POST':
-        query_params=request.query_params
-        data=request.data
-        task_name=query_params['task_name']
-        task_type=query_params['task_type']
-        remark=query_params['remark']
-        pk=query_params['pk']
-        visibility=int(query_params['visibility'])
-        user=request.user
-        input_file=data['file']
-        
         try:
+            query_params=request.query_params
+            data=request.data
+            task_name=query_params['task_name']
+            task_type=query_params['task_type']
+            remark=query_params['remark']
+            pk=query_params['pk']
+            visibility=int(query_params['visibility'])
+            countdown=int(query_params['countdown'])
+            user=request.user
+            input_file=data['file']
+
             loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
             #reactor_model_name=unit.reactor_model.name
             cycle=loading_pattern.cycle
@@ -232,16 +235,20 @@ def egret_task(request,format=None):
                 
             #begin egret calculation
             egret_calculation_instance=EgretCalculationTask(egret_instance=task_instance)
-            calculation_identity=egret_calculation_instance.start_calculation()
+            result=egret_calculation_instance.start_calculation(countdown=countdown)
+            #print(type(result))
+            #task_instance.calculation_identity=result
+            #task_instance.save()
         except Exception as e:
             error_message={'error_message':e}
             print(e)
             return Response(data=error_message,status=404)
         
         
-        success_message={'pk':task_instance.pk,'task_name':task_name,'task_type':task_type,'calculation_identity':calculation_identity}
+        success_message={'pk':task_instance.pk,'task_name':task_name,'task_type':task_type}
         success_message['egret_input_file']=task_instance.egret_input_file.url
         success_message['success_message']='your request has been handled successfully'
+        time.sleep(1)
         return Response(data=success_message,status=200)
         
     if request.method =='PUT':
@@ -279,13 +286,30 @@ def egret_task(request,format=None):
             
         
         
-@api_view(('POST','PUT','GET'))
+@api_view(('POST','PUT','GET','DELETE'))
 @parser_classes((FileUploadParser,))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
 def multiple_loading_pattern(request,format=None):
+    query_params=request.query_params
+    if request.method=='DELETE':
+        try:
+            pk=query_params['pk']
+            mlp=MultipleLoadingPattern.objects.get(pk=pk)
+                
+            if request.user!=mlp.user and not request.user.is_superuser or mlp.authorized:
+                error_message={'error_message':"you have no permission"}
+                return Response(data=error_message,status=550)
+            mlp.delete()
+            success_message={'success_message':'your request has been handled successfully'}
+            return Response(data=success_message,status=200,)
+        except Exception as e:
+            error_message={'error_message':e}
+            return Response(data=error_message,status=404)
+            
+        
     try:
-        query_params=request.query_params
+        
         plantname=query_params['plant']
         unit_num=query_params['unit']
         cycle_num=query_params['cycle']
@@ -296,6 +320,7 @@ def multiple_loading_pattern(request,format=None):
     except Exception as e:
         error_message={'error_message':e}
         return Response(data=error_message,status=404)
+    
         
     data=request.data
  
@@ -398,4 +423,73 @@ def upload_loading_pattern(request,format=None):
             
         success_message={'success_message':'your request has been handled successfully','pk':mlp.pk,'url':mlp.xml_file.url}
         return Response(data=success_message,status=200)
+    
 
+@api_view(('PUT',))
+@parser_classes((XMLParser,))
+@renderer_classes((XMLRenderer,)) 
+@authentication_classes((TokenAuthentication,))
+def extra_updating(request,format=None):
+    '''the model to be authorized: 
+        1->EgretTask
+        2->MultipleLoadingPattern
+        
+       the update type:
+       1->visibility
+       2->authorized
+       
+       the value to update:
+       
+       pk needed to target a specified model instance
+    '''
+    if request.method =='PUT':
+        query_params=request.query_params
+        try:
+            target_type=int(query_params['target_type'])
+            update_type=int(query_params['update_type'])
+            update_value=int(query_params['update_value'])
+            pk=int(query_params['pk'])
+            
+            #target which model
+            if target_type==1:
+                target=EgretTask.objects.get(pk=pk)
+            elif target_type==2:
+                target=MultipleLoadingPattern.objects.get(pk=pk)
+            else:
+                error_message={'error_message':'the target type is not supported'}
+                print(error_message)
+                return Response(data=error_message,status=404)
+                
+            #visibility or authorized
+            if update_type==1:
+    
+                if target.user!=request.user:
+                    error_message={'error_message':"you have no permission"}
+                    print(error_message)
+                    return Response(data=error_message,status=550)
+                
+                target.visibility=update_value
+                target.save()
+            
+            elif update_type==2:
+                
+                if not request.user.is_superuser:
+                    error_message={'error_message':"you have no permission"}
+                    print(error_message)
+                    return Response(data=error_message,status=550)
+                
+                target.authorized=update_value
+                target.save()  
+            else:
+                error_message={'error_message':'the update type is not supported'}
+                print(error_message)
+                return Response(data=error_message,status=404)
+                        
+            success_message={'success_message':'your request has been handled successfully'}
+            return Response(data=success_message,status=200,)
+            
+        except Exception as e:
+            error_message={'error_message':e}
+            print(e)
+            return Response(data=error_message,status=404)
+    

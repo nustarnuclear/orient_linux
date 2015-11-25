@@ -152,7 +152,7 @@ admin.site.register(EgretInputXML, EgretInputXMLAdmin)
 
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 
-    list_display=('pk','name',)
+    list_display=('pk','name','authorized','visibility')
     def get_queryset(self, request):
         qs = super(MultipleLoadingPatternAdmin, self).get_queryset(request)
         if request.user.is_superuser:

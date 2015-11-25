@@ -384,9 +384,11 @@ VISIBILITY_CHOICES=(
        
 class EgretTask(BaseModel):
     TASK_STATUS_CHOICES=(
-                         (0,'not yet'),
-                         (1,'finished'),
+                         (0,'waiting'),
+                         (1,'calculating'),
                          (2,'suspended'),
+                         (3,'stopped'),
+                         (4,'finished'),
     )
     
     task_name=models.CharField(max_length=32)
@@ -476,6 +478,7 @@ class MultipleLoadingPattern(BaseModel):
     cycle=models.ForeignKey('tragopan.Cycle')
     xml_file=models.FileField(upload_to=get_custom_loading_pattern)
     from_database=models.BooleanField(default=False)
+    authorized=models.BooleanField(default=False)
     visibility=models.PositiveSmallIntegerField(choices=VISIBILITY_CHOICES,default=3)
     class Meta:
         db_table='multiple_loading_pattern'
