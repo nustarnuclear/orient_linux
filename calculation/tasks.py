@@ -38,6 +38,7 @@ def egret_calculation_task(egret_cal_instance):
     egret_instance.end_time=end_time
     egret_instance.task_status=4
     egret_instance.save()
+    egret_instance.mv_case_res_file()
     return return_code
 
 class EgretCalculationTask:

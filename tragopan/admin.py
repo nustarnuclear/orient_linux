@@ -842,5 +842,18 @@ class OperationDailyParameterAdmin(admin.ModelAdmin):
     inlines=[ControlRodAssemblyStepInline,]
 admin.site.register(OperationDailyParameter, OperationDailyParameterAdmin)
 
+class OperationDistributionDataInline(admin.TabularInline):
+    exclude=('remark',)
+    model=OperationDistributionData
+    
+class OperationBankPositionInline(admin.TabularInline):
+    exclude=('remark',)
+    extra=0
+    model=OperationBankPosition
+
+class OperationMonthlyParameterAdmin(admin.ModelAdmin):
+    list_display=('cycle','avg_burnup','relative_power','boron_concentration','axial_power_shift','FQ','date',)
+    inlines=[OperationBankPositionInline,]
+admin.site.register(OperationMonthlyParameter,OperationMonthlyParameterAdmin)
 
         

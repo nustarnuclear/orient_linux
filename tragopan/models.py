@@ -8,7 +8,7 @@ from django.dispatch import receiver
 from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
-
+import os
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
@@ -1480,26 +1480,60 @@ class ControlRodAssemblyStep(BaseModel):
         
     def __str__(self):
         return '{} {}'.format(self.control_rod_cluster, self.step)
-'''
-class OperationMonthlyParameter(BaseModel):
+
+
+def get_monthly_data_upload_path(instance,filename):
+    cycle=instance.cycle
+    unit=cycle.unit
+    plant=unit.plant
+    plant_name=plant.abbrEN
+    name=os.path.basename(filename)
+    return 'operation_data/{}/unit{}/cycle{}/{}'.format(plant_name,unit.unit, cycle.cycle,name) 
+
+class OperationMonthlyParameter(BaseModel):  
     cycle=models.ForeignKey(Cycle)
-    date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True) 
-    burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU')
-    relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
-    critical_boron_density=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm')
+    date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True)
+    avg_burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU',blank=True,null=True)
+    relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],blank=True,null=True)
+    boron_concentration=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm',blank=True,null=True)
     axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
+    #FDH=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:')
+    FQ=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:',blank=True,null=True)
+    raw_file=models.FileField(upload_to=get_monthly_data_upload_path,)
+    bank_position=models.ManyToManyField(ControlRodCluster,through='OperationBankPosition')
+    distribution=models.ManyToManyField(ReactorPosition,through='OperationDistributionData')
     
     class Meta:
         db_table='operation_monthly_parameter'
         order_with_respect_to = 'cycle'
     def __str__(self):
-        return '{}'.format(self.date)  
-'''        
-
+        return "{}".format(self.cycle,)
+    
+class OperationBankPosition(BaseModel):
+    operation=models.ForeignKey(OperationMonthlyParameter)
+    control_rod_cluster=models.ForeignKey(ControlRodCluster)
+    step=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)])
+    
+    class Meta:
+        db_table='operation_bank_position'
+        order_with_respect_to = 'operation'
         
+    def __str__(self):
+        return "{}".format(self.operation,)
     
-
     
     
+class OperationDistributionData(BaseModel):
+    operation=models.ForeignKey(OperationMonthlyParameter)
+    reactor_position=models.ForeignKey(ReactorPosition)
+    relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
+    FDH=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:')
+    axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
+    
+    class Meta:
+        db_table='operation_distribution_data'
+        order_with_respect_to = 'operation'
+    def __str__(self):
+        return "{}".format(self.operation,)
     
     

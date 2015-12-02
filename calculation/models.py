@@ -8,6 +8,8 @@ import os
 from xml.dom import minidom 
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
+from calculation.tasks import EgretCalculationTask
+import shutil
 
 # Create your models here.
 
@@ -369,7 +371,8 @@ def get_egret_upload_path(instance,filename):
     unit=cycle.unit
     plant=unit.plant
     plant_name=plant.abbrEN
-    name=os.path.basename(filename)
+    recalculation_depth=instance.recalculation_depth
+    name="DEPL_{}.xml".format(str(recalculation_depth).zfill(6))
     task_name=instance.task_name
     return 'egret_task/{}/{}/unit{}/cycle{}/{}/{}'.format(username,plant_name,unit.unit, cycle.cycle,task_name,name) 
 
@@ -403,7 +406,7 @@ class EgretTask(BaseModel):
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
     calculation_identity=models.CharField(max_length=128,blank=True)
-    
+    recalculation_depth=models.PositiveSmallIntegerField(default=1)
     class Meta:
         db_table='egret_task'
         
@@ -430,11 +433,44 @@ class EgretTask(BaseModel):
         return dir_path
         
     def get_lp_res_filename(self):
+        
         cycle=self.get_cycle()
         unit=cycle.unit
         plant=unit.plant
         filename="{}_U{}.{}".format(plant.abbrEN,unit.unit,str(cycle.cycle).zfill(3))   
         return filename
+    
+    def mv_case_res_file(self):
+        '''move the .LP .RES in workspace to the upper directory'''
+        name=self.get_lp_res_filename()
+        cwd=self.get_cwd()
+        depth=str(self.recalculation_depth-1).zfill(6)
+        
+        try:
+            #rename the previous .CASE and .RES files
+            os.rename(os.path.join(cwd,name+'.CASE'),os.path.join(cwd,name+'.CASE.'+depth+'.old'))
+            os.rename(os.path.join(cwd,name+'.RES'),os.path.join(cwd,name+'.RES.'+depth+'.old'))
+            
+        except FileNotFoundError:
+            #move sub directory to current directory
+            sub_cwd=os.path.join(cwd,'.workspace')
+            CASE_path=os.path.join(sub_cwd,name+'.CASE')
+            RES_path=os.path.join(sub_cwd,name+'.RES')
+            shutil.move(CASE_path,cwd)
+            shutil.move(RES_path,cwd)
+            
+            
+        
+    
+    def cp_lp_res_file(self):
+        follow_task_chain=self.get_follow_task_chain()
+        for follow_task in follow_task_chain:
+            cwd=follow_task.get_cwd()
+            lp_res_filename=follow_task.get_lp_res_filename()
+            lp_file=os.path.join(cwd,lp_res_filename+'.LP')
+            res_file=os.path.join(cwd,lp_res_filename+'.RES')
+            os.link(lp_file,lp_res_filename+'.LP' )
+            os.link(res_file,lp_res_filename+'.RES')
     
     def get_follow_task_chain(self):
         cur_task=self.pre_egret_task
@@ -446,9 +482,14 @@ class EgretTask(BaseModel):
         return follow_task_chain
     
     def get_input_filename(self):
+        recalculation_depth=self.recalculation_depth
         cycle=self.get_cycle()
         unit=cycle.unit
-        return 'U{}C{}.xml'.format(cycle.cycle,unit.unit)
+        return 'U{}C{}_{}.xml'.format(cycle.cycle,unit.unit,str(recalculation_depth).zfill(6))
+    
+    def start_calculation(self,countdown):
+        egret_calculation_instance=EgretCalculationTask(egret_instance=self)
+        egret_calculation_instance.start_calculation(countdown=countdown)
     
     @property
     def time_cost(self):
@@ -460,6 +501,90 @@ class EgretTask(BaseModel):
             time_cost=None
         return time_cost
     
+    @property
+    def egret_input_xml(self):
+        loading_pattern=self.loading_pattern
+        unit=loading_pattern.cycle.unit
+        egret_input_xml=EgretInputXML.objects.get(unit=unit)
+        return egret_input_xml
+        
+    
+    def generate_runegret_xml(self,restart=0,export=1):
+        loading_pattern=self.loading_pattern
+        #reactor_model_name=unit.reactor_model.name
+        cycle=loading_pattern.cycle
+        cycle_num=cycle.cycle
+        unit=cycle.unit
+        unit_num=unit.unit
+        plant=unit.plant
+        plant_name=plant.abbrEN
+        core_id="{}_U{}".format(plant_name,unit_num)
+        
+        #get ibis file directory
+        media_root=settings.MEDIA_ROOT
+        plant_dir=os.path.join(media_root, plant_name)
+        ibis_dir=os.path.join(plant_dir,'ibis_files')
+        
+        egret_input_xml=self.egret_input_xml
+        doc=minidom.Document()
+        run_egret_xml=doc.createElement('run_egret')
+        doc.appendChild(run_egret_xml)
+        run_egret_xml.setAttribute('core_id', core_id)
+        run_egret_xml.setAttribute('cycle',str(cycle_num))
+        #xml path
+        base_core_path=egret_input_xml.base_core_path
+        base_component_path=egret_input_xml.base_component_path
+        base_core_xml=doc.createElement('base_core')
+        base_core_xml.appendChild(doc.createTextNode(base_core_path))
+        run_egret_xml.appendChild(base_core_xml)
+        base_component_xml=doc.createElement('base_component')
+        base_component_xml.appendChild(doc.createTextNode(base_component_path))
+        run_egret_xml.appendChild(base_component_xml)
+        #loading pattern is in current working directory
+        loading_pattern_xml=doc.createElement('loading_pattern')
+        loading_pattern_xml.appendChild(doc.createTextNode('loading_pattern.xml'))
+        run_egret_xml.appendChild(loading_pattern_xml)
+        #cycle_depl
+        cycle_depl_xml=doc.createElement('cycle_depl')
+        cycle_depl_xml.setAttribute('restart', str(restart))
+        cycle_depl_file=os.path.basename(self.egret_input_file.name)
+        cycle_depl_xml.appendChild(doc.createTextNode(cycle_depl_file))
+        run_egret_xml.appendChild(cycle_depl_xml)
+        
+        #export_case
+        export_case_xml=doc.createElement('export_case')
+        export_case_xml.appendChild(doc.createTextNode(str(export)))
+        run_egret_xml.appendChild(export_case_xml)
+        
+        #ibis directory
+        ibis_path_xml=doc.createElement('ibis_dir')
+        ibis_path_xml.appendChild(doc.createTextNode(ibis_dir))
+        run_egret_xml.appendChild(ibis_path_xml)
+        input_filename=self.get_input_filename()
+        run_egret_file=open(input_filename,'w')
+        doc.writexml(run_egret_file)
+        run_egret_file.close()
+    
+    def generate_loading_pattern_xml(self):
+        egret_input_xml=self.egret_input_xml
+        loading_pattern=self.loading_pattern
+        #from database loading pattern xml
+        dividing_point=loading_pattern.get_dividing_point()
+               
+        custom_fuel_nodes=loading_pattern.get_custom_fuel_nodes()
+        
+        loading_pattern_doc=egret_input_xml.generate_loading_pattern_doc(max_cycle=dividing_point.cycle.cycle)
+        loading_pattern_node=loading_pattern_doc.documentElement
+       
+        
+        for custom_fuel_node in custom_fuel_nodes:
+            loading_pattern_node.appendChild(custom_fuel_node)
+        #custom loading pattern xml
+        
+        loading_pattern_file=open('loading_pattern.xml','w')
+        loading_pattern_doc.writexml(loading_pattern_file)
+        loading_pattern_file.close()
+        
     def __str__(self):
     
         return '{} {}'.format(self.user,self.task_name)

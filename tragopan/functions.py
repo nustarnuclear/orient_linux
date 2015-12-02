@@ -1,8 +1,9 @@
 #function that handle the transformation between weight and mole
-from decimal import Decimal
+from decimal import Decimal,InvalidOperation
 from .models import FuelAssemblyType,FuelElementTypePosition,FuelElementType,Plant,Cycle,FuelAssemblyLoadingPattern,FuelAssemblyRepository,UnitParameter,FuelAssemblyModel \
 ,ControlRodAssembly,ControlRodType,FuelAssemblyPosition,ControlRodMap,WimsNuclideData,WmisElementComposition,WmisElementData
 import os
+import re
 
 
 def generate_assembly_position(number=17):
@@ -326,3 +327,180 @@ def add_cycle(filename,plantname,unit_num):
                 
             
     return lst
+
+
+
+
+
+
+
+###########################################################################################################
+#class to handle monthly operation data
+class OperationDataHandler:
+    
+    def __init__(self,plant_name,unit_num,cycle_num,core_max,filepath):
+        self.plant_name=plant_name
+        self.unit_num=unit_num
+        self.cycle_num=cycle_num
+        self.filepath=filepath
+        self.core_max=core_max
+        
+        
+    @property   
+    def line_lst(self):
+       
+        f=open(self.filepath)
+        line_lst=f.readlines()
+        f.close()
+        return line_lst
+    
+    @property
+    def start_index_pattern(self):
+        if self.plant_name=='FJS':
+            basic_core_state_pattern=re.compile('Power Plant')
+            power_start_pattern=re.compile('RADIAL MAP OF 3D POWER INTEGRATED OVER THE ACTIVE CORE HEIGHT AND ESTIMATED BY')
+            AO_start_pattern=re.compile('RADIAL MAP OF ASSEMBLIES MEAN POWER \(PDH\) AND AXIAL OFFSET')
+            FDH_start_pattern=re.compile('RADIAL MAP OF THE MAXIMUM ESTIMATED FUEL ROD POWER AND THE C/R DEVIATIONS')
+            date_pattern=re.compile('created on')
+            bank_position_pattern=re.compile('Banks position')
+            core_FQ_pattern=re.compile('LOCAL MAXIMUM POWER LEVEL')
+            core_AO_pattern=re.compile('AND AN AXIAL-OFFSET OF')
+            return (basic_core_state_pattern,power_start_pattern,AO_start_pattern,FDH_start_pattern,date_pattern,bank_position_pattern,core_FQ_pattern,core_AO_pattern)
+        
+    @property
+    def basic_core_state(self):
+        '''
+        date,unit_num,cycle_num,avg_burnup,relative_power,boron_concentration
+        '''
+        line_num=0
+        line_lst=self.line_lst
+        basic_core_state_pattern=self.start_index_pattern[0]
+        date_pattern=self.start_index_pattern[4]
+        
+            
+        
+        for line in line_lst:
+            line_num +=1
+            #handle date
+            if date_pattern.search(line): 
+              
+                date=line.split(sep=':')[1].split()[0]
+                
+            
+                
+            #handle core state
+            if basic_core_state_pattern.search(line):
+                basic_core_state_lst=line.split()
+                
+                [unit_num,cycle_num]=[int(i) for i in basic_core_state_lst if i.isdigit()][:2]
+                #process to next line
+                next_line=line_lst[line_num].split()
+                decimal_lst=[]
+                for item in next_line:
+                    try:
+                        decimal_lst.append(Decimal(item))
+                    except InvalidOperation:
+                        pass
+                [avg_burnup,relative_power,boron_concentration]=decimal_lst[:3]
+                        
+                        
+                return (date,unit_num,cycle_num,avg_burnup,relative_power,boron_concentration)
+            
+    @property
+    def core_AO(self):
+        line_lst=self.line_lst
+        core_AO_pattern=self.start_index_pattern[7]
+        for line in line_lst:
+            if core_AO_pattern.search(line):
+                return Decimal(line.split()[-2])
+    
+    @property
+    def core_FQ(self):
+        line_lst=self.line_lst
+        core_FQ_pattern=self.start_index_pattern[6]
+        for line in line_lst:
+            if core_FQ_pattern.search(line):
+                return Decimal(line.split(sep=':')[1].split()[0])
+               
+            
+    def get_bank_position(self):  
+        #handle bankposition   
+        line_lst=self.line_lst
+        bank_position_result={} 
+        bank_position_pattern=self.start_index_pattern[5] 
+        for line in line_lst:
+            if bank_position_pattern.search(line):
+                line_splitted_lst=[]
+                for item in line.split(sep=':'):
+                    line_splitted_lst +=item.split()
+                    
+                for i in range(len(line_splitted_lst)):
+                    try:
+                        step=Decimal(line_splitted_lst[i])
+                        name=line_splitted_lst[i-1]
+                        bank_position_result[name]=step
+                    except InvalidOperation:
+                        pass  
+        
+        return bank_position_result
+    
+    def check_file_format(self):
+        basic_core_state=self.basic_core_state
+        if self.unit_num==basic_core_state[1] and self.cycle_num==basic_core_state[2]:
+            return True
+        else:
+            return False
+      
+    def search_index_num(self,type):
+        '''
+        1: power;
+        2:AO;
+        3:FDH;
+        '''
+        line_num=0
+        
+        for line in self.line_lst:
+            line_num+=1
+            
+            index=self.start_index_pattern[type]
+        
+            if re.search(index,line):
+                return line_num-1
+                
+            
+            
+        
+    def parse_distribution_data(self,type):
+        '''
+        1: power;
+        2:AO;
+        3:FDH;
+        '''
+        line_lst=self.line_lst
+        index_num=self.search_index_num(type)
+        num_pattern=re.compile('^[1-9]+')
+        upper_result=[]
+        lower_result=[]
+        while index_num:
+            item=line_lst[index_num]
+            index_num +=1
+            
+            
+            
+            splitted_lst=item.split(sep='|')
+          
+            first_element=splitted_lst[0].strip()
+            #to find the row
+            if num_pattern.match(first_element):
+                row=int(first_element) 
+                row_upper_result=[Decimal(rp) for rp in splitted_lst[1:-1] ]
+                upper_result += row_upper_result
+                     
+                lower_splitted_lst=line_lst[index_num].split(sep='|')
+                row_lower_result=[Decimal(rp) for rp in lower_splitted_lst[1:-1] ]
+                lower_result +=row_lower_result
+                
+                if row==self.core_max:
+                    break
+                index_num += 1
+        return (upper_result,lower_result)

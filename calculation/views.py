@@ -7,7 +7,7 @@ from rest_framework.decorators import api_view,renderer_classes,parser_classes,a
 from calculation.functions import position_node_by_excel,get_same_group_users
 from calculation.serializers import EgretTaskSerializer,MultipleLoadingPatternSerializer
 from tragopan.models import Plant,UnitParameter,Cycle
-from calculation.models import EgretTask,MultipleLoadingPattern,EgretInputXML
+from calculation.models import EgretTask,MultipleLoadingPattern
 from xml.dom import minidom
 import signal
 from rest_framework_xml.renderers import XMLRenderer
@@ -15,8 +15,14 @@ from rest_framework.parsers import FileUploadParser
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.authentication import TokenAuthentication
 from django.db.models import Q
-from calculation.tasks import EgretCalculationTask
 
+
+    
+
+    
+
+    
+    
  
 @api_view(('POST','GET','DELETE','PUT'))
 @parser_classes((FileUploadParser,XMLParser))
@@ -118,12 +124,8 @@ def egret_task(request,format=None):
             #reactor_model_name=unit.reactor_model.name
             cycle=loading_pattern.cycle
             cycle_num=cycle.cycle
-            unit=cycle.unit
-            unit_num=unit.unit
-            plant=unit.plant
-            plant_name=plant.abbrEN
-            core_id="{}_U{}".format(plant_name,unit_num)
-            egret_input_xml=EgretInputXML.objects.get(unit=unit)
+    
+            
         except Exception as e:
             error_message={'error_message':e}
             return Response(data=error_message,status=404)
@@ -163,82 +165,21 @@ def egret_task(request,format=None):
             task_instance.result_path=xml_path
             task_instance.save()
             
-            media_root=settings.MEDIA_ROOT
-            plant_dir=os.path.join(media_root, plant_name)
-            ibis_dir=os.path.join(plant_dir,'ibis_files')
-            
             #change directory to current task directory
             os.chdir(current_workdirectory)
-            #loading pattern xml
-            #from database loading pattern xml
+            
+            #generate loading pattern xml
+            task_instance.generate_loading_pattern_xml()
            
-            dividing_point=loading_pattern.get_dividing_point()
-           
-            custom_fuel_nodes=loading_pattern.get_custom_fuel_nodes()
-            
-            loading_pattern_doc=egret_input_xml.generate_loading_pattern_doc(max_cycle=dividing_point.cycle.cycle)
-            loading_pattern_node=loading_pattern_doc.documentElement
-           
-            
-            for custom_fuel_node in custom_fuel_nodes:
-                loading_pattern_node.appendChild(custom_fuel_node)
-            #custom loading pattern xml
-            
-            loading_pattern_file=open('loading_pattern.xml','w')
-            loading_pattern_doc.writexml(loading_pattern_file)
-            loading_pattern_file.close()
-            
-            
             #generate runegret xml
-            doc=minidom.Document()
-            run_egret_xml=doc.createElement('run_egret')
-            doc.appendChild(run_egret_xml)
-            run_egret_xml.setAttribute('core_id', core_id)
-            run_egret_xml.setAttribute('cycle',str(cycle_num))
-            #xml path
-            base_core_path=egret_input_xml.base_core_path
-            base_component_path=egret_input_xml.base_component_path
-            base_core_xml=doc.createElement('base_core')
-            base_core_xml.appendChild(doc.createTextNode(base_core_path))
-            run_egret_xml.appendChild(base_core_xml)
-            base_component_xml=doc.createElement('base_component')
-            base_component_xml.appendChild(doc.createTextNode(base_component_path))
-            run_egret_xml.appendChild(base_component_xml)
-            #loading pattern is in current working directory
-            loading_pattern_xml=doc.createElement('loading_pattern')
-            loading_pattern_xml.appendChild(doc.createTextNode('loading_pattern.xml'))
-            run_egret_xml.appendChild(loading_pattern_xml)
-            #cycle_depl
-            cycle_depl_xml=doc.createElement('cycle_depl')
-            cycle_depl_file=os.path.basename(task_instance.egret_input_file.name)
-            cycle_depl_xml.appendChild(doc.createTextNode(cycle_depl_file))
-            run_egret_xml.appendChild(cycle_depl_xml)
-            
-            #ibis directory
-            ibis_path_xml=doc.createElement('ibis_dir')
-            ibis_path_xml.appendChild(doc.createTextNode(ibis_dir))
-            run_egret_xml.appendChild(ibis_path_xml)
-            input_filename=task_instance.get_input_filename()
-            run_egret_file=open(input_filename,'w')
-            doc.writexml(run_egret_file)
-            run_egret_file.close()
+            task_instance.generate_runegret_xml()
        
-
-            follow_task_chain=task_instance.get_follow_task_chain()
-            for follow_task in follow_task_chain:
-                cwd=follow_task.get_cwd()
-                lp_res_filename=follow_task.get_lp_res_filename()
-                lp_file=os.path.join(cwd,lp_res_filename+'.LP')
-                res_file=os.path.join(cwd,lp_res_filename+'.RES')
-                os.link(lp_file,lp_res_filename+'.LP' )
-                os.link(res_file,lp_res_filename+'.RES')
+            #copy the files to current working directory
+            task_instance.cp_lp_res_file()
                 
             #begin egret calculation
-            egret_calculation_instance=EgretCalculationTask(egret_instance=task_instance)
-            result=egret_calculation_instance.start_calculation(countdown=countdown)
-            #print(type(result))
-            #task_instance.calculation_identity=result
-            #task_instance.save()
+            task_instance.start_calculation(countdown=countdown)
+        
         except Exception as e:
             error_message={'error_message':e}
             print(e)
@@ -253,32 +194,60 @@ def egret_task(request,format=None):
         
     if request.method =='PUT':
         query_params=request.query_params
+        
         try:
-            task_pk=query_params['pk']
-            task=EgretTask.objects.get(pk=task_pk)
-            if 'visibility' in query_params:
-                visibility=int(query_params['visibility'])
-                if task.user!=request.user:
-                    error_message={'error_message':"you have no permission"}
-                    print(error_message)
-                    return Response(data=error_message,status=550)
-                
-                task.visibility=visibility
-                task.save()
-            
-            if 'authorized' in query_params:
+            #to represent the action
+            update_type=query_params['update_type']
+            task_pk=int(query_params['pk'])
+            task_instance=EgretTask.objects.get(pk=task_pk)
+            #1 reprsents you want to change visibility or authorized
+            if int(update_type)==1:
                 authorized=query_params['authorized']
                 task_name=query_params['task_name']
                 if not request.user.is_superuser:
                     error_message={'error_message':"you have no permission"}
                     print(error_message)
                     return Response(data=error_message,status=550)
+                    
+                task_instance.authorized=int(authorized)
+                task_instance.task_name=task_name
+                task_instance.save()          
+                success_message={'success_message':'your request has been handled successfully'}
+                return Response(data=success_message,status=200,)
+            
+            #2 represent that you want to recalculation the task 
+            elif int(update_type)==2:
                 
-                task.authorized=int(authorized)
-                task.task_name=task_name
-                task.save()          
-            success_message={'success_message':'your request has been handled successfully'}
-            return Response(data=success_message,status=200,)
+                data=request.data
+                input_file=data['file']
+                remark=query_params['remark']
+                countdown=int(query_params['countdown'])
+                task_instance.recalculation_depth=task_instance.recalculation_depth+1
+                task_instance.egret_input_file=input_file
+                task_instance.remark=remark
+                task_instance.task_status=0
+                task_instance.start_time=None
+                task_instance.end_time=None
+                task_instance.save()
+                
+                #prepare for calculation
+                current_workdirectory=task_instance.get_cwd()
+                os.chdir(current_workdirectory)
+                #generate runegret xml
+                
+                task_instance.generate_runegret_xml(restart=1)
+                
+                task_instance.start_calculation(countdown=countdown)
+                
+                success_message={'success_message':'your request has been handled successfully'}
+                return Response(data=success_message,status=200,)  
+            
+            else:
+                error_message={'error_message':'the updated type is not supported yet'}
+                print(error_message)
+                return Response(data=error_message,status=404)
+            
+                
         except Exception as e:
             error_message={'error_message':e}
             print(e)

@@ -136,7 +136,7 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('user','task_name','task_type','get_cycle','start_time','end_time','time_cost','task_status','remark',)
+    list_display=('pk','user','task_name','task_type','get_cycle','start_time','end_time','time_cost','task_status','remark',)
     list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
     def get_queryset(self, request):
         qs = super(EgretTaskAdmin, self).get_queryset(request)
