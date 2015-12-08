@@ -8,8 +8,8 @@ import os
 from xml.dom import minidom 
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
-from calculation.tasks import EgretCalculationTask
 import shutil
+from celery import signature
 
 # Create your models here.
 
@@ -372,7 +372,7 @@ def get_egret_upload_path(instance,filename):
     plant=unit.plant
     plant_name=plant.abbrEN
     recalculation_depth=instance.recalculation_depth
-    name="DEPL_{}.xml".format(str(recalculation_depth).zfill(6))
+    name="upload_{}.xml".format(str(recalculation_depth).zfill(6))
     task_name=instance.task_name
     return 'egret_task/{}/{}/unit{}/cycle{}/{}/{}'.format(username,plant_name,unit.unit, cycle.cycle,task_name,name) 
 
@@ -392,11 +392,17 @@ class EgretTask(BaseModel):
                          (2,'suspended'),
                          (3,'stopped'),
                          (4,'finished'),
+                         (5,'cancled'),
+                         (6,'errored'),
+    )
+    TASK_TYPE_CHOICES=(
+                       ('FOLLOW','follow'),
+                       ('SEQUENCE', 'auto sequence'),
     )
     
     task_name=models.CharField(max_length=32)
-    task_type=models.CharField(max_length=32)
-    loading_pattern=models.ForeignKey('MultipleLoadingPattern',)
+    task_type=models.CharField(max_length=32,choices=TASK_TYPE_CHOICES)
+    loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
     result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
@@ -410,20 +416,60 @@ class EgretTask(BaseModel):
     class Meta:
         db_table='egret_task'
         
-        
+    def if_recalculated(self):
+        if self.recalculation_depth>1:
+            return True
+        else:
+            return False
+    if_recalculated.boolean=True 
+    if_recalculated.short_description="whether recalculated:True/False"   
     #validating objects(clean_fields->clean->validate_unique)
     def clean(self):
-        loading_pattern=self.loading_pattern
+        loading_pattern=self.get_loading_pattern()
         pre_egret_task=self.pre_egret_task
         if pre_egret_task:
             pre_loading_pattern=pre_egret_task.loading_pattern
-            if loading_pattern.get_pre_loading_pattern()!=pre_loading_pattern:
-                raise ValidationError({'loading_pattern':_('loading_pattern and pre_egret_task are not compatible'),
-                                       'pre_egret_task':_('loading_pattern and pre_egret_task are not compatible'),                
+            if self.task_type=='FOLLOW':
+                if loading_pattern.get_pre_loading_pattern()!=pre_loading_pattern:
+                    raise ValidationError({'loading_pattern':_('loading_pattern and pre_egret_task are not compatible'),
+                                           'pre_egret_task':_('loading_pattern and pre_egret_task are not compatible'),                
+                    })
+                    
+            #assure pre egret task is finished     
+            if pre_egret_task.task_status!=4:
+                raise ValidationError({
+                                       'pre_egret_task':_('pre_egret_task must be finished'),                
                 })
+                
+        else:
+            cycle_num=self.get_loading_pattern().cycle.cycle
+            if cycle_num!=1:
+                raise ValidationError({
+                                       'pre_egret_task':_('you need to provide a previous egret task'),                
+                })
+                
+        #check if the task_name repeated
+        if EgretTask.objects.filter(task_name=self.task_name,user=self.user,loading_pattern=self.get_loading_pattern()):
+            raise ValidationError({
+                                    'task_name':_('the taskname already exists with respect to user and loading_pattern'),                
+                })
+            
+        #chech sequence task type
+        if self.task_type=='SEQUENCE':
+            if self.loading_pattern:
+                raise ValidationError({
+                                       'loading_pattern':_('you donnot need to provide a loading pattern when processing sequence task'),                
+                })
+                
+            
+    def get_loading_pattern(self):
+        if self.task_type=='FOLLOW':
+            return self.loading_pattern
+        elif self.task_type=='SEQUENCE':
+            return self.pre_egret_task.loading_pattern       
     
     def get_cycle(self):
-        cycle=self.loading_pattern.cycle
+        cycle=self.get_loading_pattern().cycle
         return cycle
     get_cycle.short_description='cycle'
      
@@ -441,17 +487,19 @@ class EgretTask(BaseModel):
         return filename
     
     def mv_case_res_file(self):
-        '''move the .LP .RES in workspace to the upper directory'''
-        name=self.get_lp_res_filename()
-        cwd=self.get_cwd()
-        depth=str(self.recalculation_depth-1).zfill(6)
-        
-        try:
-            #rename the previous .CASE and .RES files
-            os.rename(os.path.join(cwd,name+'.CASE'),os.path.join(cwd,name+'.CASE.'+depth+'.old'))
-            os.rename(os.path.join(cwd,name+'.RES'),os.path.join(cwd,name+'.RES.'+depth+'.old'))
+        if self.task_type=='FOLLOW':
+            '''move the .LP .RES in workspace to the upper directory'''
+            name=self.get_lp_res_filename()
+            cwd=self.get_cwd()
             
-        except FileNotFoundError:
+            
+            #if this is not the first calculation,you should rename the .CASE and .RES files that already exist
+            if self.recalculation_depth>1:
+                depth=str(self.recalculation_depth-1).zfill(6)
+                #rename the previous .CASE and .RES files
+                os.rename(os.path.join(cwd,name+'.CASE'),os.path.join(cwd,name+'.CASE.'+depth+'.old'))
+                os.rename(os.path.join(cwd,name+'.RES'),os.path.join(cwd,name+'.RES.'+depth+'.old'))
+                
             #move sub directory to current directory
             sub_cwd=os.path.join(cwd,'.workspace')
             CASE_path=os.path.join(sub_cwd,name+'.CASE')
@@ -471,6 +519,9 @@ class EgretTask(BaseModel):
             res_file=os.path.join(cwd,lp_res_filename+'.RES')
             os.link(lp_file,lp_res_filename+'.LP' )
             os.link(res_file,lp_res_filename+'.RES')
+            if self.task_type =='SEQUENCE':
+                case_file=os.path.join(cwd,lp_res_filename+'.CASE')
+                os.link(case_file,lp_res_filename+'.CASE')
     
     def get_follow_task_chain(self):
         cur_task=self.pre_egret_task
@@ -482,14 +533,21 @@ class EgretTask(BaseModel):
         return follow_task_chain
     
     def get_input_filename(self):
-        recalculation_depth=self.recalculation_depth
         cycle=self.get_cycle()
         unit=cycle.unit
-        return 'U{}C{}_{}.xml'.format(cycle.cycle,unit.unit,str(recalculation_depth).zfill(6))
+        if self.task_type=='FOLLOW':
+            recalculation_depth=self.recalculation_depth
+            return 'U{}C{}_{}.xml'.format(cycle.cycle,unit.unit,str(recalculation_depth).zfill(6))
+        elif self.task_type=='SEQUENCE':
+            return 'U{}C{}_sequence.xml'.format(cycle.cycle,unit.unit)
     
     def start_calculation(self,countdown):
-        egret_calculation_instance=EgretCalculationTask(egret_instance=self)
-        egret_calculation_instance.start_calculation(countdown=countdown)
+        s=signature('calculation.tasks.egret_calculation_task', args=(self,), countdown=countdown)
+        s.freeze()
+        self.calculation_identity=s.id
+        self.save()
+        s.delay()
+        
     
     @property
     def time_cost(self):
@@ -503,15 +561,14 @@ class EgretTask(BaseModel):
     
     @property
     def egret_input_xml(self):
-        loading_pattern=self.loading_pattern
+        loading_pattern=self.get_loading_pattern()
         unit=loading_pattern.cycle.unit
         egret_input_xml=EgretInputXML.objects.get(unit=unit)
         return egret_input_xml
         
     
     def generate_runegret_xml(self,restart=0,export=1):
-        loading_pattern=self.loading_pattern
-        #reactor_model_name=unit.reactor_model.name
+        loading_pattern=self.get_loading_pattern()
         cycle=loading_pattern.cycle
         cycle_num=cycle.cycle
         unit=cycle.unit
@@ -545,11 +602,20 @@ class EgretTask(BaseModel):
         loading_pattern_xml.appendChild(doc.createTextNode('loading_pattern.xml'))
         run_egret_xml.appendChild(loading_pattern_xml)
         #cycle_depl
-        cycle_depl_xml=doc.createElement('cycle_depl')
-        cycle_depl_xml.setAttribute('restart', str(restart))
-        cycle_depl_file=os.path.basename(self.egret_input_file.name)
-        cycle_depl_xml.appendChild(doc.createTextNode(cycle_depl_file))
-        run_egret_xml.appendChild(cycle_depl_xml)
+        if self.task_type=='FOLLOW':
+            cycle_depl_xml=doc.createElement('cycle_depl')
+            cycle_depl_xml.setAttribute('restart', str(restart))
+            cycle_depl_file=os.path.basename(self.egret_input_file.name)
+            cycle_depl_xml.appendChild(doc.createTextNode(cycle_depl_file))
+            run_egret_xml.appendChild(cycle_depl_xml)
+            
+        elif self.task_type=='SEQUENCE':
+            cycle_sequ_xml=doc.createElement('cycle_sequ')
+            cycle_sequ_file=os.path.basename(self.egret_input_file.name)
+            cycle_sequ_xml.appendChild(doc.createTextNode(cycle_sequ_file))
+            run_egret_xml.appendChild(cycle_sequ_xml)
+            
+            
         
         #export_case
         export_case_xml=doc.createElement('export_case')
@@ -567,7 +633,7 @@ class EgretTask(BaseModel):
     
     def generate_loading_pattern_xml(self):
         egret_input_xml=self.egret_input_xml
-        loading_pattern=self.loading_pattern
+        loading_pattern=self.get_loading_pattern()
         #from database loading pattern xml
         dividing_point=loading_pattern.get_dividing_point()
                

@@ -12,7 +12,7 @@ def parse_raw_file(sender, instance, created=False, **kwargs):
         unit=cycle.unit
         plant=unit.plant
         reactor_model=unit.reactor_model
-        
+        reactor_positions=reactor_model.positions.all()
         core_max=reactor_model.get_max_row_column()[0]
         
         #parse the file
@@ -22,28 +22,37 @@ def parse_raw_file(sender, instance, created=False, **kwargs):
         core_FQ=handler.core_FQ
         core_AO=handler.core_AO
         bank_position=handler.get_bank_position()
-        power_distribution=handler.parse_distribution_data(type=1)[0]
-        AO_distribution=handler.parse_distribution_data(type=2)[1]
-        FDH_distribution=handler.parse_distribution_data(type=3)[0]
+        if plant.abbrEN in ('FJS','QNPC_II'):
+            power_distribution=handler.parse_distribution_data(type=1)[0]
+            AO_distribution=handler.parse_distribution_data(type=2)[1]
+            FDH_distribution=handler.parse_distribution_data(type=3)[0]
+        elif plant.abbrEN=='QNPC_I':
+            power_distribution=handler.parse_distribution_data(type=1)[1]
+            AO_distribution=[None]*len(reactor_positions)
+            FDH_distribution=handler.parse_distribution_data(type=3)[1]
+            
+            
        
        
         #update database
-        instance.date=basic_core_state[0].replace('/','-')
+        instance.date=basic_core_state[0]
         instance.avg_burnup=basic_core_state[3]
         instance.relative_power=basic_core_state[4]
         instance.boron_concentration=basic_core_state[5]
         instance.axial_power_shift=core_AO
         instance.FQ=core_FQ
         instance.save()
-        #create bank position
-        control_rod_clusters=reactor_model.control_rod_clusters
         
-        for bank_name,bank_position in bank_position.items():
-            control_rod_cluster=control_rod_clusters.get(cluster_name=bank_name)
-            OperationBankPosition.objects.create(operation=instance,control_rod_cluster=control_rod_cluster,step=bank_position)
+        
+        if bank_position:
+            #create bank position
+            control_rod_clusters=reactor_model.control_rod_clusters
+            for bank_name,bank_position in bank_position.items():
+                control_rod_cluster=control_rod_clusters.get(cluster_name=bank_name)
+                OperationBankPosition.objects.create(operation=instance,control_rod_cluster=control_rod_cluster,step=bank_position)
             
         
-        reactor_positions=reactor_model.positions.all()
+        
         print(len(reactor_positions),len(power_distribution),len(AO_distribution),len(FDH_distribution))
         assert(len(reactor_positions)==len(power_distribution)==len(AO_distribution)==len(FDH_distribution))
  

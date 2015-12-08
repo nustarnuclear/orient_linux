@@ -4,6 +4,7 @@ from .models import FuelAssemblyType,FuelElementTypePosition,FuelElementType,Pla
 ,ControlRodAssembly,ControlRodType,FuelAssemblyPosition,ControlRodMap,WimsNuclideData,WmisElementComposition,WmisElementData
 import os
 import re
+from builtins import zip
 
 
 def generate_assembly_position(number=17):
@@ -348,15 +349,17 @@ class OperationDataHandler:
         
     @property   
     def line_lst(self):
-       
-        f=open(self.filepath)
+        if self.plant_name=="QNPC_I":
+            f=open(self.filepath,encoding='GB2312')
+        else:
+            f=open(self.filepath)
         line_lst=f.readlines()
         f.close()
         return line_lst
     
     @property
     def start_index_pattern(self):
-        if self.plant_name=='FJS':
+        if self.plant_name in ('FJS','QNPC_II'):
             basic_core_state_pattern=re.compile('Power Plant')
             power_start_pattern=re.compile('RADIAL MAP OF 3D POWER INTEGRATED OVER THE ACTIVE CORE HEIGHT AND ESTIMATED BY')
             AO_start_pattern=re.compile('RADIAL MAP OF ASSEMBLIES MEAN POWER \(PDH\) AND AXIAL OFFSET')
@@ -365,8 +368,21 @@ class OperationDataHandler:
             bank_position_pattern=re.compile('Banks position')
             core_FQ_pattern=re.compile('LOCAL MAXIMUM POWER LEVEL')
             core_AO_pattern=re.compile('AND AN AXIAL-OFFSET OF')
-            return (basic_core_state_pattern,power_start_pattern,AO_start_pattern,FDH_start_pattern,date_pattern,bank_position_pattern,core_FQ_pattern,core_AO_pattern)
+            
         
+        if self.plant_name=='QNPC_I':
+            basic_core_state_pattern=re.compile('Qinshan Nuclear Power Plant Cycle')
+            power_start_pattern=re.compile('MEASURED AND PREDICTED ASSEMBLY POWER')
+            AO_start_pattern=None
+            FDH_start_pattern=re.compile('MEASURED AND EXPECTED HOT ROD F-DELTA-H')
+            date_pattern=re.compile('Input File')
+            bank_position_pattern=re.compile('5B')
+            core_FQ_pattern=None
+            core_AO_pattern=re.compile('CORE AVERAGE')
+            
+        
+        return (basic_core_state_pattern,power_start_pattern,AO_start_pattern,FDH_start_pattern,date_pattern,bank_position_pattern,core_FQ_pattern,core_AO_pattern)
+            
     @property
     def basic_core_state(self):
         '''
@@ -381,46 +397,83 @@ class OperationDataHandler:
         
         for line in line_lst:
             line_num +=1
-            #handle date
-            if date_pattern.search(line): 
-              
-                date=line.split(sep=':')[1].split()[0]
+            if self.plant_name in ('FJS','QNPC_II'):
+                #handle date
+                if date_pattern.search(line): 
+                  
+                    date=line.split(sep=':')[1].split()[0].replace('/','-')
+                    
                 
-            
+                    
+                #handle core state
+                if basic_core_state_pattern.search(line):
+                    basic_core_state_lst=line.split()
+                    
+                    [unit_num,cycle_num]=[int(i) for i in basic_core_state_lst if i.isdigit()][:2]
+                    #process to next line
+                    next_line=line_lst[line_num].split()
+                    decimal_lst=[]
+                    for item in next_line:
+                        try:
+                            decimal_lst.append(Decimal(item))
+                        except InvalidOperation:
+                            pass
+                    [avg_burnup,relative_power,boron_concentration]=decimal_lst[:3]
+                            
+                            
+                    
                 
-            #handle core state
-            if basic_core_state_pattern.search(line):
-                basic_core_state_lst=line.split()
+            elif self.plant_name=='QNPC_I':
+                if date_pattern.search(line):
+                    date=line.split(sep=':')[1].split(sep='.')[0].strip()
                 
-                [unit_num,cycle_num]=[int(i) for i in basic_core_state_lst if i.isdigit()][:2]
-                #process to next line
-                next_line=line_lst[line_num].split()
-                decimal_lst=[]
-                for item in next_line:
-                    try:
-                        decimal_lst.append(Decimal(item))
-                    except InvalidOperation:
-                        pass
-                [avg_burnup,relative_power,boron_concentration]=decimal_lst[:3]
-                        
-                        
-                return (date,unit_num,cycle_num,avg_burnup,relative_power,boron_concentration)
+                unit_num=1
+                
+                avg_burnup=None
+                
+                if basic_core_state_pattern.search(line):
+                    core_state_data=line.split(sep=":")
+                    print(core_state_data)
+                    cycle_num=int(core_state_data[0].split(sep="-")[-1])
+                    relative_power=Decimal(core_state_data[1].split()[0].strip('%FP'))/100
+                    boron_concentration=Decimal(core_state_data[2].split()[0].strip('ppm'))
+                    break
+                
+        return (date,unit_num,cycle_num,avg_burnup,relative_power,boron_concentration)
+                    
             
     @property
     def core_AO(self):
         line_lst=self.line_lst
         core_AO_pattern=self.start_index_pattern[7]
-        for line in line_lst:
-            if core_AO_pattern.search(line):
-                return Decimal(line.split()[-2])
+        if self.plant_name in ('FJS','QNPC_II'):
+            
+            for line in line_lst:
+                if core_AO_pattern.search(line):
+                    core_AO= Decimal(line.split()[-2])
+                    break
+        
+        elif self.plant_name=='QNPC_I':
+            index=0
+            for line in line_lst:
+                if core_AO_pattern.search(line):
+                    core_AO=Decimal(line_lst[index+5].split()[-1])  
+                    break 
+                index +=1
+        
+        return  core_AO      
     
     @property
     def core_FQ(self):
-        line_lst=self.line_lst
-        core_FQ_pattern=self.start_index_pattern[6]
-        for line in line_lst:
-            if core_FQ_pattern.search(line):
-                return Decimal(line.split(sep=':')[1].split()[0])
+        if self.plant_name in ('FJS','QNPC_II'):
+            line_lst=self.line_lst
+            core_FQ_pattern=self.start_index_pattern[6]
+            for line in line_lst:
+                if core_FQ_pattern.search(line):
+                    return Decimal(line.split(sep=':')[1].split()[0])
+                
+        elif self.plant_name=='QNPC_I':
+            return None
                
             
     def get_bank_position(self):  
@@ -428,21 +481,32 @@ class OperationDataHandler:
         line_lst=self.line_lst
         bank_position_result={} 
         bank_position_pattern=self.start_index_pattern[5] 
-        for line in line_lst:
-            if bank_position_pattern.search(line):
-                line_splitted_lst=[]
-                for item in line.split(sep=':'):
-                    line_splitted_lst +=item.split()
-                    
-                for i in range(len(line_splitted_lst)):
-                    try:
-                        step=Decimal(line_splitted_lst[i])
-                        name=line_splitted_lst[i-1]
-                        bank_position_result[name]=step
-                    except InvalidOperation:
-                        pass  
-        
-        return bank_position_result
+        if self.plant_name in ('FJS','QNPC_II'):
+            for line in line_lst:
+                if bank_position_pattern.search(line):
+                    line_splitted_lst=[]
+                    for item in line.split(sep=':'):
+                        line_splitted_lst +=item.split()
+                        
+                    for i in range(len(line_splitted_lst)):
+                        try:
+                            step=Decimal(line_splitted_lst[i])
+                            name=line_splitted_lst[i-1]
+                            bank_position_result[name]=step
+                        except InvalidOperation:
+                            pass  
+            
+            
+        elif self.plant_name=='QNPC_I':
+            for line in line_lst:
+                if bank_position_pattern.search(line):
+                    line_splitted_lst=line.split()[:6]
+                    print(line_splitted_lst)
+                    rod_name=['T1','T2','T3','T4','A1','A2']
+                    for item in zip(rod_name,line_splitted_lst):
+                        bank_position_result[item[0]]=Decimal(item[1])
+                        
+        return bank_position_result           
     
     def check_file_format(self):
         basic_core_state=self.basic_core_state
@@ -467,9 +531,6 @@ class OperationDataHandler:
             if re.search(index,line):
                 return line_num-1
                 
-            
-            
-        
     def parse_distribution_data(self,type):
         '''
         1: power;
@@ -479,8 +540,8 @@ class OperationDataHandler:
         line_lst=self.line_lst
         index_num=self.search_index_num(type)
         num_pattern=re.compile('^[1-9]+')
-        upper_result=[]
-        lower_result=[]
+        current_result=[]
+        beside_result=[]
         while index_num:
             item=line_lst[index_num]
             index_num +=1
@@ -493,14 +554,28 @@ class OperationDataHandler:
             #to find the row
             if num_pattern.match(first_element):
                 row=int(first_element) 
-                row_upper_result=[Decimal(rp) for rp in splitted_lst[1:-1] ]
-                upper_result += row_upper_result
-                     
-                lower_splitted_lst=line_lst[index_num].split(sep='|')
-                row_lower_result=[Decimal(rp) for rp in lower_splitted_lst[1:-1] ]
-                lower_result +=row_lower_result
+                print(splitted_lst)
+                for rp in splitted_lst[1:-1]:
+                    try:   
+                        current_result.append(Decimal(rp))
+                    except InvalidOperation:
+                        pass
                 
+                if self.plant_name in ('FJS','QNPC_II'):
+                    shift=0
+                    
+                elif self.plant_name=='QNPC_I':
+                    shift=-2
+                    
+                beside_splitted_lst=line_lst[index_num+shift].split(sep='|')
+                for rp in beside_splitted_lst[1:-1]:
+                    try:
+                        beside_result.append(Decimal(rp))
+                    except InvalidOperation:
+                        pass  
+               
+                    
                 if row==self.core_max:
                     break
-                index_num += 1
-        return (upper_result,lower_result)
+                index_num += 1          
+        return (current_result,beside_result)

@@ -15,15 +15,9 @@ from rest_framework.parsers import FileUploadParser
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.authentication import TokenAuthentication
 from django.db.models import Q
+from orient.celery import app
+from datetime import datetime
 
-
-    
-
-    
-
-    
-    
- 
 @api_view(('POST','GET','DELETE','PUT'))
 @parser_classes((FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
@@ -32,8 +26,11 @@ def egret_task(request,format=None):
     if request.method == 'DELETE':
         request_user=request.user
         query_params=request.query_params
+        operation_type=int(query_params['operation_type'])
+        task_pk=query_params['pk']
+        task=EgretTask.objects.get(pk=task_pk)
         #stop operation
-        if 'pid' in query_params:
+        if operation_type==1:
             
             #from orient.celery import app
             #calculation_identity=query_params['calculation_identity']
@@ -41,9 +38,9 @@ def egret_task(request,format=None):
             #app.control.revoke(calculation_identity,terminate=True)
             os.kill(pid,signal.SIGKILL)
             try:
-                task_pk=query_params['pk']
-                stopped_task=EgretTask.objects.get(pk=task_pk)
-                suspend_user=stopped_task.user
+                
+                task=EgretTask.objects.get(pk=task_pk)
+                suspend_user=task.user
                 #check if you have delete permission
                 if request_user!=suspend_user:
                     error_message={'error_message':"you cannot stop others' task"}
@@ -54,37 +51,55 @@ def egret_task(request,format=None):
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
             while True:
-                if stopped_task.task_status==4:
-                    stopped_task.task_status=3
-                    stopped_task.save()
+                if task.task_status==4:
+                    task.task_status=3
+                    task.save()
                     break
                 else:
-                    time.sleep(3)
-                    stopped_task.refresh_from_db()
+                    time.sleep(1)
+                    task.refresh_from_db()
                     
             print('stop operation finished')
             return Response(data={'sucess_message':'stop operation finished'},status=200)
             
             
         #delete operation      
-        if 'pk' in query_params:
-            task_pk=query_params['pk']
-            
+        elif operation_type==2:
             
             try:
-                delete_task=EgretTask.objects.get(pk=task_pk)
-                delete_user=delete_task.user
+                delete_user=task.user
                 #check if you have delete permission
                 if request_user!=delete_user:
                     error_message={'error_message':"you cannot delete others' task"}
                     return Response(data=error_message,status=550)
                     
-                delete_task.delete()     
+                task.delete()     
                 return Response(data={'sucess_message':'delete operation finished'},status=200)
             except Exception as e:
                 print(e)
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
+        # cancel operation
+        elif operation_type==3:
+            try:
+                calculation_identity=task.calculation_identity
+                app.control.revoke(calculation_identity)
+                task.task_status=5
+                task.end_time=datetime.now()
+                task.save()
+                print('cancel operation finished')
+                return Response(data={'sucess_message':'cancel operation finished'},status=200)
+            
+            except Exception as e:
+                print(e)
+                error_message={'error_message':e}
+                return Response(data=error_message,status=404)
+            
+        else:
+            error_message={'error_message':'the operation type is not supported yet'}
+            print(error_message)
+            return Response(data=error_message,status=404)
+        
         
      
     if request.method == 'GET':
@@ -96,7 +111,7 @@ def egret_task(request,format=None):
             user=request.user
             same_group_users=get_same_group_users(user)  
                  
-            task_list=EgretTask.objects.filter(Q(user__in=same_group_users)&Q(visibility=2)|Q(user=user)|Q(visibility=3),loading_pattern=loading_pattern)
+            task_list=EgretTask.objects.filter(Q(user__in=same_group_users)&Q(visibility=2)|Q(user=user)|Q(visibility=3),Q(loading_pattern=loading_pattern)|(Q(task_type='SEQUENCE')&Q(pre_egret_task__loading_pattern=loading_pattern)))
             if task_list is None:
                 return Response(data={})
             
@@ -114,45 +129,23 @@ def egret_task(request,format=None):
             task_name=query_params['task_name']
             task_type=query_params['task_type']
             remark=query_params['remark']
-            pk=query_params['pk']
+            
             visibility=int(query_params['visibility'])
             countdown=int(query_params['countdown'])
             user=request.user
             input_file=data['file']
-
-            loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
-            #reactor_model_name=unit.reactor_model.name
-            cycle=loading_pattern.cycle
-            cycle_num=cycle.cycle
-    
+            
+            #get pre egret task
+            pre_task=EgretTask.objects.get(pk=query_params['pre_pk']) if 'pre_pk' in query_params else None 
+            
+            #get loading pattern pk
+            loading_pattern=MultipleLoadingPattern.objects.get(pk=query_params['pk']) if 'pk' in query_params else None 
+            
             
         except Exception as e:
             error_message={'error_message':e}
-            return Response(data=error_message,status=404)
-        
-        #previous egret task
-        if 'pre_pk' in query_params:
-            pre_pk=query_params['pre_pk'] 
-            try:
-                pre_task=EgretTask.objects.get(pk=pre_pk)
-            except Exception as e:
-                error_message={'error_message':e}
-                print(e)
-                return Response(data=error_message,status=404)
-        elif cycle_num==1:
-            pre_task=None
-        else:
-            error_message={'error_message':'you need to provide a previous egret task'}
-            print(error_message)
-            return Response(data=error_message,status=404) 
-            
-        #check if the task_name repeated
-        try:
-            EgretTask.objects.get(task_name=task_name,user=user,loading_pattern=loading_pattern)
-            error_message={'error_message':'the taskname already exists'}
-            return Response(data=error_message,status=404)
-        except:
-            pass
+            print(e)
+            return Response(data=error_message,status=404)      
             
         #start creating egret task
         try:
@@ -171,7 +164,7 @@ def egret_task(request,format=None):
             #generate loading pattern xml
             task_instance.generate_loading_pattern_xml()
            
-            #generate runegret xml
+            #generate myegret xml
             task_instance.generate_runegret_xml()
        
             #copy the files to current working directory
@@ -189,7 +182,21 @@ def egret_task(request,format=None):
         success_message={'pk':task_instance.pk,'task_name':task_name,'task_type':task_type}
         success_message['egret_input_file']=task_instance.egret_input_file.url
         success_message['success_message']='your request has been handled successfully'
-        time.sleep(1)
+        
+        if countdown!=0:
+            return Response(data=success_message,status=200)
+        
+        #wait until myegret.log exists
+        myegret_log=os.path.join(current_workdirectory,'myegret.log')
+        log_status=os.path.isfile(myegret_log)    
+        log_index=0
+        max_circle=100
+        while not log_status:
+            time.sleep(0.1)
+            log_index +=1
+            log_status=os.path.isfile(myegret_log)
+            if log_index==max_circle:
+                break
         return Response(data=success_message,status=200)
         
     if request.method =='PUT':
@@ -233,7 +240,7 @@ def egret_task(request,format=None):
                 #prepare for calculation
                 current_workdirectory=task_instance.get_cwd()
                 os.chdir(current_workdirectory)
-                #generate runegret xml
+                #generate myegret xml
                 
                 task_instance.generate_runegret_xml(restart=1)
                 
