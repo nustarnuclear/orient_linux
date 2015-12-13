@@ -10,7 +10,7 @@ from datetime import datetime
 cwd=os.getcwd()
 DEFAULT_EGRET_VERSION=195
 egretkernel='/opt/nustar/bin/EGRET195'
-logfile="runegret.log"
+logfile="myegret.log"
 workspace=".workspace"
 
 parser = ArgumentParser(prog='EGRET',description='Begin egret calculation',
@@ -36,7 +36,7 @@ args = parser.parse_args()
 
 args_dic=vars(args)
 
-log_file=open('myegret.log',mode='a',buffering=1) 
+log_file=open(logfile,mode='a',buffering=1) 
 
 #EGRET working directory
 path=args_dic['path']
@@ -51,7 +51,7 @@ if input_file:
 if not os.path.exists(path):
     wrong_time=datetime.now() 
     log_file.write('EGRET went wrong at %s\n'%wrong_time)
-    log_file.write('Your file path does not exist\n')
+    log_file.write('Your file %s does not exist\n'%path)
     log_file.close()
     raise AssertionError('Your file path does not exist')
 
@@ -80,7 +80,7 @@ if input_file:
     if not os.path.isfile(input_file):
         wrong_time=datetime.now() 
         log_file.write('EGRET went wrong at %s\n'%wrong_time)
-        log_file.write('Your file does not exist\n')
+        log_file.write('Your file %s does not exist\n'%input_file)
         log_file.close()
         raise AssertionError('The file does not exist')
         
@@ -93,11 +93,6 @@ if input_file:
     
     custom_version=args_dic['custom_version']
     egret_version=custom_version if custom_version else DEFAULT_EGRET_VERSION
-    #Begin logging
-    #logging.basicConfig(filename='myrunegret.log',level=logging.DEBUG)
-    #logging.debug('This is just a test')
-    #logging.info('Egret calculation starts')
-    #logging.warning('Be careful, this is just a test!!!')
     user=os.getenv('USER')
     log_file.write('Hello %s! Have a good time!!!\n'%user)
     log_file.write('EGRET version is %s\n'%egret_version)

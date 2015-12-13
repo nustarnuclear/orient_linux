@@ -537,9 +537,9 @@ class EgretTask(BaseModel):
         unit=cycle.unit
         if self.task_type=='FOLLOW':
             recalculation_depth=self.recalculation_depth
-            return 'U{}C{}_{}.xml'.format(cycle.cycle,unit.unit,str(recalculation_depth).zfill(6))
+            return 'U{}C{}_{}.xml'.format(unit.unit,cycle.cycle,str(recalculation_depth).zfill(6))
         elif self.task_type=='SEQUENCE':
-            return 'U{}C{}_sequence.xml'.format(cycle.cycle,unit.unit)
+            return 'U{}C{}_sequence.xml'.format(unit.unit,cycle.cycle)
     
     def start_calculation(self,countdown):
         s=signature('calculation.tasks.egret_calculation_task', args=(self,), countdown=countdown)

@@ -701,6 +701,17 @@ class FuelAssemblyType(BaseModel):
     @property   
     def assembly_name(self):
         return self.model.name
+    
+    #pre robin cut
+    def prerobin_cut(self,pk=None):
+        '''pk represent the bpa to insert;
+        cut this real fuel assembly to several 2D section for prerobin computation
+        '''
+        #if insert bpa
+        if pk:
+            bpa=BurnablePoisonAssembly.objects.get(pk=pk)
+        else:
+            pass 
         
     def __str__(self):
         obj=FuelAssemblyType.objects.get(pk=self.pk)

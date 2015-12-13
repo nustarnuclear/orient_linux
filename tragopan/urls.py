@@ -8,7 +8,7 @@ urlpatterns = [
     url(r'^plant_list/$', views.plant_list),
     url(r'^fuel_assembly_type/$', views.fuel_assembly_type_list),
     url(r'^fuel_assembly_detail/$', views.fuel_assembly_detail),
-    url(r'^upload_operation_data/$',views.upload_operation_data),
+    url(r'^operation_data/$',views.operation_data),
 ]
 
 urlpatterns = format_suffix_patterns(urlpatterns)

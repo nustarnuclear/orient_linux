@@ -1,6 +1,8 @@
 from django.contrib import admin
 from .models import *
 from .functions import generate_prerobin_input
+from django.core.urlresolvers import reverse
+from django.utils.html import format_html
 # Register your models here.
 
     
@@ -84,6 +86,8 @@ class PreRobinInputAdmin(admin.ModelAdmin):
     exclude=('remark','pre_robin_file')
     list_display=('segment_identity','plant','pre_robin_file',)
     actions = ['generate_pre_robin_input_file']
+    filter_horizontal=('branch_composition',)
+    #save_as=True
     def generate_pre_robin_input_file(self, request, queryset):
         for obj in queryset:
             file=generate_prerobin_input(obj.pk)
@@ -136,8 +140,19 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('pk','user','task_name','task_type','get_cycle','start_time','end_time','time_cost','task_status','remark','if_recalculated',)
-    #list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
+    list_display=('pk','user','task_name','task_type','get_cycle','start_time','end_time','time_cost','task_status','remark','if_recalculated','start_calculation_link')
+    list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
+    
+    def start_calculation_link(self,obj):
+        #dest = reverse('admin:calculation_pictures_mail_author', kwargs={'pk': obj.pk})
+        dest='http://www.baidu.com'
+        #use get_urls()
+        return format_html('<a href="{url}">{title}</a>',
+                           url=dest, title='send mail')
+    start_calculation_link.short_description = 'Start calculation'
+    start_calculation_link.allow_tags = True
+    
+    
     def get_queryset(self, request):
         qs = super(EgretTaskAdmin, self).get_queryset(request)
         if request.user.is_superuser:

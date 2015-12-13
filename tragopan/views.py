@@ -1,12 +1,12 @@
 from tragopan.models import OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,UnitParameter,Plant,FuelAssemblyRepository,FuelAssemblyType,ControlRodCluster,OperationMonthlyParameter
-from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,PlantListSerializer,FuelAssemblyTypeSerializer,FuelAssemblyRepositorySerializer
+from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,PlantListSerializer,FuelAssemblyTypeSerializer,FuelAssemblyRepositorySerializer,OperationDailyParameterSerializer
 from rest_framework.response import Response
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.parsers import FileUploadParser
 from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from rest_framework.authentication import TokenAuthentication
-   
+#from django.db.models import Q
 @api_view(('GET',))
 def plant_list(request,format=None):
     
@@ -84,11 +84,11 @@ def fuel_assembly_detail(request,format=None):
         
         
 
-@api_view(('POST',))
+@api_view(('POST','GET'))
 @parser_classes((XMLParser,FileUploadParser,))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
-def upload_operation_data(request,format=None):
+def operation_data(request,format=None):
     query_params=request.query_params
     data=request.data
    
@@ -107,11 +107,30 @@ def upload_operation_data(request,format=None):
         error_message={'error_message':e}
         print(error_message)
         return Response(data=error_message,status=404)
+    
+    if request.method=='GET':
+        try:
+            #start_date=query_params['start_date']
+            #end_date=query_params['end_date']
+            
+            #get daily data
+            if operation_type==1:
+                op_daily_pr=OperationDailyParameter.objects.filter(cycle=cycle,)
+                serializer=OperationDailyParameterSerializer(op_daily_pr,many=True)
+                return Response(serializer.data)
+            
+            
+            
+        except Exception as e:
+            error_message={'error_message':e}
+            print(error_message)
+            return Response(data=error_message,status=404)
 
 
     if request.method == 'POST':
-        #upload daily data
+        
         try:
+            #upload daily data
             if operation_type==1:
                 for item in data:
                     cluster_lst=[]

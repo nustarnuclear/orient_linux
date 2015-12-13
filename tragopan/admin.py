@@ -578,6 +578,7 @@ class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
     list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position','availability','broken','batch_number',FuelAssemblyStatusListFilter]
     list_display=['pk','type','unit','batch_number',]
     search_fields=('=id',)
+    list_select_related = True
     
     #actions
     def update_batch_number(self, request, queryset):

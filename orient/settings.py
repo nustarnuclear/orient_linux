@@ -106,10 +106,10 @@ DATABASES = {
 
 
 #egret setting on centos
-USER_HOME_DIR=os.path.expanduser('~django')
-DJANGO_WORKSPACE=os.path.join(USER_HOME_DIR,'.django_project')
-TMP_DIR=os.path.join(DJANGO_WORKSPACE,'tmp')
-EGRET_WORKSPACE=os.path.join(DJANGO_WORKSPACE,'egret_workspace')
+#USER_HOME_DIR=os.path.expanduser('~django')
+#DJANGO_WORKSPACE=os.path.join(USER_HOME_DIR,'.django_project')
+#TMP_DIR=os.path.join(DJANGO_WORKSPACE,'tmp')
+#EGRET_WORKSPACE=os.path.join(DJANGO_WORKSPACE,'egret_workspace')
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.8/topics/i18n/
@@ -129,12 +129,12 @@ ATOMIC_REQUESTS=True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.8/howto/static-files/
-STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 STATIC_URL = '/static/'
-STATICFILES_DIRS=(os.path.join(BASE_DIR, 'static'),)
+#STATICFILES_DIRS=(os.path.join(BASE_DIR, 'static'),)
 
 #media root
-MEDIA_ROOT=os.path.join(DJANGO_WORKSPACE, 'media')
+MEDIA_ROOT=os.path.join(os.path.dirname(BASE_DIR), 'media')
 MEDIA_URL="/media/"
 
 #debug tools setting

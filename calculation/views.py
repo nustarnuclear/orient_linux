@@ -179,7 +179,7 @@ def egret_task(request,format=None):
             return Response(data=error_message,status=404)
         
         
-        success_message={'pk':task_instance.pk,'task_name':task_name,'task_type':task_type}
+        success_message={'pk':task_instance.pk,'task_name':task_name,'task_type':task_type,'get_input_filename':task_instance.get_input_filename()}
         success_message['egret_input_file']=task_instance.egret_input_file.url
         success_message['success_message']='your request has been handled successfully'
         
@@ -246,7 +246,7 @@ def egret_task(request,format=None):
                 
                 task_instance.start_calculation(countdown=countdown)
                 
-                success_message={'success_message':'your request has been handled successfully'}
+                success_message={'success_message':'your request has been handled successfully','get_input_filename':task_instance.get_input_filename()}
                 return Response(data=success_message,status=200,)  
             
             else:

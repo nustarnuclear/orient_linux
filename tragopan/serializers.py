@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from tragopan.models import Element,ReactorPosition,FuelAssemblyLoadingPattern,Plant,UnitParameter,BurnablePoisonAssembly,BurnablePoisonAssemblyLoadingPattern,\
-ControlRodAssembly,ControlRodAssemblyLoadingPattern,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster
+ControlRodAssembly,ControlRodAssemblyLoadingPattern,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster,OperationDailyParameter
 
 class ElementSerializer(serializers.ModelSerializer):
     
@@ -149,4 +149,13 @@ class FuelAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
     class Meta:
         model = FuelAssemblyLoadingPattern
         fields = ( 'get_all_previous','if_insert_bpa','if_insert_cra')  
+        
+class OperationDailyParameterSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OperationDailyParameter
+        depth=1
+        exclude = ('time_inserted','last_modified','remark')
+        
+    
+    
         
