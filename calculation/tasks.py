@@ -27,6 +27,7 @@ def xsum(numbers):
 def egret_calculation_task(egret_instance,version='195'):
     #egret_instance=egret_calculation_task.egret_instance
     cwd=egret_instance.get_cwd()
+    user=egret_instance.user.username
     os.chdir(cwd)
     input_filename=egret_instance.get_input_filename() 
     #egret_instance.calculation_identity=egret_cal_instance.id
@@ -35,9 +36,10 @@ def egret_calculation_task(egret_instance,version='195'):
     egret_instance.task_status=1
     egret_instance.save()
     
-    process=Popen(['myegret','-i',input_filename,'-s',version])
+    process=Popen(['myegret','-i',input_filename,'-s',version,'-u',user])
     return_code=process.wait()
     print('return code is {}'.format(return_code))
+    #if process went wrong
     if return_code!=0:
         
         egret_instance.task_status=6

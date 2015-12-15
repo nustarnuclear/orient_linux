@@ -66,6 +66,7 @@ class BaseModel(models.Model):
         abstract=True
 
 media_root=settings.MEDIA_ROOT
+media_url=settings.MEDIA_URL
 #concrete model in DATABASE
 
     
@@ -246,7 +247,18 @@ class Ibis(BaseModel):
         if os.path.basename(ibis_path).split(sep='.',maxsplit=1)[0] !=ibis_name:
             raise ValidationError({'ibis_name':_('your ibis name should be the pathname stripped .TAB'),               
             })
-                
+    
+    #change file path in database when you switch media root option
+    @classmethod       
+    def change_filepath(cls,old_media_root):
+        new_media_root=media_root
+        for obj in cls.objects.all():
+            old_path=obj.ibis_path
+            rel_path=os.path.relpath(old_path,old_media_root)
+            new_path=os.path.join(new_media_root,rel_path)
+            obj.ibis_path=new_path
+            obj.save()
+        
         
     def get_non_bpa_basefuel(self):
         basefuels=self.base_fuels.all()
@@ -345,6 +357,35 @@ class EgretInputXML(models.Model):
     
     class Meta:
         db_table='egret_input_xml'
+    
+    #change file path in database when you switch media root option
+    @classmethod       
+    def change_filepath(cls,old_media_root):
+        new_media_root=media_root
+        for obj in cls.objects.all():
+            #old file path
+            base_component_path=obj.base_component_path
+            base_core_path=obj.base_core_path
+            loading_pattern_path=obj.loading_pattern_path
+            
+            #relative file path
+            rel_base_component_path=os.path.relpath(base_component_path,old_media_root)
+            rel_base_core_path=os.path.relpath(base_core_path,old_media_root)
+            rel_loading_pattern_path=os.path.relpath(loading_pattern_path,old_media_root)
+            print(rel_base_component_path,rel_base_core_path,rel_loading_pattern_path)
+            #new file path
+            new_base_component_path=os.path.join(new_media_root,rel_base_component_path)
+            new_base_core_path=os.path.join(new_media_root,rel_base_core_path)
+            new_loading_pattern_path=os.path.join(new_media_root,rel_loading_pattern_path)
+            
+            #save to database
+            obj.base_component_path=new_base_component_path
+            obj.base_core_path=new_base_core_path
+            obj.loading_pattern_path=new_loading_pattern_path
+            obj.save()
+            
+    
+            
         
     def generate_loading_pattern_doc(self,max_cycle=1):
         loading_pattern_path=self.loading_pattern_path
@@ -403,7 +444,7 @@ class EgretTask(BaseModel):
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32,choices=TASK_TYPE_CHOICES)
     loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
-    result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
+    #result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     pre_egret_task=models.ForeignKey('self',related_name='post_egret_tasks',blank=True,null=True)
@@ -449,10 +490,10 @@ class EgretTask(BaseModel):
                 })
                 
         #check if the task_name repeated
-        if EgretTask.objects.filter(task_name=self.task_name,user=self.user,loading_pattern=self.get_loading_pattern()):
-            raise ValidationError({
-                                    'task_name':_('the taskname already exists with respect to user and loading_pattern'),                
-                })
+        #if EgretTask.objects.filter(task_name=self.task_name,user=self.user,loading_pattern=self.get_loading_pattern()):
+        #raise ValidationError({
+        #                           'task_name':_('the taskname already exists with respect to user and loading_pattern'),                
+        #        })
             
         #chech sequence task type
         if self.task_type=='SEQUENCE':
@@ -477,6 +518,14 @@ class EgretTask(BaseModel):
         abs_file_path=self.egret_input_file.path
         dir_path=os.path.dirname(abs_file_path)
         return dir_path
+    
+    @property
+    def result_file(self):
+        cwd=self.get_cwd()
+        workspace_dir=os.path.join(cwd,'.workspace')
+        abs_path=os.path.join(workspace_dir,self.get_lp_res_filename()+'.xml')
+        rel_path=os.path.relpath(abs_path,media_root)
+        return os.path.join(media_url,rel_path)
         
     def get_lp_res_filename(self):
         

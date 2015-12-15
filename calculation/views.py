@@ -153,9 +153,9 @@ def egret_task(request,format=None):
             task_instance.full_clean()
             task_instance.save()
             current_workdirectory=task_instance.get_cwd()
-            workspace_dir=os.path.join(current_workdirectory,'.workspace')
-            xml_path=os.path.join(workspace_dir,task_instance.get_lp_res_filename()+'.xml')
-            task_instance.result_path=xml_path
+            #workspace_dir=os.path.join(current_workdirectory,'.workspace')
+            #xml_path=os.path.join(workspace_dir,task_instance.get_lp_res_filename()+'.xml')
+            #task_instance.result_path=xml_path
             task_instance.save()
             
             #change directory to current task directory

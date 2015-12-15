@@ -12,6 +12,7 @@ DEFAULT_EGRET_VERSION=195
 egretkernel='/opt/nustar/bin/EGRET195'
 logfile="myegret.log"
 workspace=".workspace"
+sys_user=os.getenv('USER')
 
 parser = ArgumentParser(prog='EGRET',description='Begin egret calculation',
                         formatter_class=RawDescriptionHelpFormatter, 
@@ -32,6 +33,7 @@ parser.add_argument('--switch', '-s',type=int,choices=[191,192,193,194,195],dest
 
 parser.add_argument('--path', '-p',type=str,default=cwd,dest='path',help='designate the EGRET working directory')
 
+parser.add_argument('--user', '-u',type=str,default=sys_user,dest='user',help='designate current user')
 args = parser.parse_args()
 
 args_dic=vars(args)
@@ -41,6 +43,7 @@ log_file=open(logfile,mode='a',buffering=1)
 #EGRET working directory
 path=args_dic['path']
 input_file=args_dic['input_file']
+user=args_dic['user']
 
 if input_file:
     #if you provide a relative file path
@@ -93,7 +96,7 @@ if input_file:
     
     custom_version=args_dic['custom_version']
     egret_version=custom_version if custom_version else DEFAULT_EGRET_VERSION
-    user=os.getenv('USER')
+    
     log_file.write('Hello %s! Have a good time!!!\n'%user)
     log_file.write('EGRET version is %s\n'%egret_version)
     log_file.write('Current working directory is %s\n'%cwd)
@@ -116,7 +119,7 @@ if input_file:
             
     end_time=datetime.now()   
     log_file.write('EGRET ends at %s\n'%end_time)
-    log_file.write('Time cost  %s\n'%(end_time-start_time))
+    log_file.write('Time costs  %s\n'%(end_time-start_time))
     log_file.write('Bye %s! see you next time!!!\n'%user)
     log_file.close()
 

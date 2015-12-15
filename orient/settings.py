@@ -36,7 +36,6 @@ INSTALLED_APPS = (
     'django.contrib.contenttypes',
     'grappelli.dashboard',
     'grappelli',
-    #'debug_toolbar',
     'filebrowser',
     'django.contrib.admin',
     'django.contrib.sessions',
@@ -45,7 +44,6 @@ INSTALLED_APPS = (
     'tragopan',
     'calculation',
     'import_export',
-    #'oauth2_provider',
     'rest_framework',
     'rest_framework.authtoken',
     
@@ -61,7 +59,6 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    #'debug_toolbar.middleware.DebugToolbarMiddleware',
 )
 
 ROOT_URLCONF = 'orient.urls'
@@ -134,7 +131,8 @@ STATIC_URL = '/static/'
 #STATICFILES_DIRS=(os.path.join(BASE_DIR, 'static'),)
 
 #media root
-MEDIA_ROOT=os.path.join(os.path.dirname(BASE_DIR), 'media')
+#MEDIA_ROOT=os.path.join(os.path.dirname(BASE_DIR), 'media')
+MEDIA_ROOT="/var/lib/orient/media"
 MEDIA_URL="/media/"
 
 #debug tools setting
