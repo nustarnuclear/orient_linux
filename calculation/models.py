@@ -320,9 +320,23 @@ class BaseFuel(BaseModel):
     offset=models.BooleanField(default=False)
     
     def if_insert_burnable_fuel(self):
-        composition=self.composition.count()
-        result=True if composition>1 else False
-        return result
+        composition_set=self.composition_set
+        
+        return True if composition_set[1] else False
+    
+    @property
+    def composition_set(self):
+        fuel_assembly_set=set()
+        bpa_set=set()
+        for item in self.axial_composition.all():
+            fuel_assembly=item.fuel_assembly_type
+            bpa=item.burnable_poison_assembly 
+            if fuel_assembly:
+                fuel_assembly_set.add(fuel_assembly)
+            if bpa:
+                bpa_set.add(bpa)  
+            
+        return (fuel_assembly_set,bpa_set)
     
     class Meta:
         db_table='base_fuel'
@@ -444,7 +458,6 @@ class EgretTask(BaseModel):
     task_name=models.CharField(max_length=32)
     task_type=models.CharField(max_length=32,choices=TASK_TYPE_CHOICES)
     loading_pattern=models.ForeignKey('MultipleLoadingPattern',blank=True,null=True)
-    #result_path=models.FilePathField(path=media_root,match=".*\.xml$",recursive=True,blank=True,null=True,max_length=200)
     egret_input_file=models.FileField(upload_to=get_egret_upload_path,blank=True,null=True)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     pre_egret_task=models.ForeignKey('self',related_name='post_egret_tasks',blank=True,null=True)
@@ -454,6 +467,7 @@ class EgretTask(BaseModel):
     end_time=models.DateTimeField(blank=True,null=True)
     calculation_identity=models.CharField(max_length=128,blank=True)
     recalculation_depth=models.PositiveSmallIntegerField(default=1)
+    locked=models.BooleanField(default=False)
     class Meta:
         db_table='egret_task'
         
@@ -470,6 +484,13 @@ class EgretTask(BaseModel):
         pre_egret_task=self.pre_egret_task
         if pre_egret_task:
             pre_loading_pattern=pre_egret_task.loading_pattern
+            #locked=pre_egret_task.locked
+            
+            #if locked:
+            #    raise ValidationError({
+            #                           'pre_egret_task':_('your pre egret task is locked, please wait a moment'),                
+            #    })
+            
             if self.task_type=='FOLLOW':
                 if loading_pattern.get_pre_loading_pattern()!=pre_loading_pattern:
                     raise ValidationError({'loading_pattern':_('loading_pattern and pre_egret_task are not compatible'),

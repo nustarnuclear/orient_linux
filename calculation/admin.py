@@ -124,7 +124,7 @@ class BaseFuelCompositionInline(admin.TabularInline):
 class BaseFuelAdmin(admin.ModelAdmin):
     exclude=('remark','user')
     inlines=(BaseFuelCompositionInline,)
-    list_display=('__str__','get_ibis_composition','if_insert_burnable_fuel','offset',)
+    list_display=('__str__','get_ibis_composition','composition_set','if_insert_burnable_fuel','offset',)
     list_filter=('plant',)
     list_editable=('offset',)
     def get_ibis_composition(self,obj):

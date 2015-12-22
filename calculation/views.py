@@ -137,7 +137,13 @@ def egret_task(request,format=None):
             
             #get pre egret task
             pre_task=EgretTask.objects.get(pk=query_params['pre_pk']) if 'pre_pk' in query_params else None 
-            
+            if pre_task and task_type=='SEQUENCE':
+                #lock the pre egrt task when performing sequence calculation
+                if task_type=='SEQUENCE':
+                    pre_task.locked=True
+                    pre_task.save()
+                
+                
             #get loading pattern pk
             loading_pattern=MultipleLoadingPattern.objects.get(pk=query_params['pk']) if 'pk' in query_params else None 
             
@@ -225,6 +231,8 @@ def egret_task(request,format=None):
             #2 represent that you want to recalculation the task 
             elif int(update_type)==2:
                 
+                assert task_instance.locked==False, 'The task to be recalculated is locked'
+                
                 data=request.data
                 input_file=data['file']
                 remark=query_params['remark']
@@ -247,7 +255,9 @@ def egret_task(request,format=None):
                 task_instance.start_calculation(countdown=countdown)
                 
                 success_message={'success_message':'your request has been handled successfully','get_input_filename':task_instance.get_input_filename()}
-                return Response(data=success_message,status=200,)  
+                return Response(data=success_message,status=200,)
+                
+                
             
             else:
                 error_message={'error_message':'the updated type is not supported yet'}
@@ -363,43 +373,49 @@ def upload_loading_pattern(request,format=None):
     
     
     if request.method == 'POST':
-        name=query_params['name']
-        data=request.data
-    
-        doc = minidom.Document()
-    
-        loading_pattern_xml = doc.createElement("loading_pattern")
-        loading_pattern_xml.setAttribute('cycle_num', str(cycle_num))
-        loading_pattern_xml.setAttribute('plant_name', str(plantname))
-        loading_pattern_xml.setAttribute('unit_num', str(unit_num))
-        doc.appendChild(loading_pattern_xml)
-        fuel_xml = doc.createElement("fuel")
-        loading_pattern_xml.appendChild(fuel_xml)
-        for item in data:
-            [n,row,column,position_or_type]=item.split()
+        try:
+            name=query_params['name']
+            data=request.data
+        
+            doc = minidom.Document()
+        
+            loading_pattern_xml = doc.createElement("loading_pattern")
+            loading_pattern_xml.setAttribute('cycle_num', str(cycle_num))
+            loading_pattern_xml.setAttribute('plant_name', str(plantname))
+            loading_pattern_xml.setAttribute('unit_num', str(unit_num))
+            doc.appendChild(loading_pattern_xml)
+            fuel_xml = doc.createElement("fuel")
+            loading_pattern_xml.appendChild(fuel_xml)
+            for item in data:
+                [n,row,column,position_or_type]=item.split()
+                
+                nth_cycle=cycle.get_nth_cycle(int(n))
+                try:
+     
+                    position_node=position_node_by_excel(nth_cycle,int(row),int(column),position_or_type)
+                except Exception as e:
+                    error_message={'error_message':e}
+                    print(error_message)
+                    return Response(data=error_message,status=404)
             
-            nth_cycle=cycle.get_nth_cycle(int(n))
-            try:
- 
-                position_node=position_node_by_excel(nth_cycle,int(row),int(column),position_or_type)
-            except Exception as e:
-                error_message={'error_message':e}
-                print(error_message)
-                return Response(data=error_message,status=404)
-        
-            fuel_xml.appendChild(position_node)
-        
-        tmp_dir=settings.TMP_DIR    
-        f = open(os.path.join(tmp_dir,'upload_loading_pattern.xml'),"w+")
-        doc.writexml(f)
-        
-        mlp=MultipleLoadingPattern.objects.create(name=name,cycle=cycle,xml_file=File(f),user=request.user,)
-        print('finished')
-        f.close()
+                fuel_xml.appendChild(position_node)
             
-        success_message={'success_message':'your request has been handled successfully','pk':mlp.pk,'url':mlp.xml_file.url}
-        return Response(data=success_message,status=200)
-    
+            tmp_dir=settings.MEDIA_ROOT    
+            f = open(os.path.join(tmp_dir,'upload_loading_pattern.xml'),"w")
+            doc.writexml(f)
+            
+            mlp=MultipleLoadingPattern.objects.create(name=name,cycle=cycle,xml_file=File(f),user=request.user,)
+            print('finished')
+            f.close()
+                
+            success_message={'success_message':'your request has been handled successfully','pk':mlp.pk,'url':mlp.xml_file.url}
+            return Response(data=success_message,status=200)
+        
+        except Exception as e:
+            error_message={'error_message':e}
+            print(e)
+            return Response(data=error_message,status=404)
+        
 
 @api_view(('PUT',))
 @parser_classes((XMLParser,))

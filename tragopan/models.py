@@ -1319,6 +1319,11 @@ class ControlRodCluster(BaseModel):
     def get_control_rod_assembly_num(self):
         return self.control_rod_assemblies.count()
     
+    @property
+    def type(self):
+        control_rod_assembly=self.control_rod_assemblies.first()
+        return control_rod_assembly.type
+    
     get_control_rod_assembly_num.short_description='same cluster number'
     
     def __str__(self):
@@ -1328,10 +1333,9 @@ class ControlRodCluster(BaseModel):
 class ControlRodAssembly(BaseModel):
     TYPE_CHOICES=(
                   (1,'black rod'),
-                  (2,'grep rod'),
+                  (2,'grey rod'),
     )
     cluster=models.ForeignKey(ControlRodCluster,related_name='control_rod_assemblies',blank=True,null=True)
-    #reactor_model=models.ForeignKey(ReactorModel,blank=True,null=True,related_name='control_rod_assemblies')
     type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
     basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')

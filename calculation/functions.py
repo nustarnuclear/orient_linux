@@ -365,21 +365,27 @@ def generate_base_component(plant_name):
                 data.append((item.height,item.ibis.ibis_name))
             data.sort()
             
-            #active length attribute
-            active_length=data[-1][0]
-            base_fuel_xml.setAttribute("active_length",str(active_length))  
+             
             
             height_lst=[]
-            ibis_lst=[]
+            ibis_lst=[item[1] for item in data]
             
-            for item in data:
-                ibis_lst.append(item[1])
-                try:
-                    height_lst.append(item[0]-height_lst[-1])
-                except IndexError:
-                    height_lst.append(item[0])
+            #for item in data:
+            #   ibis_lst.append(item[1])
+            #    try:
+            #        height_lst.append(item[0]-height_lst[-1])
+            #    except IndexError:
+            #        height_lst.append(item[0])
+            for i in range(len(data)):
+                if i==0:
+                    height_lst.append(data[i][0])
+                else:
+                    height_lst.append(data[i][0]-data[i-1][0])
                     
-            height_lst_str=[str(i) for i in height_lst]       
+            height_lst_str=[str(i) for i in height_lst] 
+            #active length attribute
+            active_length=sum(height_lst)
+            base_fuel_xml.setAttribute("active_length",str(active_length))       
             axial_ratio_xml=doc.createElement("axial_ratio")
             axial_ratio_xml.appendChild(doc.createTextNode(' '.join(height_lst_str)))
             axial_color_xml=doc.createElement("axial_color")
@@ -399,7 +405,7 @@ def generate_base_component(plant_name):
                     spacer_grid_xml=doc.createElement("spacer_grid")
                     spacer_grid_xml.appendChild(doc.createTextNode(grid_type))
                     
-                    spacer_grid_xml.setAttribute("hight",str(hight))
+                    spacer_grid_xml.setAttribute("hight",str(hight+width/2))
                     spacer_grid_xml.setAttribute("width",str(width))
                     base_fuel_xml.appendChild(spacer_grid_xml)
         
