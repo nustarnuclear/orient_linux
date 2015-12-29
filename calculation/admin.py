@@ -140,7 +140,7 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('pk','user','task_name','task_type','get_cycle','start_time','end_time','time_cost','task_status','remark','if_recalculated','start_calculation_link')
+    list_display=('pk','user','task_name','task_type','get_cycle','start_time','end_time','time_cost','task_status','remark','if_recalculated','locked')
     list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
     
     def start_calculation_link(self,obj):

@@ -1,7 +1,7 @@
 #function that handle the transformation between weight and mole
 from decimal import Decimal,InvalidOperation
 from .models import FuelAssemblyType,FuelElementTypePosition,FuelElementType,Plant,Cycle,FuelAssemblyLoadingPattern,FuelAssemblyRepository,UnitParameter,FuelAssemblyModel \
-,ControlRodAssembly,ControlRodType,FuelAssemblyPosition,ControlRodMap,WimsNuclideData,WmisElementComposition,WmisElementData
+,ControlRodAssembly,ControlRodType,FuelAssemblyPosition,ControlRodMap,WimsNuclideData,WmisElementComposition,WmisElementData,BasicMaterial
 import os
 import re
 from builtins import zip
@@ -579,3 +579,68 @@ class OperationDataHandler:
                     break
                 index_num += 1          
         return (current_result,beside_result)
+    
+    
+################################################################################
+#pre robin functions
+def format_line(lst,width=16):
+    result_lst=[]
+    for item in lst:
+        blank_num=width-len(str(item))
+        result_lst.append(str(item)+' '*blank_num)
+    result_lst.append('\n')
+    return ''.join(result_lst)     
+    
+    
+def generate_material_lib(dir='/home/django/Desktop/material_element.lib'):
+    f=open(dir,'w')
+    #write general info
+    general_descrip=['nuclides','elements','compounds','mixtures']
+    f.write(format_line(general_descrip))
+    
+    nuclide_num=WimsNuclideData.objects.count()
+    element_num=WmisElementData.objects.count()
+    compound_num=BasicMaterial.objects.filter(type=1).count()
+    mixture_num=BasicMaterial.objects.filter(type=2).count()
+    f.write(format_line([nuclide_num,element_num,compound_num,mixture_num]))
+    f.write('\n')
+    #write nuclides info
+    nuclide_descrip=['isotope','ID in lib','amu','res_trig','dep_trig']
+    f.write(format_line(nuclide_descrip))
+    for item in WimsNuclideData.generate_nuclide_lib():
+        f.write(format_line(item))
+    f.write('\n')    
+    
+    #write elements info
+    f.write('elements:\n')
+    for element in WmisElementData.objects.all():
+        element_descrip=[element.element_name,element.get_nuclide_num()]
+        f.write(format_line(element_descrip))
+        for compo in element.nuclides.all():
+            nuclide_info=[' ',compo.wmis_nuclide.pk,compo.weight_percent/100] 
+            f.write(format_line(nuclide_info))
+    f.write('\n')        
+    #write compounds info
+    f.write('compounds:\n')
+    for compound in BasicMaterial.objects.filter(type=1):
+        compound_descrip=[compound.name,compound.get_element_num(),compound.density]
+        f.write(format_line(compound_descrip))
+        for compo in compound.elements.all():
+            element_info=[' ',compo.wims_element.element_name,compo.weight_percent/100 if compo.weight_percent else compo.element_number]
+            f.write(format_line(element_info))
+    f.write('\n') 
+    
+    #write mixture info
+    f.write('mixtures:\n')
+    for mixture in BasicMaterial.objects.filter(type=2):
+        mixture_descrip=[mixture.name,mixture.get_element_num(),mixture.density]
+        f.write(format_line(mixture_descrip))
+        for compo in mixture.elements.all():
+            element_info=[' ',compo.wims_element.element_name,compo.weight_percent/100 if compo.weight_percent else compo.element_number]
+            f.write(format_line(element_info))
+    f.write('\n')
+           
+    f.close()
+    
+        
+        

@@ -85,7 +85,7 @@ if input_file:
         log_file.write('EGRET went wrong at %s\n'%wrong_time)
         log_file.write('Your file %s does not exist\n'%input_file)
         log_file.close()
-        raise AssertionError('The file does not exist')
+        raise AssertionError('The file %s does not exist'%input_file)
         
     #prepare .workspace directory
     workspace_dir=os.path.join(cwd,workspace)

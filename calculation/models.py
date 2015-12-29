@@ -10,7 +10,7 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
 import shutil
 from celery import signature
-
+from datetime import datetime
 # Create your models here.
 
 def get_ibis_upload_path(instance,filename):
@@ -32,21 +32,6 @@ def get_robin_upload_path(instance,filename):
     tmp=str(int(enrichment*1000))+str_num
     
     return "{}/robin_files/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
-
-def get_pre_robin_upload_path(instance,filename):
-    plant_name=instance.plant.abbrEN
-    file_type=instance.file_type
-    assembly_name=instance.fuel_assembly_type.model.name
-    enrichment=instance.fuel_assembly_type.assembly_enrichment
-    
-    if instance.burnable_poison_assembly:
-        str_num=str(instance.burnable_poison_assembly.rod_positions.count())
-    else:
-        str_num='00'
-        
-    tmp=str(int(enrichment*1000))+str_num
-    
-    return "{}/pre_robin_files/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
 
 
 FILE_TYPE_CHOICES=(
@@ -142,6 +127,20 @@ class PreRobinModel(BaseModel):
     def __str__(self):
         return self.model_name
       
+def get_pre_robin_upload_path(instance,filename):
+    plant_name=instance.plant.abbrEN
+    file_type=instance.file_type
+    assembly_name=instance.fuel_assembly_type.model.name
+    enrichment=instance.fuel_assembly_type.assembly_enrichment
+    
+    if instance.burnable_poison_assembly:
+        str_num=str(instance.burnable_poison_assembly.rod_positions.count())
+    else:
+        str_num='00'
+        
+    tmp=str(int(enrichment*1000))+str_num
+    
+    return "pre_robin_task/{}/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
 
 class PreRobinInput(BaseModel):
     NUM_FUEL_CHOICES=(
@@ -612,7 +611,14 @@ class EgretTask(BaseModel):
             return 'U{}C{}_sequence.xml'.format(unit.unit,cycle.cycle)
     
     def start_calculation(self,countdown):
-        s=signature('calculation.tasks.egret_calculation_task', args=(self,), countdown=countdown)
+        cwd=self.get_cwd()
+        user=self.user.username
+        input_filename=self.get_input_filename()
+        start_time=datetime.now()
+        self.start_time=start_time
+        self.task_status=1
+        self.save() 
+        s=signature('calculation.tasks.egret_calculation_task', args=(cwd,input_filename,user,self.pk), countdown=countdown)
         s.freeze()
         self.calculation_identity=s.id
         self.save()
@@ -844,7 +850,7 @@ class MultipleLoadingPattern(BaseModel):
                 
                 if previous_cycle!=cycle.cycle-1:
                     pre_fuel_lst.append([row,column,previous_cycle])
-                    
+                    print(pre_fuel_lst)
      
         #zipped_lst=list(zip(num_lst,fuel_lst))  
         #zipped_lst.sort() 
@@ -861,8 +867,8 @@ class MultipleLoadingPattern(BaseModel):
         for item in pre_fuel_lst:
             cycle_xml=doc.createElement('cycle')
             fuel_xml.appendChild(cycle_xml)
-            cycle_xml.setAttribute('col', str(item[0]))
-            cycle_xml.setAttribute('row', str(item[1]))
+            cycle_xml.setAttribute('col', str(item[1]))
+            cycle_xml.setAttribute('row', str(item[0]))
             cycle_xml.appendChild(doc.createTextNode(str(item[2])))
         
         return fuel_xml

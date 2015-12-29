@@ -1,9 +1,9 @@
-#from __future__ import absolute_import
+from __future__ import absolute_import
 from datetime import datetime
 from celery import shared_task
 import os
 from subprocess import Popen
-
+from calculation.models import EgretTask
 #from calculation.models import EgretTask
 #from celery.contrib.abortable import AbortableTask
 from orient.celery import app
@@ -24,21 +24,12 @@ def xsum(numbers):
     return sum(numbers)
 
 @shared_task
-def egret_calculation_task(egret_instance,version='195'):
-    #egret_instance=egret_calculation_task.egret_instance
-    cwd=egret_instance.get_cwd()
-    user=egret_instance.user.username
+def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
     os.chdir(cwd)
-    input_filename=egret_instance.get_input_filename() 
-    #egret_instance.calculation_identity=egret_cal_instance.id
-    start_time=datetime.now()
-    egret_instance.start_time=start_time
-    egret_instance.task_status=1
-    egret_instance.save()
-    
     process=Popen(['myegret','-i',input_filename,'-s',version,'-u',user])
     return_code=process.wait()
     print('return code is {}'.format(return_code))
+    egret_instance=EgretTask.objects.get(pk=pk)
     #if process went wrong
     if return_code!=0:
         
@@ -53,6 +44,13 @@ def egret_calculation_task(egret_instance,version='195'):
     egret_instance.task_status=4
     egret_instance.save()
     egret_instance.mv_case_res_file()
+    
+    #unlock the pre egret task if exists
+    pre_egret_task=egret_instance.pre_egret_task
+    task_type=egret_instance.task_type
+    if pre_egret_task and task_type=='SEQUENCE':
+        pre_egret_task.locked=False
+        pre_egret_task.save()
     return return_code
 
 

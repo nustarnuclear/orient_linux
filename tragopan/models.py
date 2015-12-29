@@ -1,6 +1,6 @@
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Max
+from django.db.models import Max, Sum
 #token generated automatically when creating a new user
 from django.conf import settings
 from django.db.models.signals import post_save
@@ -103,6 +103,22 @@ class WimsNuclideData(BaseModel):
     def autocomplete_search_fields():
         return ("element__symbol",'id_wims')
     
+    @property
+    def res_trig(self):
+        return 0 if self.nf in (0,4) else 1
+
+    
+    @property
+    def dep_trig(self):
+        return 1 if self.material_type in ('FP','A','B','B/FP') else 0
+ 
+    
+    @classmethod
+    def generate_nuclide_lib(cls):
+        data=cls.objects.all()
+        for item in data:
+            yield (item.pk,item.id_wims,item.amu,item.res_trig,item.dep_trig)
+    
     class Meta:
         db_table='wims_nuclide_data'
         
@@ -117,6 +133,8 @@ class WmisElementData(BaseModel):
     @staticmethod
     def autocomplete_search_fields():
         return ("element_name__icontains",)
+    def get_nuclide_num(self):  
+        return self.composition.count()
     
     class Meta:
         db_table='wmis_element_data'
@@ -134,21 +152,113 @@ class WmisElementComposition(BaseModel):
         
     def __str__(self):
         return '{} {}'.format(self.wmis_element, self.wmis_nuclide)
+    
+class BasicMaterial(BaseModel):
+    TYPE_CHOICES=(
+                           (1,'Compound or elementary substance'),
+                           (2,'mixture'),
+                           (3,'symbolic'),
+    )
+    name=models.CharField(max_length=8,unique=True)
+    type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
+    composition=models.ManyToManyField(WmisElementData,through='BasicElementComposition')
+    density=models.DecimalField(max_digits=15, decimal_places=8,help_text=r'unit:g/cm3',blank=True,null=True)
+    class Meta:
+        db_table='basic_material'
+    def get_element_num(self):
+        return self.composition.count()
+    def weight_percent_sum(self):
+        return self.elements.all().aggregate(weight_percent_sum=Sum('weight_percent'))['weight_percent_sum']
+    
+    def data_integrity(self):
+        result=self.weight_percent_sum()
+        if result:
+            if abs(result-100)>=10e-1:
+                return False
+        return True
+    data_integrity.boolean=True
+    def __str__(self):
+        return self.name
+
+class BasicElementComposition(BaseModel):
+    basic_material=models.ForeignKey(BasicMaterial,related_name='elements')
+    wims_element=models.ForeignKey(WmisElementData,)
+    weight_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",blank=True,null=True,)
+    element_number=models.PositiveSmallIntegerField(blank=True,null=True)
+    class Meta:
+        db_table='basoc_element_composition'
+        order_with_respect_to='basic_material'
+    def clean(self):
+        if self.weight_percent and self.element_number:
+            raise ValidationError({'weight_percent':_('weight_percent and element_number are not compatible'), 
+                                 'element_number':_('weight_percent and element_number are not compatible'),                          
+            })  
+        elif (not self.weight_percent) and (not self.element_number):
+            raise ValidationError({'weight_percent':_('you should input at least weight_percent or element_number'), 
+                                 'element_number':_('you should input at least weight_percent or element_number'),                          
+            })
+            
+    def __str__(self):
+        return '{} {}'.format(self.basic_material, self.wims_element)
 
 #describe material information
 class Material(BaseModel):
-    nameCH=models.CharField(max_length=40)
-    nameEN=models.CharField(max_length=40)
-    prerobin_identifier=models.CharField(max_length=20,blank=True)
-    material_composition=models.ManyToManyField(WmisElementData,through='MaterialComposition')
+    INPUT_METHOD_CHOICES=(
+                          (1,'fuel by enrichment'),
+                          (2,'by B10 linear density'),
+                          (3,'blend basic materials'),
+                          (4,'totally inherit from basic material')
+    )
+    nameCH=models.CharField(max_length=40,blank=True)
+    nameEN=models.CharField(max_length=40,blank=True)
+    #material_composition=models.ManyToManyField(WmisElementData,through='MaterialComposition')
     mixture_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
+    bpr_B10=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"mg/cm",blank=True,null=True)
+    enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"U235:%",blank=True,null=True)
+    input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
+    basic_material=models.OneToOneField(BasicMaterial,blank=True,null=True)
     
     class Meta:
      
         db_table='material'
         verbose_name='Material repository'
         verbose_name_plural='Material repository'
+        
+    def clean(self):
+        if self.input_method==1:
+            if not self.enrichment:
+                raise ValidationError({'enrichment':_('enrichment cannot be blank when you choose such input method'),                           
+            }) 
+            if not self.nameEN:
+                raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
+            }) 
+        elif self.input_method==2:
+            if not self.bpr_B10:
+                raise ValidationError({'bpr_B10':_('bpr_B10 cannot be blank when you choose such input method'),                           
+            }) 
+            if not self.nameEN:
+                raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
+            }) 
+        elif self.input_method==4:
+            if not self.basic_material:
+                raise ValidationError({'basic_material':_('basic_material cannot be blank when you choose such input method'),                           
+            }) 
+            
+            
+        
+    @property
+    def if_mixture(self):
+        return True if self.mixture_composition.all() else False 
     
+    @property
+    def prerobin_identifier(self):
+        if self.input_method==4:
+            return self.basic_material.name
+        elif self.input_method==1:
+            return 'FUEL_'+str(self.pk)
+        else:
+            return self.nameEN
+        
     def __str__(self):
         return self.nameEN
     
@@ -163,7 +273,7 @@ class MixtureComposition(BaseModel):
     def __str__(self):
         return "{} {}".format(self.mixture, self.material)
     
-    
+'''
 class MaterialComposition(BaseModel):
     material=models.ForeignKey(Material,related_name='elements',related_query_name='element')
     wims_element_data=models.ForeignKey(WmisElementData,blank=True,null=True,)
@@ -172,12 +282,9 @@ class MaterialComposition(BaseModel):
     class Meta:
         db_table='material_composition'
         order_with_respect_to='material'
-        
-        
-    
-    def __str__(self):
-        return '{} {}'.format(self.material, self.wims_element_data)
-    
+'''               
+
+      
 class MaterialAttribute(BaseModel):
     material=models.OneToOneField(Material,related_name='attribute')
     density=models.DecimalField(max_digits=15, decimal_places=5,help_text=r'unit:g/cm3')
@@ -701,13 +808,16 @@ class FuelAssemblyType(BaseModel):
     @property   
     def assembly_name(self):
         return self.model.name
-    
+    def get_fuel_element_set(self):
+        fuel_element_set=self.fuel_element_type_position.distinct()
+        return fuel_element_set
     #pre robin cut
     def prerobin_cut(self,pk=None):
         '''pk represent the bpa to insert;
         cut this real fuel assembly to several 2D section for prerobin computation
         '''
         #if insert bpa
+        fuel_element_set=self.get_fuel_element_set()
         if pk:
             bpa=BurnablePoisonAssembly.objects.get(pk=pk)
         else:
@@ -756,7 +866,6 @@ class FuelAssemblyRepository(BaseModel):
         return first_loading_pattern
     
     def generate_section_num(self):
-        type=self.type
         first_loading_pattern=self.get_first_loading_pattern()
         first_cycle=first_loading_pattern.cycle
         
@@ -768,7 +877,7 @@ class FuelAssemblyRepository(BaseModel):
         except:
             bp_num=0
             
-        return (type.pk,first_cycle.pk,bp_num)
+        return (self.type.pk,first_cycle.pk,bp_num)
 
     
     def set_batch_number(self):
@@ -981,6 +1090,11 @@ class FuelElementType(BaseModel):
     
     class Meta:
         db_table='fuel_element_type'
+        
+    def get_pellet_composition(self):
+        pellet_composition=self.fuel_pellet_map.all().order_by('section')
+        result=[(item.section,item.fuel_pellet_type) for item in pellet_composition]
+        return result
         
     def __str__(self):
         obj=FuelElementType.objects.get(pk=self.pk)

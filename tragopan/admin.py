@@ -76,7 +76,7 @@ class NuclideAdmin(admin.ModelAdmin):
 admin.site.register(Nuclide, NuclideAdmin)
 
 class WimsNuclideDataAdmin(admin.ModelAdmin):
-    list_display=('__str__','element','id_wims','id_self_defined','amu','nf','material_type','descrip')
+    list_display=('__str__','element','id_wims','id_self_defined','amu','nf','material_type','descrip','res_trig','dep_trig')
     #list_editable=('id_self_defined',)
     ordering=('time_inserted',)
     list_filter=('element','id_wims','nf','material_type')
@@ -96,7 +96,7 @@ class WmisElementDataAdmin(admin.ModelAdmin):
     ordering=('time_inserted',)
     exclude=('remark',)
     inlines=[WmisElementCompositionInline,]
-    list_display=('__str__','is_correct',)
+    list_display=('__str__','get_nuclide_num','is_correct',)
     #check if satisfy the integrity constraint
     def is_correct(self,obj):
         cps=obj.nuclides.all()
@@ -112,7 +112,7 @@ class WmisElementDataAdmin(admin.ModelAdmin):
     
 admin.site.register(WmisElementData, WmisElementDataAdmin) 
 
-
+'''
 #material information
 class MaterialCompositionInline(admin.TabularInline):
     model=MaterialComposition
@@ -131,7 +131,7 @@ class MaterialCompositionInline(admin.TabularInline):
         if obj:
             return extra-1
         return extra
-  
+'''
 #mixture information
 class MixtureCompositionInline(admin.TabularInline):
     model=MixtureComposition
@@ -150,26 +150,34 @@ class MaterialAttributeInline(admin.TabularInline):
             return ('density','heat_capacity','thermal_conductivity','expansion_coefficient','code')
 
         return ()
-
     
-class MaterialAdmin(admin.ModelAdmin):
-    inlines=(MaterialCompositionInline,MaterialAttributeInline,MixtureCompositionInline)
+class BasicElementCompositionInline(admin.TabularInline):
+    model=BasicElementComposition
+    extra=3
     exclude=('remark',)
-    list_display=('nameEN','nameCH','prerobin_identifier','is_correct')
-    list_display_links=('nameEN','nameCH')
-    list_editable=('prerobin_identifier',)
     
-    #check if satisfy the integrity constraint
-    def is_correct(self,obj):
-        if obj.elements.all().first():
-            if obj.elements.all().first().weight_percent:
-                pecentage_sum=obj.elements.all().aggregate(sum=Sum('weight_percent'))
-                if pecentage_sum['sum']==100:
-                    return True
-                return False
-        return True
-    is_correct.short_description='Data Integrity?'
-    is_correct.boolean=True
+    # define the related_lookup_fields
+    raw_id_fields = ('wims_element',)
+    autocomplete_lookup_fields = {
+        'fk': ['wims_element',],
+    }
+    related_lookup_fields = {
+        'fk': ['wims_element',],
+        
+    }
+
+class BasicMaterialAdmin(admin.ModelAdmin):
+    exclude=('remark',)
+    list_display=('__str__','type','get_element_num','data_integrity')
+    #list_editable=('type',)
+    inlines=(BasicElementCompositionInline,)
+admin.site.register(BasicMaterial,BasicMaterialAdmin)
+
+class MaterialAdmin(admin.ModelAdmin):
+    inlines=(MaterialAttributeInline,MixtureCompositionInline)
+    exclude=('remark',)
+    list_display=('pk','nameEN','nameCH','input_method','prerobin_identifier')
+    list_display_links=('nameEN','nameCH')
     
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
@@ -642,7 +650,7 @@ admin.site.register(FuelElementTypePosition, FuelElementTypePositionAdmin)
     
 class FuelAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','assembly_enrichment',)
+    list_display=('__str__','assembly_enrichment','get_fuel_element_set')
     list_editable=('assembly_enrichment',)
 admin.site.register(FuelAssemblyType, FuelAssemblyTypeAdmin)
 
@@ -653,6 +661,7 @@ class FuelElementPelletLoadingSchemeInline(admin.TabularInline):
 
 class FuelElementTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
+    list_display=('__str__','get_pellet_composition')
     inlines=[FuelElementPelletLoadingSchemeInline,]
 admin.site.register(FuelElementType, FuelElementTypeAdmin)
 
