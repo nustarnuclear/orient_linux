@@ -704,7 +704,7 @@ class EgretTask(BaseModel):
         run_egret_xml.appendChild(ibis_path_xml)
         input_filename=self.get_input_filename()
         run_egret_file=open(input_filename,'w')
-        doc.writexml(run_egret_file)
+        doc.writexml(run_egret_file,indent='  ',addindent='  ', newl='\n',)
         run_egret_file.close()
     
     def generate_loading_pattern_xml(self):
@@ -724,7 +724,7 @@ class EgretTask(BaseModel):
         #custom loading pattern xml
         
         loading_pattern_file=open('loading_pattern.xml','w')
-        loading_pattern_doc.writexml(loading_pattern_file)
+        loading_pattern_doc.writexml(loading_pattern_file,indent='  ',addindent='  ', newl='\n',)
         loading_pattern_file.close()
         
     def __str__(self):

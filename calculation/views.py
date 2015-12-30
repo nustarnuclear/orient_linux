@@ -402,7 +402,7 @@ def upload_loading_pattern(request,format=None):
             
             tmp_dir=settings.MEDIA_ROOT    
             f = open(os.path.join(tmp_dir,'upload_loading_pattern.xml'),"w")
-            doc.writexml(f)
+            doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
             
             mlp=MultipleLoadingPattern.objects.create(name=name,cycle=cycle,xml_file=File(f),user=request.user,)
             print('finished')

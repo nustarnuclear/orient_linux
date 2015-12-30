@@ -4,8 +4,9 @@ from .models import FuelAssemblyType,FuelElementTypePosition,FuelElementType,Pla
 ,ControlRodAssembly,ControlRodType,FuelAssemblyPosition,ControlRodMap,WimsNuclideData,WmisElementComposition,WmisElementData,BasicMaterial
 import os
 import re
+import io
 from builtins import zip
-
+from xml.dom import minidom
 
 def generate_assembly_position(number=17):
     positions=[]
@@ -642,5 +643,75 @@ def generate_material_lib(dir='/home/django/Desktop/material_element.lib'):
            
     f.close()
     
+#####################################################################
+#SREAD format file handler
+class SreadNode(object):
+    def __init__(self,tagName,value=None,childNodes=[]):
+        self.tagName=tagName
+        self.childNodes=childNodes
+        self.value=value
         
         
+    def tosread(self,indent="\t", newl="\n",):
+        writer = io.StringIO()
+        self.writesread(writer, "", indent, newl)
+        
+    def writesread(self,writer, indent="", newl=""):
+        if self.value is not None:
+            writer.write(indent+self.tagName+':'+newl)
+            writer.write(indent+'/',+self.tagName+newl)
+        else:
+            writer.write("{}{} = {}{}".format(indent,self.tagName,self.value,newl))
+           
+    def appendChild(self, node):
+        self.childNodes.append(node)
+
+class Sread_doc(object):
+    def __init__(self,rootNode):
+        self.rootNode=rootNode
+
+def xml_to_sread(filepath='/home/django/Desktop/material_databank.xml'):
+    #parse xml
+    dom=minidom.parse(filepath)
+    root_element=dom.documentElement
+    root_name=root_element.tagName
+    
+    doc=Sread_doc()
+    #create root node
+    Sroot_node=SreadNode(root_name)
+    
+    root_childNodes=root_element.childNodes
+    
+    for childNode in root_childNodes:
+        name=childNode.tagName
+        firstChild=childNode.firstChild
+        #when first child node is text
+        if firstChild.nodeType==firstChild.TEXT_NODE:
+            value=firstChild.data
+            Schild_node=SreadNode(tagName=name,value=value)
+        else:
+            Schild_node(tagName=name)
+        Sroot_node.appendChild(Schild_node)   
+        
+        
+def generate_child_nodes(element):  
+    for childNode in element.childNodes:
+    
+        grand_child=childNode.firstChild
+        #if grand child is a text, show that it reach the final cycle
+        if grand_child.nodeType==grand_child.TEXT_NODE:
+            lable_name=element.tagName
+            Slable_node=SreadNode(lable_name)
+            
+            
+            name=childNode.tagName
+            value=childNode.firstChild.data
+            Schild_node=SreadNode(tagName=name,value=value)
+            Slable_node.appendChild(Schild_node)
+        
+    #recursion    
+    else:
+        for item in element.childNodes: 
+            generate_child_nodes(item)
+            
+    

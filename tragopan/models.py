@@ -9,6 +9,7 @@ from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
 import os
+from xml.dom import minidom
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
@@ -186,7 +187,7 @@ class BasicElementComposition(BaseModel):
     weight_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",blank=True,null=True,)
     element_number=models.PositiveSmallIntegerField(blank=True,null=True)
     class Meta:
-        db_table='basoc_element_composition'
+        db_table='basic_element_composition'
         order_with_respect_to='basic_material'
     def clean(self):
         if self.weight_percent and self.element_number:
@@ -205,13 +206,13 @@ class BasicElementComposition(BaseModel):
 class Material(BaseModel):
     INPUT_METHOD_CHOICES=(
                           (1,'fuel by enrichment'),
-                          (2,'by B10 linear density'),
-                          (3,'blend basic materials'),
-                          (4,'totally inherit from basic material')
+                          (2,'blend materials with B10 linear density'),
+                          (3,'blend materials '),
+                          (4,'totally inherit from basic material'),
+                          (5,'inherit from basic material with B10 linear density'),
     )
     nameCH=models.CharField(max_length=40,blank=True)
     nameEN=models.CharField(max_length=40,blank=True)
-    #material_composition=models.ManyToManyField(WmisElementData,through='MaterialComposition')
     mixture_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
     bpr_B10=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"mg/cm",blank=True,null=True)
     enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"U235:%",blank=True,null=True)
@@ -239,51 +240,125 @@ class Material(BaseModel):
             if not self.nameEN:
                 raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
             }) 
+        elif self.input_method==3:
+            if not self.nameEN:
+                raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
+            }) 
+                
         elif self.input_method==4:
             if not self.basic_material:
                 raise ValidationError({'basic_material':_('basic_material cannot be blank when you choose such input method'),                           
             }) 
+        elif self.input_method==5:
+            if not self.bpr_B10:
+                raise ValidationError({'bpr_B10':_('bpr_B10 cannot be blank when you choose such input method'),                           
+            }) 
+            if not self.basic_material:
+                raise ValidationError({'basic_material':_('basic_material cannot be blank when you choose such input method'),                           
+            })  
             
-            
-        
-    @property
-    def if_mixture(self):
-        return True if self.mixture_composition.all() else False 
-    
     @property
     def prerobin_identifier(self):
         if self.input_method==4:
             return self.basic_material.name
         elif self.input_method==1:
             return 'FUEL_'+str(self.pk)
+        elif self.input_method==5:
+            return self.basic_material.name
+        #grid homgenized with moderator
+        elif self.input_method==3:
+            return 'HOMG_'+str(self.pk)
         else:
             return self.nameEN
+    
+    def generate_base_mat(self):
+        result={'ID':self.prerobin_identifier}
+        if self.input_method==1:
+            result['density']=self.attribute.density
+            result['composition_ID']='UO2_'+str(self.enrichment)
+        elif self.input_method==2:
+            result['bpr_B10']=self.bpr_B10
+            compo=self.mixtures.all()
+            composition_ID_lst=[item.material.prerobin_identifier for item in compo]
+            weight_percent_lst=[str(item.percent) for item in compo]
+            result['composition_ID']=','.join(composition_ID_lst)
+            result['weight_percent']=','.join(weight_percent_lst)
+        elif self.input_method==3:
+            compo=self.mixtures.all()
+            homgenized_mat_lst=[item.material.prerobin_identifier for item in compo]
+            result['homgenized_mat']=','.join(homgenized_mat_lst)
+            input_method=compo.first().input_method
+            percent_lst=[str(item.percent) for item in compo]
+            #by weight
+            if input_method==1:
+                result['weight_percent']=','.join(percent_lst)
+            else:
+                result['volume_percent']=','.join(percent_lst)
+                
+        elif self.input_method==4:
+            return {}
+        elif self.input_method==5:
+            result['bpr_B10']=self.bpr_B10
+            result['composition_ID']=self.basic_material.name
+            
+        return  result  
+    @classmethod
+    def generate_material_databank(cls):
+        '''
+        materials=cls.objects.all()
+        f=open('/home/django/Desktop/material_databank.txt','w')
+        f.write('material_databank:\n')
+        for material in  materials:
+            base_mat=material.generate_base_mat()
+            if base_mat:
+                f.write('  base_mat:\n')
+                for key,value in base_mat.items():
+                    f.write('    {} = {}\n'.format(key, value))
+                f.write('   /base_mat\n')
+            f.write('\n')
+        f.write('/material_databank\n') 
+        f.close()  
+        '''
+        doc = minidom.Document()
+        material_databank_xml=doc.createElement('material_databank')
+        materials=cls.objects.all()
+        for material in  materials:
+            base_mat=material.generate_base_mat()
+            if base_mat:
+                base_mat_xml=doc.createElement('base_mat')
+                for key,value in base_mat.items():
+                    key_xml=doc.createElement(str(key))
+                    key_xml.appendChild(doc.createTextNode(str(value)))
+                    base_mat_xml.appendChild(key_xml)
+                material_databank_xml.appendChild(base_mat_xml)
+                
+        doc.appendChild(material_databank_xml)        
+        f=open('/home/django/Desktop/material_databank.xml','w')   
+        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
+        f.close()
+                    
         
+            
     def __str__(self):
-        return self.nameEN
+        return self.prerobin_identifier
     
 class MixtureComposition(BaseModel):
-    mixture=models.ForeignKey(Material,related_name='mixtures',related_query_name='mixture')
+    INPUT_METHOD_CHOICES=(
+                          (1,'by weight'),
+                          (2,'by volume'),
+                        
+    )
+    mixture=models.ForeignKey(Material,related_name='mixtures',)
     material=models.ForeignKey(Material)
-    weight_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
-    
+    percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
+    input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
     class Meta:
         db_table='mixture_composition'
-        
+    
+             
     def __str__(self):
         return "{} {}".format(self.mixture, self.material)
-    
-'''
-class MaterialComposition(BaseModel):
-    material=models.ForeignKey(Material,related_name='elements',related_query_name='element')
-    wims_element_data=models.ForeignKey(WmisElementData,blank=True,null=True,)
-    weight_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",blank=True,null=True,)
-    element_number=models.PositiveSmallIntegerField(blank=True,null=True)
-    class Meta:
-        db_table='material_composition'
-        order_with_respect_to='material'
-'''               
-
+                
       
 class MaterialAttribute(BaseModel):
     material=models.OneToOneField(Material,related_name='attribute')
@@ -1587,7 +1662,8 @@ class NozzlePlugRodMap(BaseModel):
 class OperationDailyParameter(BaseModel):
     cycle=models.ForeignKey(Cycle)
     date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True) 
-    burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU')
+    burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU',blank=True,null=True)
+    delta_time=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:day',blank=True,null=True)
     relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
     critical_boron_density=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm')
     axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
@@ -1596,11 +1672,45 @@ class OperationDailyParameter(BaseModel):
     class Meta:
         db_table='operation_daily_parameter'
         order_with_respect_to = 'cycle'
+        
+    def generate_depl_case_node(self):
+        doc = minidom.Document()
+        depl_case_xml=doc.createElement('depl_case')
+        core_state_xml=doc.createElement('core_state')
+        depl_case_xml.appendChild(core_state_xml)
+        #handle relative power
+        relative_power_xml=doc.createElement('relative_power')
+        relative_power_xml.appendChild(doc.createTextNode(str(self.relative_power)))
+        core_state_xml.appendChild(relative_power_xml)
+        #handle burnup or delta time
+        burnup=self.burnup
+        if burnup is not None:
+            burnup_xml=doc.createElement('burnup')
+            burnup_xml.appendChild(doc.createTextNode(str(self.burnup)))
+            core_state_xml.appendChild(burnup_xml)
+        else:
+            delta_time_xml=doc.createElement('delta_time')
+            delta_time_xml.appendChild(doc.createTextNode(str(self.delta_time)))
+            core_state_xml.appendChild(delta_time_xml)
+        #handle control rod
+        for item in self.control_rods.all():
+            rcca_xml=doc.createElement('rcca')
+            rcca_xml.appendChild(doc.createTextNode(str(item.step)))
+            rcca_xml.setAttribute('id', item.control_rod_cluster.cluster_name)
+            core_state_xml.appendChild(rcca_xml)
+        return depl_case_xml
+    
+    @classmethod
+    def generate_cycle_calc_xml(cls,pk_lst):
+        doc = minidom.Document()
+        isq=1
+        cycle_calc_xml=doc.createElement('cycle_calc')
+        
     def __str__(self):
         return '{}'.format(self.date)  
     
 class ControlRodAssemblyStep(BaseModel):
-    operation=models.ForeignKey(OperationDailyParameter)
+    operation=models.ForeignKey(OperationDailyParameter,related_name='control_rods')
     control_rod_cluster=models.ForeignKey(ControlRodCluster)
     step=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)])
     
@@ -1635,6 +1745,7 @@ class OperationMonthlyParameter(BaseModel):
     class Meta:
         db_table='operation_monthly_parameter'
         order_with_respect_to = 'cycle'
+             
     def __str__(self):
         return "{}".format(self.cycle,)
     

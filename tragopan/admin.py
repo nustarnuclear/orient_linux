@@ -176,8 +176,7 @@ admin.site.register(BasicMaterial,BasicMaterialAdmin)
 class MaterialAdmin(admin.ModelAdmin):
     inlines=(MaterialAttributeInline,MixtureCompositionInline)
     exclude=('remark',)
-    list_display=('pk','nameEN','nameCH','input_method','prerobin_identifier')
-    list_display_links=('nameEN','nameCH')
+    list_display=('__str__','input_method')
     
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:

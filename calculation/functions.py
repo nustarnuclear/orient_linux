@@ -453,7 +453,7 @@ def generate_base_component(plant_name):
     except OSError:
         pass
     f = open(file_path,"w")
-    doc.writexml(f)
+    doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
     f.close()
     print('finished')
         
@@ -612,7 +612,7 @@ def generate_loading_pattern(plant_name,unit_num):
     except OSError:
         pass
     f = open(file_path,"w")
-    doc.writexml(f)
+    doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
     f.close()
     print('finished') 
     
@@ -829,7 +829,7 @@ def generate_base_core(plant_name,unit_num):
     except OSError:
         pass
     f = open(file_path,"w")
-    doc.writexml(f)
+    doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
     f.close()
     print('finished')
                 
@@ -948,7 +948,7 @@ def multiple_loading_pattern(cycle):
         control_rod_assembly_xml.appendChild(doc.createTextNode(cluster_name))
     
     f = open("/home/django/Desktop/test.xml","w")
-    doc.writexml(f)
+    doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
     
     return File(f)
 
