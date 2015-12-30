@@ -564,11 +564,15 @@ class EgretTask(BaseModel):
             
             #if this is not the first calculation,you should rename the .CASE and .RES files that already exist
             if self.recalculation_depth>1:
-                depth=str(self.recalculation_depth-1).zfill(6)
+                #depth=str(self.recalculation_depth-1).zfill(6)
                 #rename the previous .CASE and .RES files
-                os.rename(os.path.join(cwd,name+'.CASE'),os.path.join(cwd,name+'.CASE.'+depth+'.old'))
-                os.rename(os.path.join(cwd,name+'.RES'),os.path.join(cwd,name+'.RES.'+depth+'.old'))
-                
+                #os.rename(os.path.join(cwd,name+'.CASE'),os.path.join(cwd,name+'.CASE.'+depth+'.old'))
+                #os.rename(os.path.join(cwd,name+'.RES'),os.path.join(cwd,name+'.RES.'+depth+'.old'))
+                if os.path.isfile(os.path.join(cwd,name+'.CASE')): 
+                    os.remove(os.path.join(cwd,name+'.CASE')) 
+                if os.path.isfile(os.path.join(cwd,name+'.RES')):    
+                    os.remove(os.path.join(cwd,name+'.RES')) 
+                             
             #move sub directory to current directory
             sub_cwd=os.path.join(cwd,'.workspace')
             CASE_path=os.path.join(sub_cwd,name+'.CASE')
