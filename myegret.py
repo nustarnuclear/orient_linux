@@ -9,7 +9,9 @@ from datetime import datetime
 
 cwd=os.getcwd()
 DEFAULT_EGRET_VERSION=195
-egretkernel='/opt/nustar/bin/EGRET195'
+os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib'
+os.environ['PATH']= '/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/nustar/bin:/home/django/bin:/opt/nustar/bin'
+
 logfile="myegret.log"
 workspace=".workspace"
 sys_user=os.getenv('USER')
@@ -39,6 +41,9 @@ args = parser.parse_args()
 args_dic=vars(args)
 
 log_file=open(logfile,mode='a',buffering=1) 
+log_file.write('----------------------------------------------------------------------------------------------------------\n')
+#log_file.write('LD_LIBRARY_PATH='+LD_LIBRARY_PATH+'\n')
+#log_file.write('PATH='+PATH+'\n')
 
 #EGRET working directory
 path=args_dic['path']
