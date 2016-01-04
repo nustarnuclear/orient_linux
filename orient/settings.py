@@ -94,7 +94,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.mysql',
         'NAME': 'oasis',
         'USER': 'root',
-        'PASSWORD': 'root123',
+        'PASSWORD': 'NuStar_Orient123',
         'HOST': 'localhost',
         'PORT': '3306',
     },
