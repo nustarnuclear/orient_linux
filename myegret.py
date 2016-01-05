@@ -9,7 +9,7 @@ from datetime import datetime
 
 cwd=os.getcwd()
 DEFAULT_EGRET_VERSION=195
-os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib'
+os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib:/opt/intel/composer_xe_2011_sp1.11.339/compiler/lib/intel64'
 os.environ['PATH']= '/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/nustar/bin:/home/django/bin:/opt/nustar/bin'
 
 logfile="myegret.log"

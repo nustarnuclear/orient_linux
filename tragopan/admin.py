@@ -375,7 +375,7 @@ admin.site.register(ReactorModel,ReactorModelAdmin)
 
 class UnitParameterAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_current_cycle')
+    list_display=('__str__','get_current_cycle','base_component_path','base_core_path','loading_pattern_path',)
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
             return ('plant','unit','reactor_model','electric_power','thermal_power','heat_fraction_in_fuel','primary_system_pressure',

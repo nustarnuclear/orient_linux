@@ -1,6 +1,5 @@
 import os
 import time
-from django.conf import settings
 from django.core.files import File
 from rest_framework.response import Response
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
@@ -17,7 +16,8 @@ from rest_framework.authentication import TokenAuthentication
 from django.db.models import Q
 from orient.celery import app
 from datetime import datetime
-
+import shutil
+import tempfile
 @api_view(('POST','GET','DELETE','PUT'))
 @parser_classes((FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
@@ -257,7 +257,22 @@ def egret_task(request,format=None):
                 success_message={'success_message':'your request has been handled successfully','get_input_filename':task_instance.get_input_filename()}
                 return Response(data=success_message,status=200,)
                 
+            #3 represent that you want to deepcopy the task 
+            elif int(update_type)==3: 
+                cwd=task_instance.get_cwd()
+                name=task_instance.task_name
+                task_instance.pk=None
+                new_name=name+'_backup'
+                task_instance.task_name=new_name
+                task_instance.egret_input_file.name=task_instance.egret_input_file.name.replace(name,new_name)
+                task_instance.save()
                 
+                #copy the files
+                new_cwd=cwd+'_backup'
+                shutil.copytree(cwd, new_cwd, symlinks=True,)
+                
+                success_message={'success_message':'your request has been handled successfully',}
+                return Response(data=success_message,status=200,)
             
             else:
                 error_message={'error_message':'the updated type is not supported yet'}
@@ -400,8 +415,8 @@ def upload_loading_pattern(request,format=None):
             
                 fuel_xml.appendChild(position_node)
             
-            tmp_dir=settings.MEDIA_ROOT    
-            f = open(os.path.join(tmp_dir,'upload_loading_pattern.xml'),"w")
+            #create a temporary file 
+            f = tempfile.TemporaryFile()
             doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
             
             mlp=MultipleLoadingPattern.objects.create(name=name,cycle=cycle,xml_file=File(f),user=request.user,)

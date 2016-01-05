@@ -406,6 +406,18 @@ class Plant(BaseModel):
     class Meta:
         db_table='plant'
         
+    @property
+    def plant_dir(self):
+        media_root=settings.MEDIA_ROOT
+        plant_dir=os.path.join(media_root, self.abbrEN)
+        return plant_dir
+    
+    @property    
+    def ibis_dir(self):
+        plant_dir=self.plant_dir
+        ibis_dir=os.path.join(plant_dir,'ibis_files')
+        return ibis_dir
+    
     def __str__(self):
         return self.abbrEN  
     
@@ -680,6 +692,47 @@ class UnitParameter(BaseModel):
     class Meta:
         db_table = 'unit_parameter'
         unique_together = ('plant', 'unit')
+    
+    @property
+    def unit_dir(self):
+        plant=self.plant
+        return os.path.join(plant.plant_dir,'unit'+str(self.unit))
+         
+    @property    
+    def base_component_path(self):
+        plant=self.plant
+        base_component_path=os.path.join(plant.plant_dir,'base_component.xml')
+        if os.path.isfile(base_component_path):
+            return base_component_path
+    
+    @property
+    def base_core_path(self):
+        unit_dir=self.unit_dir
+        base_core_path=os.path.join(unit_dir,'base_core.xml')
+        if os.path.isfile(base_core_path):
+            return base_core_path
+        
+        
+    @property
+    def loading_pattern_path(self):
+        unit_dir=self.unit_dir
+        loading_pattern_path=os.path.join(unit_dir,'loading_pattern.xml')
+        if os.path.isfile(loading_pattern_path):
+            return loading_pattern_path
+        
+    def generate_loading_pattern_doc(self,max_cycle=1):
+        loading_pattern_path=self.loading_pattern_path
+        dom=minidom.parse(loading_pattern_path)
+        loading_pattern_node=dom.documentElement
+        fuel_nodes=loading_pattern_node.getElementsByTagName('fuel')
+        for fuel_node in fuel_nodes:
+            cycle_num=int(fuel_node.getAttribute('cycle'))
+            if cycle_num>max_cycle:
+                loading_pattern_node.removeChild(fuel_node)
+        
+        doc = minidom.Document()
+        doc.appendChild(loading_pattern_node)
+        return doc
         
     def get_current_cycle(self):
         result_cycle=Cycle.get_max_cycle_by_unit(self) 

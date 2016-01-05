@@ -107,7 +107,7 @@ admin.site.register(PreRobinInput, PreRobinInputAdmin)
 class IbisAdmin(admin.ModelAdmin):
     exclude=('remark','user')
     list_display=('__str__','plant','burnable_poison_assembly','ibis_path')
-    list_editable=('burnable_poison_assembly','ibis_path')
+    list_editable=('burnable_poison_assembly',)
     list_filter=('plant',)
 admin.site.register(Ibis, IbisAdmin)    
 
@@ -140,7 +140,7 @@ admin.site.register(BaseFuel, BaseFuelAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('pk','user','task_name','task_type','get_cycle','start_time','end_time','time_cost','task_status','remark','if_recalculated','locked')
+    list_display=('pk','user','task_name','task_type','start_time','end_time','time_cost','task_status','remark','if_recalculated','locked')
     list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
     
     def start_calculation_link(self,obj):
@@ -160,10 +160,7 @@ class EgretTaskAdmin(admin.ModelAdmin):
         return qs.filter(user=request.user)
 admin.site.register(EgretTask, EgretTaskAdmin)
 
-class EgretInputXMLAdmin(admin.ModelAdmin):  
-    exclude=('remark',)
-    list_display=('unit','generate_loading_pattern_doc')
-admin.site.register(EgretInputXML, EgretInputXMLAdmin) 
+
 
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 

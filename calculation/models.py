@@ -1,8 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator,MaxValueValidator
-from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,\
-    FuelAssemblyRepository, FuelAssemblyLoadingPattern
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern
 from django.conf import settings
 import os
 from xml.dom import minidom 
@@ -221,7 +220,7 @@ class Ibis(BaseModel):
     reactor_model=models.ForeignKey('tragopan.ReactorModel')
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
-    ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
+    #ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
     
     
     
@@ -233,8 +232,8 @@ class Ibis(BaseModel):
         
     #validating objects(clean_fields->clean->validate_unique)
     def clean(self):
-        ibis_name=self.ibis_name
-        ibis_path=self.ibis_path
+        #ibis_name=self.ibis_name
+        #ibis_path=self.ibis_path
         units=self.plant.units.all()
         reactor_model=self.reactor_model
         reactor_model_lst=[unit.reactor_model for unit in units]
@@ -243,20 +242,19 @@ class Ibis(BaseModel):
                                  'reactor_model':_('plant and reactor model are not compatible'),                          
             })
             
-        if os.path.basename(ibis_path).split(sep='.',maxsplit=1)[0] !=ibis_name:
-            raise ValidationError({'ibis_name':_('your ibis name should be the pathname stripped .TAB'),               
-            })
+        #if os.path.basename(ibis_path).split(sep='.',maxsplit=1)[0] !=ibis_name:
+        #    raise ValidationError({'ibis_name':_('your ibis name should be the pathname stripped .TAB'),               
+        #    })
     
-    #change file path in database when you switch media root option
-    @classmethod       
-    def change_filepath(cls,old_media_root):
-        new_media_root=media_root
-        for obj in cls.objects.all():
-            old_path=obj.ibis_path
-            rel_path=os.path.relpath(old_path,old_media_root)
-            new_path=os.path.join(new_media_root,rel_path)
-            obj.ibis_path=new_path
-            obj.save()
+    @property
+    def ibis_path(self):
+        ibis_dir=self.plant.ibis_dir
+        name=self.ibis_name+'.TAB'
+        ibis_path=os.path.join(ibis_dir,name)
+        if os.path.isfile(ibis_path):
+            return ibis_path
+    
+   
         
         
     def get_non_bpa_basefuel(self):
@@ -361,67 +359,9 @@ class BaseFuelComposition(models.Model):
 
 
 
-class EgretInputXML(models.Model):
-    unit=models.ForeignKey('tragopan.UnitParameter')
-    base_component_path=models.FilePathField(path=media_root,match=".*base_component\.xml$",recursive=True,blank=True,null=True,max_length=200)
-    base_core_path=models.FilePathField(path=media_root,match=".*base_core\.xml$",recursive=True,blank=True,null=True,max_length=200)
-    loading_pattern_path=models.FilePathField(path=media_root,match=".*loading_pattern\.xml$",recursive=True,blank=True,null=True,max_length=200)
-   
-    
-    class Meta:
-        db_table='egret_input_xml'
-    
-    #change file path in database when you switch media root option
-    @classmethod       
-    def change_filepath(cls,old_media_root):
-        new_media_root=media_root
-        for obj in cls.objects.all():
-            #old file path
-            base_component_path=obj.base_component_path
-            base_core_path=obj.base_core_path
-            loading_pattern_path=obj.loading_pattern_path
-            
-            #relative file path
-            rel_base_component_path=os.path.relpath(base_component_path,old_media_root)
-            rel_base_core_path=os.path.relpath(base_core_path,old_media_root)
-            rel_loading_pattern_path=os.path.relpath(loading_pattern_path,old_media_root)
-            print(rel_base_component_path,rel_base_core_path,rel_loading_pattern_path)
-            #new file path
-            new_base_component_path=os.path.join(new_media_root,rel_base_component_path)
-            new_base_core_path=os.path.join(new_media_root,rel_base_core_path)
-            new_loading_pattern_path=os.path.join(new_media_root,rel_loading_pattern_path)
-            
-            #save to database
-            obj.base_component_path=new_base_component_path
-            obj.base_core_path=new_base_core_path
-            obj.loading_pattern_path=new_loading_pattern_path
-            obj.save()
-            
-    
-            
-        
-    def generate_loading_pattern_doc(self,max_cycle=1):
-        loading_pattern_path=self.loading_pattern_path
-        dom=minidom.parse(loading_pattern_path)
-        loading_pattern_node=dom.documentElement
-        fuel_nodes=loading_pattern_node.getElementsByTagName('fuel')
-        for fuel_node in fuel_nodes:
-            cycle_num=int(fuel_node.getAttribute('cycle'))
-            if cycle_num>max_cycle:
-                loading_pattern_node.removeChild(fuel_node)
-        
-        doc = minidom.Document()
-        doc.appendChild(loading_pattern_node)
-        return doc
-        
-            
-        
-    def __str__(self):
-        return '{}'.format(self.unit)
-
 def get_egret_upload_path(instance,filename):
     username=instance.user.get_username()
-    cycle=instance.get_cycle()
+    cycle=instance.cycle
     unit=cycle.unit
     plant=unit.plant
     plant_name=plant.abbrEN
@@ -527,12 +467,20 @@ class EgretTask(BaseModel):
         if self.task_type=='FOLLOW':
             return self.loading_pattern
         elif self.task_type=='SEQUENCE':
-            return self.pre_egret_task.loading_pattern       
-    
-    def get_cycle(self):
+            return self.pre_egret_task.loading_pattern 
+              
+    @property
+    def cycle(self):
         cycle=self.get_loading_pattern().cycle
         return cycle
-    get_cycle.short_description='cycle'
+    
+    @property
+    def unit(self):
+        return self.cycle.unit
+    
+    @property
+    def plant(self):
+        return self.unit.plant
      
     def get_cwd(self):
         abs_file_path=self.egret_input_file.path
@@ -547,11 +495,13 @@ class EgretTask(BaseModel):
         rel_path=os.path.relpath(abs_path,media_root)
         return os.path.join(media_url,rel_path)
         
+    
+        
     def get_lp_res_filename(self):
         
-        cycle=self.get_cycle()
-        unit=cycle.unit
-        plant=unit.plant
+        cycle=self.cycle
+        unit=self.unit
+        plant=self.plant
         filename="{}_U{}.{}".format(plant.abbrEN,unit.unit,str(cycle.cycle).zfill(3))   
         return filename
     
@@ -606,7 +556,7 @@ class EgretTask(BaseModel):
         return follow_task_chain
     
     def get_input_filename(self):
-        cycle=self.get_cycle()
+        cycle=self.cycle
         unit=cycle.unit
         if self.task_type=='FOLLOW':
             recalculation_depth=self.recalculation_depth
@@ -639,17 +589,17 @@ class EgretTask(BaseModel):
             time_cost=None
         return time_cost
     
-    @property
-    def egret_input_xml(self):
-        loading_pattern=self.get_loading_pattern()
-        unit=loading_pattern.cycle.unit
-        egret_input_xml=EgretInputXML.objects.get(unit=unit)
-        return egret_input_xml
+    #@property
+    #def egret_input_xml(self):
+    #    loading_pattern=self.get_loading_pattern()
+    #    unit=loading_pattern.cycle.unit
+    #    egret_input_xml=EgretInputXML.objects.get(unit=unit)
+    #    return egret_input_xml
         
     
     def generate_runegret_xml(self,restart=0,export=1):
-        loading_pattern=self.get_loading_pattern()
-        cycle=loading_pattern.cycle
+        #loading_pattern=self.get_loading_pattern()
+        cycle=self.cycle
         cycle_num=cycle.cycle
         unit=cycle.unit
         unit_num=unit.unit
@@ -657,20 +607,17 @@ class EgretTask(BaseModel):
         plant_name=plant.abbrEN
         core_id="{}_U{}".format(plant_name,unit_num)
         
-        #get ibis file directory
-        media_root=settings.MEDIA_ROOT
-        plant_dir=os.path.join(media_root, plant_name)
-        ibis_dir=os.path.join(plant_dir,'ibis_files')
+        ibis_dir=plant.ibis_dir
         
-        egret_input_xml=self.egret_input_xml
+        #egret_input_xml=self.egret_input_xml
         doc=minidom.Document()
         run_egret_xml=doc.createElement('run_egret')
         doc.appendChild(run_egret_xml)
         run_egret_xml.setAttribute('core_id', core_id)
         run_egret_xml.setAttribute('cycle',str(cycle_num))
         #xml path
-        base_core_path=egret_input_xml.base_core_path
-        base_component_path=egret_input_xml.base_component_path
+        base_core_path=unit.base_core_path
+        base_component_path=unit.base_component_path
         base_core_xml=doc.createElement('base_core')
         base_core_xml.appendChild(doc.createTextNode(base_core_path))
         run_egret_xml.appendChild(base_core_xml)
@@ -712,21 +659,18 @@ class EgretTask(BaseModel):
         run_egret_file.close()
     
     def generate_loading_pattern_xml(self):
-        egret_input_xml=self.egret_input_xml
+        unit=self.unit
+        #egret_input_xml=self.egret_input_xml
         loading_pattern=self.get_loading_pattern()
         #from database loading pattern xml
-        dividing_point=loading_pattern.get_dividing_point()
-               
+        dividing_point=loading_pattern.get_dividing_point()     
         custom_fuel_nodes=loading_pattern.get_custom_fuel_nodes()
-        
-        loading_pattern_doc=egret_input_xml.generate_loading_pattern_doc(max_cycle=dividing_point.cycle.cycle)
+        loading_pattern_doc=unit.generate_loading_pattern_doc(max_cycle=dividing_point.cycle.cycle)
         loading_pattern_node=loading_pattern_doc.documentElement
        
-        
         for custom_fuel_node in custom_fuel_nodes:
             loading_pattern_node.appendChild(custom_fuel_node)
         #custom loading pattern xml
-        
         loading_pattern_file=open('loading_pattern.xml','w')
         loading_pattern_doc.writexml(loading_pattern_file,indent='  ',addindent='  ', newl='\n',)
         loading_pattern_file.close()

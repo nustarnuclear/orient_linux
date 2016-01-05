@@ -5,6 +5,7 @@ from calculation.models import PreRobinInput,Ibis,BaseFuelComposition,FuelAssemb
 from xml.dom import minidom
 from tragopan.functions import fuel_assembly_loading_pattern
 from django.conf import settings
+import tempfile
 media_root=settings.MEDIA_ROOT
 
 def generate_prerobin_input(input_id):
@@ -947,10 +948,10 @@ def multiple_loading_pattern(cycle):
         control_rod_assembly_xml.setAttribute('basez', str(basez))
         control_rod_assembly_xml.appendChild(doc.createTextNode(cluster_name))
     
-    f = open("/home/django/Desktop/test.xml","w")
+    f = tempfile.TemporaryFile()
     doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
     
-    return File(f)
+    return f
 
 
 
