@@ -335,8 +335,7 @@ class ReactorModelAdmin(admin.ModelAdmin):
     inlines=[CoreBaffleInline,CoreUpperPlateInline,CoreLowerPlateInline,ThermalShieldInline,PressureVesselInline,PressureVesselInsulationInline,CoreBaffleInline,
              ]
     #raw_id_fields=('thermal_couple_position','incore_instrument_position')
-    list_display=['name','generation','reactor_type',
-                  'get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','get_control_rod_mechanism_num','get_max_row_column']
+    list_display=['name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','get_max_row_column']
     
     def get_formsets_with_inlines(self, request, obj=None):
         for inline in self.get_inline_instances(request, obj):
@@ -355,21 +354,12 @@ class ReactorModelAdmin(admin.ModelAdmin):
         return num
     get_incore_instrument_num.short_description='incore instrument count'
     
-    def get_control_rod_mechanism_num(self,obj):
-        num=obj.positions.filter(control_rod_mechanism=True).count()
-        return num
-    get_control_rod_mechanism_num.short_description='control rod mechanism count'
     
     def get_fuel_assembly_num(self,obj):
         num=obj.positions.count()
         return num
     get_fuel_assembly_num.short_description='fuel assembly count'
     
-    def get_readonly_fields(self,request, obj=None):
-        if not request.user.is_superuser:
-            return ('model','generation','reactor_type','geometry_type','row_symbol','column_symbol',
-                    'num_loops','num_control_rod_mechanisms','core_equivalent_diameter','active_height','cold_state_assembly_pitch','hot_state_assembly_pitch','vendor','thermal_couple_position','incore_instrument_position')
-        return ()
       
 admin.site.register(ReactorModel,ReactorModelAdmin)
 
@@ -393,7 +383,7 @@ class FuelAssemblyLoadingPatternInline(admin.TabularInline):
 
 class FuelAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_filter=['fuel_assembly','reactor_position','cycle']
+    list_filter=['fuel_assembly__type','reactor_position','cycle']
     list_display=['cycle','reactor_position','fuel_assembly',]
     list_select_related = ('cycle', 'fuel_assembly')
     raw_id_fields = ("fuel_assembly",)
@@ -649,8 +639,8 @@ admin.site.register(FuelElementTypePosition, FuelElementTypePositionAdmin)
     
 class FuelAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','assembly_enrichment','get_fuel_element_set')
-    list_editable=('assembly_enrichment',)
+    list_display=('pk','assembly_enrichment','model')
+    #list_editable=('assembly_enrichment',)
 admin.site.register(FuelAssemblyType, FuelAssemblyTypeAdmin)
 
 class FuelElementPelletLoadingSchemeInline(admin.TabularInline):
@@ -701,10 +691,13 @@ class CladdingTubeInline(admin.TabularInline):
     exclude=('remark',)
     model=CladdingTube
 
+class FuelElementRadialMapInline(admin.TabularInline):
+    exclude=('remark',)
+    model=FuelElementRadialMap
     
 class FuelElementAdmin(admin.ModelAdmin):
     exclude=('remark',) 
-    inlines=[UpperCapInline,LowerCapInline,PlenumSpringInline,CladdingTubeInline]
+    inlines=[FuelElementRadialMapInline,]
 admin.site.register(FuelElement, FuelElementAdmin)
 
 #fuel pellet type information    
@@ -718,8 +711,12 @@ admin.site.register(FakeFuelElementType, FakeFuelElementTypeAdmin)
 
 #########################################################################################
 #component assembly rod
+class ControlRodRadialMapInline(admin.TabularInline):
+    exclude=('remark',)
+    model=ControlRodRadialMap
 
 class ControlRodTypeAdmin(admin.ModelAdmin):
+    inlines=(ControlRodRadialMapInline,)
     exclude=('remark',)
 admin.site.register(ControlRodType, ControlRodTypeAdmin)
 

@@ -1,4 +1,5 @@
 #!/bin/sh -e
+# chkconfig: 2345 85 15
 # ============================================
 #  celeryd - Starts the Celery worker daemon.
 # ============================================
@@ -108,7 +109,7 @@ fi
 CELERY_APP_ARG=""
 if [ ! -z "$CELERY_APP" ]; then
     CELERY_APP_ARG="--app=$CELERY_APP"
-fi
+fi before h
 
 CELERYD_USER=${CELERYD_USER:-$DEFAULT_USER}
 

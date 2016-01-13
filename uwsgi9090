@@ -1,5 +1,5 @@
-#! /bin/sh
-# chkconfig: 2345 55 25
+#!/bin/sh
+# chkconfig: 2345 90 10
 # Description: Startup script for uwsgi webserver on Debian. Place in /etc/init.d and
 # run 'update-rc.d -f uwsgi defaults', or use the appropriate command on your
 # distro. For CentOS/Redhat run: 'chkconfig --add uwsgi'
@@ -20,7 +20,7 @@
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 DESC="uwsgi daemon"
 NAME=uwsgi9090
-DAEMON=/usr/bin/uwsgi
+DAEMON=/opt/orient_project/env/bin/uwsgi
 CONFIGFILE=/etc/$NAME.ini
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME

@@ -1,7 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator,MaxValueValidator
-from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,ReactorModel,\
+    UnitParameter
 from django.conf import settings
 import os
 from xml.dom import minidom 
@@ -185,32 +186,179 @@ class PreRobinInput(BaseModel):
         
 
 class PreRobinBranch(models.Model):
-    identity=models.CharField(max_length=32)
+    unit=models.ForeignKey(UnitParameter,related_name='branches')
+    max_burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=60,help_text='GWd/tU')
+    #reactor_model=models.ForeignKey(ReactorModel,related_name='branches')
+    #identity=models.CharField(max_length=32)
     #the default burnup point for BOR TMO TFU CRD
     #boron density branch
-    max_boron_density=models.PositiveSmallIntegerField(help_text='ppm',blank=True,null=True)
-    min_boron_density=models.PositiveSmallIntegerField(default=0,help_text='ppm',blank=True,null=True)
-    boron_density_interval=models.PositiveSmallIntegerField(help_text='ppm',default=200,blank=True,null=True)
+    max_boron_density=models.PositiveSmallIntegerField(default=2000,help_text='ppm')
+    min_boron_density=models.PositiveSmallIntegerField(default=0,help_text='ppm')
+    boron_density_interval=models.PositiveSmallIntegerField(help_text='ppm',default=200)
     #fuel temperature branch
-    max_fuel_temperature=models.PositiveSmallIntegerField(help_text='K',blank=True,null=True)
-    min_fuel_temperature=models.PositiveSmallIntegerField(help_text='K',blank=True,null=True)
-    fuel_temperature_interval=models.PositiveSmallIntegerField(help_text='K',default=50,blank=True,null=True)
+    max_fuel_temperature=models.PositiveSmallIntegerField(help_text='K',default=1253)
+    min_fuel_temperature=models.PositiveSmallIntegerField(help_text='K',default=553)
+    fuel_temperature_interval=models.PositiveSmallIntegerField(help_text='K',default=50,)
     #moderator temperature branch
-    max_moderator_temperature=models.PositiveSmallIntegerField(help_text='K',blank=True,null=True)
-    min_moderator_temperature=models.PositiveSmallIntegerField(help_text='K',blank=True,null=True)
-    moderator_temperature_interval=models.PositiveSmallIntegerField(help_text='K',default=4,blank=True,null=True)
+    max_moderator_temperature=models.PositiveSmallIntegerField(help_text='K',default=615)
+    min_moderator_temperature=models.PositiveSmallIntegerField(help_text='K',default=561)
+    moderator_temperature_interval=models.PositiveSmallIntegerField(help_text='K',default=4)
     #control rod assembly branch(the even integer of default burnup) 
-    control_rod_assembly=models.ForeignKey('tragopan.ControlRodAssembly',blank=True,null=True)
+    #control_rod_assembly=models.ForeignKey('tragopan.ControlRodAssembly',blank=True,null=True)
     #shutdown cooling branch(the even integer of default burnup) 
-    shutdown_cooling_days=models.PositiveSmallIntegerField(blank=True,null=True,help_text='day')
+    shutdown_cooling_days=models.PositiveSmallIntegerField(default=3000,help_text='day')
     #xenon branch(the even integer of default burnup) 
     xenon=models.BooleanField(default=False,verbose_name='set xenon density to 0?',)
     class Meta:
         db_table='pre_robin_branch'
         verbose_name_plural='branches'
         
+    def generate_value_str(self,option):
+        '''1->BOR
+           2->TFU
+           3->TMO
+        '''
+        unit=self.unit
+        if option==1:
+            base=unit.boron_density
+            min_val=self.min_boron_density
+            max_val=self.max_boron_density
+            interval=self.boron_density_interval
+        elif option==2:
+            base=unit.fuel_temperature
+            min_val=self.min_fuel_temperature
+            max_val=self.max_fuel_temperature
+            interval=self.fuel_temperature_interval
+        elif option==3:
+            base=unit.moderator_temperature
+            min_val=self.min_moderator_temperature
+            max_val=self.max_moderator_temperature
+            interval=self.moderator_temperature_interval
+           
+            
+        lst=list(range(min_val,max_val,interval))
+        if base in lst:
+            lst.remove(base)
+        if max_val not in lst:
+            lst.append(max_val)
+        lst_str=','.join([str(i) for i in lst])
+        return lst_str
+        
+        
+    def generate_branch_xml(self,option):
+        '''1->BOR
+           2->TFU
+           3->TMO
+           4->TMO_BOR
+        '''
+        doc=minidom.Document()
+        if option==1:
+            ID='BRCH_BOR'
+            name='BOR'
+            value_str=self.generate_value_str(option=1)
+        elif option==2:
+            ID='BRCH_TFU'
+            name='TFU'
+            value_str=self.generate_value_str(option=2)
+        elif option==3:
+            ID='BRCH_TMO'
+            name='TMO'
+            value_str=self.generate_value_str(option=3)
+            
+        branch_xml=doc.createElement('base_branch')
+    
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        branch_xml.appendChild(ID_xml)
+    
+        name_xml=doc.createElement(name)
+        name_xml.appendChild(doc.createTextNode(value_str))
+        branch_xml.appendChild(name_xml)
+        
+        return branch_xml
+    
+    def generate_TMO_BOR_xml(self):
+        doc=minidom.Document()
+        branch_xml=doc.createElement('base_branch')
+        ID='BRCH_TMO_BOR'
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        branch_xml.appendChild(ID_xml)
+        
+        name1='TMO'
+        lst_str1=self.generate_value_str(option=3)
+        name1_xml=doc.createElement(name1)
+        name1_xml.appendChild(doc.createTextNode(lst_str1))
+        
+        name2='BOR'
+        lst_str2=self.generate_value_str(option=1)
+        name2_xml=doc.createElement(name2)
+        name2_xml.appendChild(doc.createTextNode(lst_str2))
+        
+        branch_xml.appendChild(name1_xml)
+        branch_xml.appendChild(name2_xml)
+        
+        return branch_xml
+        
+    
+    def generate_his_branch_xml(self,option):
+        '''1->HCB
+           2->HTF
+           3->HTM
+        '''
+        doc=minidom.Document()
+        unit=self.unit
+        if option==1:
+            base=unit.boron_density
+            ID='HCB'
+            name='BOR'
+        elif option==2:
+            base=unit.fuel_temperature
+            ID='HTF'
+            name='TFU'
+        elif option==3:
+            base=unit.moderator_temperature
+            ID='HTM'
+            name='TMO'
+        branch_xml=doc.createElement('base_branch')
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        branch_xml.appendChild(ID_xml)
+        
+        name_xml=doc.createElement(name)
+        name_xml.appendChild(doc.createTextNode(str(base)))
+        branch_xml.appendChild(name_xml)  
+        
+        return branch_xml
+    
+    def generate_databank_xml(self):
+        doc=minidom.Document()
+        
+        databank_xml=doc.createElement('branch_calc_databank')
+        BOR_branch_xml=self.generate_branch_xml(option=1)
+        TFU_branch_xml=self.generate_branch_xml(option=2)
+        TMO_branch_xml=self.generate_branch_xml(option=3)
+        
+        HCB_branch_xml=self.generate_his_branch_xml(option=1)
+        HTF_branch_xml=self.generate_his_branch_xml(option=2)
+        HTM_branch_xml=self.generate_his_branch_xml(option=3)
+        
+        TMO_BOR_xml=self.generate_TMO_BOR_xml()
+        
+        databank_xml.appendChild(BOR_branch_xml)
+        databank_xml.appendChild(TFU_branch_xml)
+        databank_xml.appendChild(TMO_branch_xml)
+        databank_xml.appendChild(HCB_branch_xml)
+        databank_xml.appendChild(HTF_branch_xml)
+        databank_xml.appendChild(HTM_branch_xml)
+        databank_xml.appendChild(TMO_BOR_xml)
+        
+        doc.appendChild(databank_xml)
+        f=open('/home/django/Desktop/branch_calc_databank.xml','w')   
+        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
+        f.close()
     def __str__(self):
-        return self.identity
+        return str(self.unit)
 
   
 class Ibis(BaseModel):

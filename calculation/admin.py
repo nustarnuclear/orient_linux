@@ -48,7 +48,7 @@ admin.site.register(PreRobinModel, PreRobinModelAdmin)
 class PreRobinBranchAdmin(admin.ModelAdmin):
     fieldsets =(
                 (None,{
-                       'fields':('identity',)
+                       'fields':('unit','max_burnup_point')
                 }),
                 
                 ('boron density branch',{
@@ -62,11 +62,6 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
                 ('moderator temperature branch',{
                                         'classes': ('grp-collapse grp-closed',),
                                         'fields':('max_moderator_temperature','min_moderator_temperature','moderator_temperature_interval')
-                                     
-                }),
-                ('control rod assembly branch',{
-                                 'classes': ('grp-collapse grp-closed',),
-                                 'fields':('control_rod_assembly',)
                                      
                 }),
                 ('shutdown cooling branch',{
@@ -165,6 +160,7 @@ admin.site.register(EgretTask, EgretTaskAdmin)
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 
     list_display=('pk','name','authorized','visibility')
+    list_filter=('cycle',)
     def get_queryset(self, request):
         qs = super(MultipleLoadingPatternAdmin, self).get_queryset(request)
         if request.user.is_superuser:

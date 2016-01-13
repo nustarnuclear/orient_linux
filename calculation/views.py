@@ -416,7 +416,7 @@ def upload_loading_pattern(request,format=None):
                 fuel_xml.appendChild(position_node)
             
             #create a temporary file 
-            f = tempfile.TemporaryFile()
+            f = tempfile.TemporaryFile(mode='w+')
             doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
             
             mlp=MultipleLoadingPattern.objects.create(name=name,cycle=cycle,xml_file=File(f),user=request.user,)

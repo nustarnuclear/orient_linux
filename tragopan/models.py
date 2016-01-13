@@ -9,6 +9,7 @@ from rest_framework.authtoken.models import Token
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
 import os
+import tempfile
 from xml.dom import minidom
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
@@ -160,7 +161,7 @@ class BasicMaterial(BaseModel):
                            (2,'mixture'),
                            (3,'symbolic'),
     )
-    name=models.CharField(max_length=8,unique=True)
+    name=models.CharField(max_length=16,unique=True)
     type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
     composition=models.ManyToManyField(WmisElementData,through='BasicElementComposition')
     density=models.DecimalField(max_digits=15, decimal_places=8,help_text=r'unit:g/cm3',blank=True,null=True)
@@ -688,7 +689,9 @@ class UnitParameter(BaseModel):
     HFP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
     HFP_core_ave_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
     mid_power_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
-    
+    boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
+    fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
+    moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
     class Meta:
         db_table = 'unit_parameter'
         unique_together = ('plant', 'unit')
@@ -769,6 +772,17 @@ class Cycle(BaseModel):
             pre_cycle=self.get_pre_cycle()
             if not pre_cycle:
                 raise ValidationError({'cycle':_('the cycle number is not consistent')})
+    
+    def duplicate_cra_lp(self,base_cycle):
+        
+        base_cra_lps=base_cycle.control_rod_assembly_loading_patterns.all()
+        for base_cra_lp in base_cra_lps:
+            reactor_position=base_cra_lp.reactor_position
+            control_rod_assembly=base_cra_lp.control_rod_assembly
+            control_rod_assembly.pk=None
+            control_rod_assembly.save()
+            ControlRodAssemblyLoadingPattern.objects.create(reactor_position=reactor_position,cycle=self,control_rod_assembly=control_rod_assembly)
+        
             
         
     def get_pre_cycle(self):
@@ -803,8 +817,141 @@ class Cycle(BaseModel):
             if cra:
                 return this_cycle
             this_cycle=this_cycle.get_pre_cycle()
-
+            
+            
+    def generate_fuel_node(self):  
+        doc = minidom.Document()      
+        fuel_xml=doc.createElement('fuel')
+        doc.appendChild(fuel_xml)
+        fuel_xml=doc.createElement('fuel')
+        fuel_assembly_loading_patterns=self.fuel_assembly_loading_patterns.all()
+        
+        for item in fuel_assembly_loading_patterns:
+            #position info
+            fuel_position_xml=doc.createElement('position')
+            fuel_xml.appendChild(fuel_position_xml)
+            reactor_position=item.reactor_position
+            row=reactor_position.row
+            column=reactor_position.column
+            fuel_position_xml.setAttribute('row', str(row))
+            fuel_position_xml.setAttribute('column', str(column))
+            
+            #assembly info
+            fuel_assembly_xml=doc.createElement('fuel_assembly')
+            fuel_position_xml.appendChild(fuel_assembly_xml)
+            fuel_assembly=item.fuel_assembly
+            pk=fuel_assembly.pk
+            type=fuel_assembly.type
+            enrichment=type.assembly_enrichment
+            assembly_name=type.assembly_name
+            
+            fuel_assembly_xml.appendChild(doc.createTextNode(str(type.pk)))
+            fuel_assembly_xml.setAttribute('id', str(pk))
+            fuel_assembly_xml.setAttribute('enrichment', str(enrichment))
+            fuel_assembly_xml.setAttribute('assembly_name', str(assembly_name))
+            #previous cycle info
+            previous=item.get_previous()
+            if previous:
+                previous_xml=doc.createElement('previous')
+                fuel_position_xml.appendChild(previous_xml)
+                data=previous.split(sep='-') 
+                previous_xml.setAttribute('row', data[1])
+                previous_xml.setAttribute('column', data[2])
+                previous_xml.appendChild(doc.createTextNode(data[0]))
+                
+            first=fuel_assembly.get_first_loading_pattern()
+            first_cycle=first.cycle
+            first_position=first.reactor_position
+            first_xml=doc.createElement('first')
+            fuel_position_xml.appendChild(first_xml)
+            first_xml.setAttribute('row', str(first_position.row))
+            first_xml.setAttribute('column', str(first_position.column))
+            first_xml.appendChild(doc.createTextNode(str(first_cycle.cycle)))
+            
+        return fuel_xml    
     
+    def generate_bpa_node(self):
+        doc = minidom.Document()
+        bpa_xml=doc.createElement('bpa')
+        bpa_loading_patterns=self.bpa_loading_patterns.all()
+        for item in bpa_loading_patterns:
+            #position info
+            bpa_position_xml=doc.createElement('position')
+            bpa_xml.appendChild(bpa_position_xml)
+            reactor_position=item.reactor_position
+            row=reactor_position.row
+            column=reactor_position.column
+            bpa_position_xml.setAttribute('row', str(row))
+            bpa_position_xml.setAttribute('column', str(column))
+            
+            #bpa info
+            burnable_poison_assembly=item.burnable_poison_assembly
+            burnable_poison_assembly_xml=doc.createElement('burnable_poison_assembly')
+            bpa_position_xml.appendChild(burnable_poison_assembly_xml)
+            rod_num=burnable_poison_assembly.get_poison_rod_num()
+            rod_height=burnable_poison_assembly.get_poison_rod_height()
+            burnable_poison_assembly_xml.setAttribute('id', str(burnable_poison_assembly.pk))
+            burnable_poison_assembly_xml.setAttribute('height', str(rod_height))
+            burnable_poison_assembly_xml.appendChild(doc.createTextNode(str(rod_num)))
+        return bpa_xml
+    
+    def generate_cra_node(self):
+        doc = minidom.Document()  
+        cra_xml=doc.createElement('cra')
+        cra_loading_patterns=self.control_rod_assembly_loading_patterns.all()
+        for item in cra_loading_patterns:
+            #position info
+            cra_position_xml=doc.createElement('position')
+            cra_xml.appendChild(cra_position_xml)
+            reactor_position=item.reactor_position
+            row=reactor_position.row
+            column=reactor_position.column
+            cra_position_xml.setAttribute('row', str(row))
+            cra_position_xml.setAttribute('column', str(column))
+            
+            #cra info
+            control_rod_assembly=item.control_rod_assembly
+            control_rod_assembly_xml=doc.createElement('control_rod_assembly')
+            cra_position_xml.appendChild(control_rod_assembly_xml)
+            
+            cluster_name=control_rod_assembly.cluster_name
+            type=control_rod_assembly.type
+            step_size=control_rod_assembly.step_size
+            basez=control_rod_assembly.basez
+            control_rod_assembly_xml.setAttribute('id', str(control_rod_assembly.pk))
+            control_rod_assembly_xml.setAttribute('type', str(type))
+            control_rod_assembly_xml.setAttribute('step_size', str(step_size))
+            control_rod_assembly_xml.setAttribute('basez', str(basez))
+            control_rod_assembly_xml.appendChild(doc.createTextNode(cluster_name)) 
+        return  cra_xml
+    
+    def generate_loading_pattern_xml(self):
+       
+        unit=self.unit
+        plant=unit.plant
+        #start xml 
+        doc = minidom.Document()
+        loading_pattern_xml = doc.createElement("loading_pattern")
+        loading_pattern_xml.setAttribute("cycle_num",str(self.cycle))
+        loading_pattern_xml.setAttribute("unit_num",str(unit.unit))
+        loading_pattern_xml.setAttribute("plant_name",plant.abbrEN)
+        doc.appendChild(loading_pattern_xml)
+        #generate child nodes respectively
+        fuel_node=self.generate_fuel_node()
+        bpa_node=self.generate_bpa_node()
+        cra_node=self.generate_cra_node() 
+        
+        loading_pattern_xml.appendChild(fuel_node)
+        if bpa_node is not None:
+            loading_pattern_xml.appendChild(bpa_node)
+        if cra_node is not None:
+            loading_pattern_xml.appendChild(cra_node)
+            
+        f = tempfile.TemporaryFile(mode='w+')
+        #f=open('/home/django/Desktop/mylp.xml','w')
+        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
+        
+        return f
             
             
         
@@ -921,6 +1068,36 @@ class FuelAssemblyModel(BaseModel):
     
     class Meta:
         db_table='fuel_assembly_model'
+        
+    def generate_pin_xml(self):
+        doc = minidom.Document()
+        pin_xml=doc.createElement('pin_databank')
+        doc.appendChild(pin_xml)
+        #FEUL PIN
+        fuel_elements=self.fuel_elements.all()
+        
+        for fuel_element in fuel_elements:
+            fuel_xml=fuel_element.generate_base_pin_xml()
+            pin_xml.appendChild(fuel_xml)
+            
+        #instrument pin
+        instrument_tube=self.instrument_tube
+        instrument_xml=instrument_tube.generate_base_pin_xml()
+        pin_xml.appendChild(instrument_xml)  
+        
+        #guide tube
+        guide_tube=self.guide_tube
+        guide_xml=guide_tube.generate_base_pin_xml()
+        pin_xml.appendChild(guide_xml)
+         
+        #bp rod
+        bp_rod=self.bp_rod
+        bp_rod_xml=bp_rod.generate_base_pin_xml()
+        pin_xml.appendChild(bp_rod_xml)
+         
+        f=open('/home/django/Desktop/pin_databank.xml','w')   
+        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
+        f.close()
     
     def __str__(self):
         return "{}".format(self.name)
@@ -1134,22 +1311,50 @@ class Grid(BaseModel):
 
   
 class GuideTube(BaseModel):
-    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel)
+    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel,related_name='guide_tube')
     upper_outer_diameter= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     upper_inner_diameter= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    buffer_outer_diameter=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',null=True)
-    buffer_inner_diameter=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',null=True)
+    buffer_outer_diameter=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    buffer_inner_diameter=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     material=models.ForeignKey(Material)
     
     
     class Meta:
         db_table='guide_tube'
         
+    def clean(self):
+        if self.upper_outer_diameter<=self.upper_inner_diameter:
+            raise ValidationError({'upper_outer_diameter':_('the outer_diameter must be bigger'),
+                                   'upper_inner_diameter':_('the outer_diameter must be bigger'),
+                                   
+            })
+        
+    def generate_base_pin_xml(self):
+        doc=minidom.Document()
+        base_pin_xml=doc.createElement('base_pin')
+        ID='GT_'+str(self.pk)
+        radii="{},{}".format(self.upper_inner_diameter,self.upper_outer_diameter)
+        mat='MOD,'+self.material.prerobin_identifier
+        
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        base_pin_xml.appendChild(ID_xml)
+        
+        radii_xml=doc.createElement('radii')
+        radii_xml.appendChild(doc.createTextNode(radii))
+        base_pin_xml.appendChild(radii_xml)
+        
+        mat_xml=doc.createElement('mat')
+        mat_xml.appendChild(doc.createTextNode(mat))
+        base_pin_xml.appendChild(mat_xml)
+        
+        return base_pin_xml
+    
     def __str__(self):
         return "{} guid tube".format(self.material)
     
 class InstrumentTube(BaseModel):
-    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel)
+    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel,related_name='instrument_tube')
     outer_diameter= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     inner_diameter= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     material=models.ForeignKey(Material)
@@ -1157,6 +1362,34 @@ class InstrumentTube(BaseModel):
     
     class Meta:
         db_table='instrument_tube'
+        
+    def clean(self):
+        if self.outer_diameter<=self.inner_diameter:
+            raise ValidationError({'outer_diameter':_('the outer_diameter must be bigger'),
+                                   'inner_diameter':_('the outer_diameter must be bigger'),
+                                   
+            })
+        
+    def generate_base_pin_xml(self):
+        doc=minidom.Document()
+        base_pin_xml=doc.createElement('base_pin')
+        ID='IT_'+str(self.pk)
+        radii="{},{}".format(self.inner_diameter,self.outer_diameter)
+        mat='MOD,'+self.material.prerobin_identifier
+        
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        base_pin_xml.appendChild(ID_xml)
+        
+        radii_xml=doc.createElement('radii')
+        radii_xml.appendChild(doc.createTextNode(radii))
+        base_pin_xml.appendChild(radii_xml)
+        
+        mat_xml=doc.createElement('mat')
+        mat_xml.appendChild(doc.createTextNode(mat))
+        base_pin_xml.appendChild(mat_xml)
+        
+        return base_pin_xml
         
     def __str__(self):
         return "{}'s instrument tube".format(self.material)
@@ -1198,19 +1431,54 @@ class LowerNozzle(BaseModel):
 ################################################# 
 
 class FuelElement(BaseModel):
-    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel,related_name='fuel_elements')
+    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='fuel_elements')
     overall_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     plenum_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    filling_gas_pressure=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MPa',blank=True,null=True)
-    filling_gas_material=models.ForeignKey(Material,blank=True,null=True)
-    
+    #filling_gas_pressure=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MPa',blank=True,null=True)
+    #filling_gas_material=models.ForeignKey(Material,blank=True,null=True)
+    radial_map=models.ManyToManyField(Material,through='FuelElementRadialMap')
     
     class Meta:
         db_table='fuel_element'
         
+    def generate_base_pin_xml(self):
+        doc=minidom.Document()
+        base_pin_xml=doc.createElement('base_pin')
+        ID='FUEL_'+str(self.pk)
+        radial_map=self.materials.order_by('radii')
+        radii_lst,mat_lst=zip(*[(str(item.radii),item.material.prerobin_identifier) for item in radial_map])
+        radii=','.join(radii_lst)
+        mat=','.join(mat_lst)
+        
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        base_pin_xml.appendChild(ID_xml)
+        
+        radii_xml=doc.createElement('radii')
+        radii_xml.appendChild(doc.createTextNode(radii))
+        base_pin_xml.appendChild(radii_xml)
+        
+        mat_xml=doc.createElement('mat')
+        mat_xml.appendChild(doc.createTextNode(mat))
+        base_pin_xml.appendChild(mat_xml)
+        
+        return base_pin_xml
+    
     def __str__(self):
         return "{} fuel element".format(self.fuel_assembly_model)
+    
+
+class FuelElementRadialMap(BaseModel):
+    fuel_element=models.ForeignKey(FuelElement,related_name='materials')
+    radii=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    material=models.ForeignKey(Material)
+    
+    class Meta:
+        db_table='fuel_element_radial_map'
+        
+    def __str__(self):
+        return "{} radial map".format(self.fuel_element)
 
 class FuelElementType(BaseModel):
     model=models.ForeignKey(FuelElement)
@@ -1364,20 +1632,66 @@ class FuelElementPelletLoadingScheme(BaseModel):
 ####################################################################################################################################
 #the following five models describe all the component rod type
 class ControlRodType(BaseModel):
-    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
-    absorb_material=models.ForeignKey(Material,related_name='control_rod_absorb')
-    absorb_length=models.DecimalField(max_digits=9, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    absorb_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    cladding_material=models.ForeignKey(Material,related_name='control_rod_cladding')
-    cladding_inner_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    cladding_outer_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    
+    #fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
+    reactor_model=models.ForeignKey(ReactorModel,blank=True,null=True)
+    active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)  
+    #absorb_material=models.ForeignKey(Material,related_name='control_rod_absorb')
+    #absorb_length=models.DecimalField(max_digits=9, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #absorb_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #cladding_material=models.ForeignKey(Material,related_name='control_rod_cladding')
+    #cladding_inner_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #cladding_outer_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    radial_map=models.ManyToManyField(Material,through='ControlRodRadialMap')
     class Meta:
         db_table='control_rod_type'
         verbose_name='Control rod'
         
+    def generate_base_pin_xml(self,fuel_assembly_model):
+        doc=minidom.Document()
+        base_pin_xml=doc.createElement('base_pin')
+        ID='CR_'+str(self.pk)
+        radial_map=self.radial_materials.order_by('radii')
+        radii_tup,mat_tup=zip(*[(str(item.radii),item.material.prerobin_identifier) for item in radial_map])
+  
+        #insert into guide tube
+        guide_tube=fuel_assembly_model.guide_tube
+        radii_lst=list(radii_tup)
+        radii_lst.append(str(guide_tube.upper_inner_diameter))
+        radii_lst.append(str(guide_tube.upper_outer_diameter))
+        mat_lst=list(mat_tup)
+        mat_lst.append('MOD')
+        mat_lst.append(guide_tube.material.prerobin_identifier)
+        
+        radii=','.join(radii_lst)
+        mat=','.join(mat_lst)
+        
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        base_pin_xml.appendChild(ID_xml)
+        
+        radii_xml=doc.createElement('radii')
+        radii_xml.appendChild(doc.createTextNode(radii))
+        base_pin_xml.appendChild(radii_xml)
+        
+        mat_xml=doc.createElement('mat')
+        mat_xml.appendChild(doc.createTextNode(mat))
+        base_pin_xml.appendChild(mat_xml)
+        
+        return base_pin_xml
+        
     def __str__(self):
-        return '{} control rod'.format(self.fuel_assembly_model)
+        return '{} control rod'.format(self.reactor_model)
+    
+class ControlRodRadialMap(BaseModel):
+    control_rod=models.ForeignKey(ControlRodType,related_name='radial_materials')
+    radii=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    material=models.ForeignKey(Material)
+    
+    class Meta:
+        db_table='control_rod_radial_map'
+        
+    def __str__(self):
+        return "{} radial map".format(self.control_rod)
     
 class SourceRodType(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
@@ -1410,7 +1724,7 @@ class NozzlePlugRod(BaseModel):
         return '{} nozzle plug rod'.format(self.material)
     
 class BurnablePoisonRod(BaseModel):
-    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel)
+    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel,related_name='bp_rod')
     length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')                   
     radial_map=models.ManyToManyField(Material,through='BurnablePoisonMaterial',related_name='burnable_poison_rod')
@@ -1418,15 +1732,48 @@ class BurnablePoisonRod(BaseModel):
     class Meta:
         db_table='burnable_poison_rod'
         verbose_name='Burnable absorber rod'
+        
+    def generate_base_pin_xml(self):
+        doc=minidom.Document()
+        base_pin_xml=doc.createElement('base_pin')
+        ID='BP_'+str(self.pk)
+        radial_map=self.radial_materials.order_by('radius')
+        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
+  
+        #insert into guide tube
+        guide_tube=self.fuel_assembly_model.guide_tube
+        radii_lst=list(radii_tup)
+        radii_lst.append(str(guide_tube.upper_inner_diameter))
+        radii_lst.append(str(guide_tube.upper_outer_diameter))
+        mat_lst=list(mat_tup)
+        mat_lst.append('MOD')
+        mat_lst.append(guide_tube.material.prerobin_identifier)
+        
+        radii=','.join(radii_lst)
+        mat=','.join(mat_lst)
+        
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        base_pin_xml.appendChild(ID_xml)
+        
+        radii_xml=doc.createElement('radii')
+        radii_xml.appendChild(doc.createTextNode(radii))
+        base_pin_xml.appendChild(radii_xml)
+        
+        mat_xml=doc.createElement('mat')
+        mat_xml.appendChild(doc.createTextNode(mat))
+        base_pin_xml.appendChild(mat_xml)
+        
+        return base_pin_xml
     
     def __str__(self):
         return '{} burnable poison rod'.format(self.fuel_assembly_model)
     
     
 class BurnablePoisonMaterial(BaseModel):
-    burnable_poison_rod=models.ForeignKey(BurnablePoisonRod)
+    burnable_poison_rod=models.ForeignKey(BurnablePoisonRod,related_name='radial_materials')
     material=models.ForeignKey(Material)
-    radius=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     
     class Meta:
         db_table='burnable_poison_rod_material'

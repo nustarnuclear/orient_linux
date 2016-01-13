@@ -714,4 +714,85 @@ def generate_child_nodes(element):
         for item in element.childNodes: 
             generate_child_nodes(item)
             
+from rest_framework_xml.parsers import XMLParser            
+class MyXMLParser(XMLParser):
+    
+    def __init__(self,list_item='list-item'):
+        self.list_item=list_item
+        
+    def _xml_convert(self, element):
+        """
+        convert the xml `element` into the corresponding python object
+        """
+
+        children = list(element)
+
+        if len(children) == 0:
+            return self._type_convert(element.text)
+        else:
+            # if the fist child tag is list-item means all children are list-item
+            if children[0].tag == self.list_item:
+                data = []
+                for child in children:
+                    data.append(self._xml_convert(child))
+            else:
+                data = {}
+                for child in children:
+                    data[child.tag] = self._xml_convert(child)
+
+            return data
+            
+def parse_xml_to_lst(path='/home/django/Desktop/material_databank.xml'):
+    f=open(path)
+    line_lst=f.readlines()
+    f.close()
+    title=re.compile('<\?.*\?>')
+    start=re.compile('<.*>')
+    end=re.compile('</.*>')
+    total=re.compile('<.*>.*</.*>',re.DOTALL)
+    result_lst=[]
+    for i in range(len(line_lst)):
+        line=line_lst[i]
+        
+        #this is a tile 
+        if title.search(line):
+            continue
+        #this is a end element
+        end_element=end.search(line)  
+        if end_element:
+            matched=end_element.group(0)
+            if re.search(matched.replace('/',''), result_lst[-1]):
+                result_lst[-1] +=line
+            else:
+                result_lst.append(line)
+                
+            continue    
+        #this is a start element
+        if start.search(line):
+            result_lst.append(line)
+            continue
+        #this is a context    
+        else:
+            result_lst[-1] +=line
+            
+    index=0
+    for i in range(len(result_lst)):
+        line=result_lst[i]
+        split_lst=re.split('[<>]', line)
+        print(split_lst)
+        if total.search(line):
+            assert(len(split_lst)==5)
+            result_lst[i]='  '*index+split_lst[1]+' = '+split_lst[2]+'\n'
+        else:
+            if split_lst[1].startswith('/'):
+                index -=1
+                result_lst[i]='  '*index+split_lst[1]+'\n'
+            else:
+                result_lst[i]='  '*index+split_lst[1]+':'+'\n'
+                index +=1
+                 
+    sfile=open('/home/django/Desktop/material_databank.txt','w')
+    sfile.writelines(result_lst)
+    sfile.close()
+        
     
