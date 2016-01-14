@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import *
-from django.db.models import Sum,F,Count
+from django.db.models import F,Count
 from django.utils.translation import ugettext_lazy as _
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
@@ -176,7 +176,7 @@ admin.site.register(BasicMaterial,BasicMaterialAdmin)
 class MaterialAdmin(admin.ModelAdmin):
     inlines=(MaterialAttributeInline,MixtureCompositionInline)
     exclude=('remark',)
-    list_display=('__str__','input_method')
+    list_display=('pk','__str__','input_method')
     
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
@@ -335,7 +335,7 @@ class ReactorModelAdmin(admin.ModelAdmin):
     inlines=[CoreBaffleInline,CoreUpperPlateInline,CoreLowerPlateInline,ThermalShieldInline,PressureVesselInline,PressureVesselInsulationInline,CoreBaffleInline,
              ]
     #raw_id_fields=('thermal_couple_position','incore_instrument_position')
-    list_display=['name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','get_max_row_column']
+    list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','get_max_row_column']
     
     def get_formsets_with_inlines(self, request, obj=None):
         for inline in self.get_inline_instances(request, obj):
@@ -717,6 +717,7 @@ class ControlRodRadialMapInline(admin.TabularInline):
 
 class ControlRodTypeAdmin(admin.ModelAdmin):
     inlines=(ControlRodRadialMapInline,)
+    list_display=('pk','__str__','black')
     exclude=('remark',)
 admin.site.register(ControlRodType, ControlRodTypeAdmin)
 
@@ -773,15 +774,20 @@ class BurnablePoisonAssemblyLoadingPatternAdmin(admin.ModelAdmin):
 admin.site.register(BurnablePoisonAssemblyLoadingPattern, BurnablePoisonAssemblyLoadingPatternAdmin)
 ###############################################################################
 #control rod assembly   
-
-class ControlRodMapInline(admin.TabularInline):
+class ControlRodAssemblyMapInline(admin.TabularInline):
+    model=ControlRodAssemblyMap
     exclude=('remark',)
-    model=ControlRodMap
 
+class ControlRodAssemblyTypeAdmin(admin.ModelAdmin):
+    exclude=('remark',)
+    inlines=[ControlRodAssemblyMapInline,]
+    model=ControlRodAssemblyType
+    list_display=('pk','reactor_model','type','black_grey_rod_num')
+admin.site.register(ControlRodAssemblyType, ControlRodAssemblyTypeAdmin)
+   
 class ControlRodAssemblyAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    inlines=[ControlRodMapInline,]
-    list_display=('__str__','type','cluster',)
+    list_display=('__str__','cluster',)
 admin.site.register(ControlRodAssembly, ControlRodAssemblyAdmin)
 
 class ControlRodAssemblyLoadingPatternAdmin(admin.ModelAdmin):
@@ -791,10 +797,14 @@ class ControlRodAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     
 admin.site.register(ControlRodAssemblyLoadingPattern, ControlRodAssemblyLoadingPatternAdmin)
 
+    
 class ControlRodClusterAdmin(admin.ModelAdmin):
     exclude=('remark',)
-   
-    list_display=('__str__','reactor_model','get_control_rod_assembly_num')
+    #inlines=[ControlRodMapInline,]
+    list_display=('pk','__str__','control_rod_assembly_type',)
+    #list_editable=('control_rod_assembly_type',)
+    #list_display=('__str__','reactor_model','get_control_rod_assembly_num','side_pin_num','type','black_grey_rod_num')
+    list_filter=('control_rod_assembly_type__reactor_model',)
 admin.site.register(ControlRodCluster, ControlRodClusterAdmin)
 
 ##############################################################################

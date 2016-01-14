@@ -1646,10 +1646,14 @@ class ControlRodType(BaseModel):
         db_table='control_rod_type'
         verbose_name='Control rod'
         
+    @property
+    def base_pin_id(self):
+        return 'CR_'+str(self.pk)
+    
     def generate_base_pin_xml(self,fuel_assembly_model):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
-        ID='CR_'+str(self.pk)
+        ID=self.base_pin_id
         radial_map=self.radial_materials.order_by('radii')
         radii_tup,mat_tup=zip(*[(str(item.radii),item.material.prerobin_identifier) for item in radial_map])
   
@@ -1678,9 +1682,21 @@ class ControlRodType(BaseModel):
         base_pin_xml.appendChild(mat_xml)
         
         return base_pin_xml
+    @property
+    def black(self):
+        materials=self.radial_map.all()
+        #AIC
+        AIC=Material.objects.get(pk=7)
+        if AIC in materials:
+            return True
+        else:
+            return False
         
     def __str__(self):
-        return '{} control rod'.format(self.reactor_model)
+        if self.black:
+            return '{} black rod'.format(self.reactor_model)
+        else:
+            return '{} grey rod'.format(self.reactor_model)
     
 class ControlRodRadialMap(BaseModel):
     control_rod=models.ForeignKey(ControlRodType,related_name='radial_materials')
@@ -1857,8 +1873,8 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
         db_table='burnable_poison_assembly_loading_pattern'
         
         #unique_together=('reactor_position','burnable_poison_assembly')
-        verbose_name='Burnable absorber assembly'
-        verbose_name_plural='Burnable absorber assemblies'
+        #verbose_name='Burnable absorber assembly'
+        #verbose_name_plural='Burnable absorber assemblies'
         
     def clean(self):
         if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
@@ -1896,24 +1912,138 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
     
     
 ###############################################################################
-class ControlRodCluster(BaseModel):
-    reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_clusters')
-    cluster_name=models.CharField(max_length=5)
+
+class ControlRodAssemblyType(BaseModel):
+    reactor_model=models.ForeignKey(ReactorModel,related_name='cra_types')
     basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    side_pin_num=models.PositiveSmallIntegerField(default=17)
+    map=models.ManyToManyField(ControlRodType,through='ControlRodAssemblyMap')
     
+    class Meta:
+        db_table='control_rod_assembly_type'
+        
+    @property
+    def type(self):
+        #1 represents black rod
+        #2 represents grep rod
+        control_rods=self.map.all()
+        for control_rod in control_rods:
+            if not control_rod.black:
+                return 2
+        return 1
+    
+    def black_grey_rod_num(self):
+        control_rods=self.map.all()
+        bnum=0
+        gnum=0
+        for control_rod in control_rods:
+            if control_rod.black:
+                bnum+=1
+            else:
+                gnum+=1
+        return (bnum,gnum)
+    
+    @property
+    def base_branch_id(self):
+        return 'BRCH_'+'CRD_'+str(self.pk)
+    
+    def generate_base_branch_xml(self): 
+        side_num=self.side_pin_num 
+        half=int(side_num/2)+1
+        control_rod_pos=self.control_rod_pos.all()
+        CRD='\n'
+        for row in range(half,side_num+1):
+            row_lst=[]
+            for col in range(half,row+1):
+                if control_rod_pos.filter(row=row,column=col).exists():
+                    control_rod_id=control_rod_pos.get(row=row,column=col).control_rod_type.base_pin_id
+                         
+                else:   
+                    control_rod_id='NONE'
+                row_lst.append(control_rod_id)
+        
+            CRD +=('  '.join(row_lst)+'\n')
+            
+        ID=self.base_branch_id
+        doc=minidom.Document()
+        base_branch_xml=doc.createElement('base_branch')
+        
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        base_branch_xml.appendChild(ID_xml)
+        
+        CRD_xml=doc.createElement('CRD')
+        CRD_xml.appendChild(doc.createTextNode(CRD))
+        base_branch_xml.appendChild(CRD_xml)
+        
+        #doc.appendChild(base_branch_xml)
+        #f=open('/home/django/Desktop/branch_crd.xml','w')
+        #doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
+        #f.close()
+        return base_branch_xml
+    
+    def __str__(self):
+        return '{} {}'.format(self.reactor_model,self.type)
+
+class ControlRodAssemblyMap(BaseModel):
+    control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='control_rod_pos')
+    #guide_tube_position=models.ForeignKey(FuelAssemblyPosition,limit_choices_to={'type': 'guide'})
+    row=models.PositiveSmallIntegerField()
+    column=models.PositiveSmallIntegerField()
+    control_rod_type=models.ForeignKey(ControlRodType)
+    
+    
+    class Meta:
+        db_table='control_rod_assembly_map'
+        #unique_together=('control_rod_assembly','guide_tube_position')
+    def clean(self):
+        side_pin_num=self.control_rod_assembly_type.side_pin_num
+        if self.row>side_pin_num:
+            raise ValidationError({'row':_('the row or column is bigger than side pin number'),                         
+            })
+        if self.column>side_pin_num:
+            raise ValidationError({'column':_('the column is bigger than side pin number'),                     
+            })
+        #if self.control_rod_type.reactor_model!=self.control_rod_assembly_type.reactor_model:
+        #    raise ValidationError({'control_rod_type':_('the control_rod_type is not correct'),                     
+        #    })
+    def __str__(self):
+        return '{} {}'.format(self.control_rod_assembly_type,self.control_rod_type)
+  
+    
+class ControlRodCluster(BaseModel):
+    reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_clusters')
+    control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='control_rod_clusters')
+    cluster_name=models.CharField(max_length=5)
+    #basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #side_pin_num=models.PositiveSmallIntegerField(default=17)
+    #map=models.ManyToManyField(ControlRodType,through='ControlRodMap')
     class Meta:
         db_table='control_rod_cluster'
         
     def get_control_rod_assembly_num(self):
         return self.control_rod_assemblies.count()
+    get_control_rod_assembly_num.short_description='same cluster number'
+    
     
     @property
     def type(self):
-        control_rod_assembly=self.control_rod_assemblies.first()
-        return control_rod_assembly.type
+        #1 represents black rod
+        #2 represents grep rod
+        return self.control_rod_assembly_type.type
     
-    get_control_rod_assembly_num.short_description='same cluster number'
+    @property
+    def reactor_model(self):
+        return self.control_rod_assembly_type.reactor_model
+    
+    @property
+    def step_size(self):
+        return self.control_rod_assembly_type.step_size
+    @property
+    def basez(self):
+        return self.control_rod_assembly_type.basez
     
     def __str__(self):
         return '{}'.format(self.cluster_name)
@@ -1925,11 +2055,11 @@ class ControlRodAssembly(BaseModel):
                   (2,'grey rod'),
     )
     cluster=models.ForeignKey(ControlRodCluster,related_name='control_rod_assemblies',blank=True,null=True)
-    type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
-    basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    primary=models.BooleanField(default=False,verbose_name='if primary?')
-    control_rod_map=models.ManyToManyField(FuelAssemblyPosition,through='ControlRodMap')
+    #type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
+    #basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #primary=models.BooleanField(default=False,verbose_name='if primary?')
+    #control_rod_map=models.ManyToManyField(FuelAssemblyPosition,through='ControlRodMap')
     
     class Meta:
         db_table='control_rod_assembly'
@@ -1939,26 +2069,50 @@ class ControlRodAssembly(BaseModel):
     @property
     def cluster_name(self):
         return self.cluster.cluster_name
-    
+    @property
+    def type(self):
+        return self.cluster.type
     @property
     def reactor_model(self):
         return self.cluster.reactor_model
+    
+    @property
+    def step_size(self):
+        return self.cluster.step_size
+    @property
+    def basez(self):
+        return self.cluster.basez
         
     def __str__(self):
         return '{} {}'.format(self.pk,self.cluster)
-    
+
+'''
 class ControlRodMap(BaseModel):
-    control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='control_rods')
-    guide_tube_position=models.ForeignKey(FuelAssemblyPosition,limit_choices_to={'type': 'guide'})
+    control_rod_cluster=models.ForeignKey(ControlRodCluster,related_name='control_rods')
+    #guide_tube_position=models.ForeignKey(FuelAssemblyPosition,limit_choices_to={'type': 'guide'})
+    row=models.PositiveSmallIntegerField()
+    column=models.PositiveSmallIntegerField()
     control_rod_type=models.ForeignKey(ControlRodType)
     
     
     class Meta:
         db_table='control_rod_map'
-        unique_together=('control_rod_assembly','guide_tube_position')
+        #unique_together=('control_rod_assembly','guide_tube_position')
+    def clean(self):
+        side_pin_num=self.control_rod_cluster.side_pin_num
+        if self.row>side_pin_num:
+            raise ValidationError({'row':_('the row or column is bigger than side pin number'),                         
+            })
+        if self.column>side_pin_num:
+            raise ValidationError({'column':_('the column is bigger than side pin number'),                     
+            })
+        if self.control_rod_type.reactor_model!=self.control_rod_cluster.reactor_model:
+            raise ValidationError({'control_rod_type':_('the control_rod_type is not correct'),                     
+            })
     def __str__(self):
-        return '{} {}'.format(self.control_rod_assembly,self.control_rod_type)
-    
+        return '{} {}'.format(self.control_rod_cluster,self.control_rod_type)
+'''
+       
 class ControlRodAssemblyLoadingPattern(BaseModel):
     cycle=models.ForeignKey(Cycle,related_name='control_rod_assembly_loading_patterns',blank=True,null=True)
     reactor_position=models.ForeignKey(ReactorPosition,related_name='control_rod_assembly_pattern',)

@@ -353,6 +353,16 @@ class PreRobinBranch(models.Model):
         databank_xml.appendChild(HTM_branch_xml)
         databank_xml.appendChild(TMO_BOR_xml)
         
+        #control rod cluster
+        cra_types=self.unit.reactor_model.cra_types.all()
+        for crat in cra_types:
+            crat_branch_xml=crat.generate_base_branch_xml()
+            BOR=self.generate_value_str(option=1)
+            BOR_xml=doc.createElement('BOR')
+            BOR_xml.appendChild(doc.createTextNode(BOR))
+            crat_branch_xml.appendChild(BOR_xml)
+            databank_xml.appendChild(crat_branch_xml)
+        
         doc.appendChild(databank_xml)
         f=open('/home/django/Desktop/branch_calc_databank.xml','w')   
         doc.writexml(f,indent='  ',addindent='  ', newl='\n',)

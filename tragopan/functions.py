@@ -1,7 +1,6 @@
 #function that handle the transformation between weight and mole
 from decimal import Decimal,InvalidOperation
-from .models import FuelAssemblyType,FuelElementTypePosition,FuelElementType,Plant,Cycle,FuelAssemblyLoadingPattern,FuelAssemblyRepository,UnitParameter,FuelAssemblyModel \
-,ControlRodAssembly,ControlRodType,FuelAssemblyPosition,ControlRodMap,WimsNuclideData,WmisElementComposition,WmisElementData,BasicMaterial
+from .models import FuelAssemblyType,FuelElementTypePosition,FuelElementType,Plant,Cycle,FuelAssemblyLoadingPattern,FuelAssemblyRepository,UnitParameter,WimsNuclideData,WmisElementComposition,WmisElementData,BasicMaterial
 import os
 import re
 import io
@@ -178,21 +177,6 @@ def map_to_position(plant,unit):
     f.close()   
     return positions
 
-def add_contrl_rod_map(id):
-    '''id represent the fuel assembly model,
-    this function only suit for the same rod type'''
-    #get fuel assembly mode
-    fa=FuelAssemblyModel.objects.get(pk=id)
-    #get control rod assembly
-    crs=ControlRodAssembly.objects.filter(fuel_assembly_model=fa)
-    #get the rod type
-    ct=ControlRodType.objects.filter(fuel_assembly_model=fa).get()
-    #get the guide tube position
-    positions=FuelAssemblyPosition.objects.filter(fuel_assembly_model=fa,type='guide')
-    for cr in crs:
-        for position in positions:
-            crm=ControlRodMap(control_rod_assembly=cr,guide_tube_position=position,control_rod_type=ct)
-            crm.save()
         
         
 def add_wmis_nuclide_data(filename):
@@ -795,4 +779,12 @@ def parse_xml_to_lst(path='/home/django/Desktop/material_databank.xml'):
     sfile.writelines(result_lst)
     sfile.close()
         
+        
+        
+def generate_one_eighth_pos(side_num=17):
+    half=int(side_num/2)+1
+    
+    for row in range(half,side_num+1):
+        for col in range(half,row+1):
+            yield (row,col)
     
