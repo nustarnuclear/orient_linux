@@ -488,7 +488,7 @@ class FuelPelletInline(admin.TabularInline):
      
 class FuelAssemblyModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num',)
+    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num','generate_assembly_model_xml')
     inlines=[GridPositionInline,UpperNozzleInline,LowerNozzleInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline]
     
     def get_fuel_element_num(self,obj):
@@ -639,7 +639,7 @@ admin.site.register(FuelElementTypePosition, FuelElementTypePositionAdmin)
     
 class FuelAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('pk','assembly_enrichment','model')
+    list_display=('pk','assembly_enrichment','model','generate_assembly_model_xml')
     #list_editable=('assembly_enrichment',)
 admin.site.register(FuelAssemblyType, FuelAssemblyTypeAdmin)
 
@@ -650,7 +650,7 @@ class FuelElementPelletLoadingSchemeInline(admin.TabularInline):
 
 class FuelElementTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_pellet_composition')
+    list_display=('__str__','enrichment')
     inlines=[FuelElementPelletLoadingSchemeInline,]
 admin.site.register(FuelElementType, FuelElementTypeAdmin)
 
@@ -658,7 +658,7 @@ admin.site.register(FuelElementType, FuelElementTypeAdmin)
 
 class FuelPelletTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=['model','material']
+    list_display=['model','material','enrichment',]
 admin.site.register(FuelPelletType, FuelPelletTypeAdmin)
 #the position information of fuel assembly model
 

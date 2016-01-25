@@ -1037,7 +1037,7 @@ class FuelAssemblyLoadingPattern(BaseModel):
         
     def get_grid(self):
         fuel_assembly=self.fuel_assembly
-        grids=fuel_assembly.type.model.grids.all()
+        grids=fuel_assembly.type.model.grid_pos.all()
         tmp_lst=[]
         for grid in grids:
             tmp=grid.grid.functionality+"("+str(grid.height)+")"
@@ -1062,12 +1062,48 @@ class FuelAssemblyModel(BaseModel):
     pin_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     lower_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     upper_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    side_pin_num=models.PositiveSmallIntegerField(default=17)
     licensed_max_discharge_BU =models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='MWd/tU',blank=True,null=True)
     licensed_pin_discharge_BU =models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='MWd/tU',blank=True,null=True)
     vendor=models.ForeignKey(Vendor)
     
     class Meta:
         db_table='fuel_assembly_model'
+        
+    def generate_assembly_model_xml(self,symmetry=8):
+        doc = minidom.Document()
+        assembly_model_xml=doc.createElement('assembly_model')
+        model_ID_xml=doc.createElement('model_ID')
+        model_ID_xml.appendChild(doc.createTextNode(self.name))
+        assembly_model_xml.appendChild(model_ID_xml)
+        
+        
+        grid_xml=doc.createElement('spacer_grid_mat')
+        fix_grid=self.grids.filter(functionality='fix').first()
+        grid_xml.appendChild(doc.createTextNode(fix_grid.sleeve_material.prerobin_identifier))
+        assembly_model_xml.appendChild(grid_xml)
+        
+        symmetry_xml=doc.createElement('symmetry')
+        #default 1/8
+        symmetry_xml.appendChild(doc.createTextNode(str(symmetry)))
+        assembly_model_xml.appendChild(symmetry_xml)
+        
+        side_num=self.side_pin_num
+        num_pin_side_xml=doc.createElement('num_pin_side')
+        num_pin_side_xml.appendChild(doc.createTextNode(str(side_num)))
+        assembly_model_xml.appendChild(num_pin_side_xml)
+        
+        pitch_assembly_xml=doc.createElement('pitch_assembly')
+        pitch_assembly_xml.appendChild(doc.createTextNode(str(self.assembly_pitch)))
+        assembly_model_xml.appendChild(pitch_assembly_xml)
+        
+        pitch_cell_xml=doc.createElement('pitch_cell')
+        pitch_cell_xml.appendChild(doc.createTextNode(str(self.pin_pitch)))
+        assembly_model_xml.appendChild(pitch_cell_xml)
+        
+        return assembly_model_xml
+        
+        
         
     def generate_pin_xml(self):
         doc = minidom.Document()
@@ -1105,28 +1141,91 @@ class FuelAssemblyModel(BaseModel):
 class FuelAssemblyType(BaseModel):
     model=models.ForeignKey(FuelAssemblyModel)
     assembly_enrichment=models.DecimalField(max_digits=4, decimal_places=3,validators=[MinValueValidator(0)],help_text='meaningful only if using the one unique enrichment fuel',blank=True,null=True)
-    fuel_element_type_position=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
+    map=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
     
     class Meta:
         db_table='fuel_assembly_type'
-    
+        
+    @property
+    def side_pin_num(self):
+        return self.model.side_pin_num
+        
     @property   
     def assembly_name(self):
         return self.model.name
     def get_fuel_element_set(self):
-        fuel_element_set=self.fuel_element_type_position.distinct()
+        fuel_element_set=self.map.distinct()
         return fuel_element_set
-    #pre robin cut
-    def prerobin_cut(self,pk=None):
-        '''pk represent the bpa to insert;
-        cut this real fuel assembly to several 2D section for prerobin computation
-        '''
-        #if insert bpa
-        fuel_element_set=self.get_fuel_element_set()
-        if pk:
-            bpa=BurnablePoisonAssembly.objects.get(pk=pk)
-        else:
-            pass 
+    
+    def generate_pin_map_xml(self,bpa=None):
+        if not bpa:
+            doc=minidom.Document()
+            side_num=self.side_pin_num
+            half=int(side_num/2)+1
+            positions=self.model.positions.all()
+            #pin map
+            pin_map='\n'
+            for row in range(half,side_num+1):
+                row_lst=[]
+                for col in range(half,row+1):
+                    pin=positions.get(row=row,column=col)
+                    if pin.type=='fuel':
+                        pin_str='FUEL'
+                             
+                    elif pin.type=='guide':
+                        pin_str='GT'
+                    elif  pin.type=='instrument': 
+                        pin_str='IT'  
+                    row_lst.append(pin_str)
+                pin_map +=('  '.join(row_lst)+'\n')
+                
+            pin_map_xml=doc.createElement('pin_map')
+            pin_map_xml.appendChild(doc.createTextNode(pin_map))
+            
+            return pin_map_xml
+        
+    def generate_fuel_map_xml(self):
+        doc=minidom.Document()
+        side_num=self.side_pin_num
+        half=int(side_num/2)+1
+        assembly_enrichment=self.assembly_enrichment
+        positions=self.model.positions.all()
+        #all the fuel pins have the same enrichment
+        if assembly_enrichment is not None:
+            material=Material.objects.get(enrichment=assembly_enrichment)
+            
+            fuel_map='\n'
+            for row in range(half,side_num+1):
+                row_lst=[]
+                for col in range(half,row+1):
+                    pin=positions.get(row=row,column=col)
+                    if pin.type=='fuel':
+                        fuel_str=str(material.pk)
+                             
+                    else:
+                        fuel_str='0'  
+                    row_lst.append(fuel_str)
+                fuel_map +=('  '.join(row_lst)+'\n')  
+            fuel_map_xml=doc.createElement('fuel_map')
+            fuel_map_xml.appendChild(doc.createTextNode(fuel_map))
+            return fuel_map_xml
+        
+        #doc.appendChild(assembly_model_xml)
+        #f=open('/home/django/Desktop/assembly_model.xml','w')
+        #doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
+        #f.close() 
+    def generate_assembly_model_xml(self):
+        assembly_model_xml=self.model.generate_assembly_model_xml()
+        fuel_map_xml=self.generate_fuel_map_xml()
+        pin_map_xml=self.generate_pin_map_xml()
+        assembly_model_xml.appendChild(pin_map_xml)  
+        assembly_model_xml.appendChild(fuel_map_xml)  
+        
+        doc=minidom.Document()
+        doc.appendChild(assembly_model_xml)
+        f=open('/home/django/Desktop/assembly_model.xml','w')
+        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
+        f.close() 
         
     def __str__(self):
         obj=FuelAssemblyType.objects.get(pk=self.pk)
@@ -1271,7 +1370,7 @@ class FuelElementTypePosition(BaseModel):
 
 
 class GridPosition(BaseModel):
-    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grids')
+    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grid_pos')
     grid=models.ForeignKey('Grid')
     height= models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm Base on bottom of fuel') 
     
@@ -1288,7 +1387,7 @@ class Grid(BaseModel):
                 ('fix','fix'),
     )
     name=models.CharField(max_length=50)
-    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='fuel_assembly_grids')
+    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grids')
     side_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
 
     
@@ -1487,6 +1586,15 @@ class FuelElementType(BaseModel):
     class Meta:
         db_table='fuel_element_type'
         
+    @property
+    def enrichment(self):
+        try:
+            pellet_pos=self.pellet.get()
+            return pellet_pos.enrichment
+        except:
+            return None
+        
+        
     def get_pellet_composition(self):
         pellet_composition=self.fuel_pellet_map.all().order_by('section')
         result=[(item.section,item.fuel_pellet_type) for item in pellet_composition]
@@ -1607,6 +1715,10 @@ class FuelPelletType(BaseModel):
     
     class Meta:
         db_table='fuel_pellet_type'
+        
+    @property
+    def enrichment(self):
+        return self.material.enrichment
         
     def __str__(self):
         return '{} {} {}'.format(self.pk,self.model,self.material)
@@ -2014,7 +2126,7 @@ class ControlRodAssemblyMap(BaseModel):
     
 class ControlRodCluster(BaseModel):
     reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_clusters')
-    control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='control_rod_clusters')
+    control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='clusters')
     cluster_name=models.CharField(max_length=5)
     #basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     #step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
@@ -2270,6 +2382,10 @@ class ControlRodAssemblyStep(BaseModel):
     
     class Meta:
         db_table='control_rod_assembly_step'
+    
+    @property
+    def cluster_name(self):
+        return self.control_rod_cluster.cluster_name
         
     def __str__(self):
         return '{} {}'.format(self.control_rod_cluster, self.step)

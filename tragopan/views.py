@@ -21,9 +21,15 @@ def plant_list(request,format=None):
 def fuel_assembly_type_list(request,format=None):
     
     if request.method == 'GET':
-        fat=FuelAssemblyType.objects.all()
-        serializer=FuelAssemblyTypeSerializer(fat,many=True)
-        return Response(serializer.data)
+        try:
+            fat=FuelAssemblyType.objects.all()
+            serializer=FuelAssemblyTypeSerializer(fat,many=True)
+            return Response(serializer.data)
+        
+        except Exception as e:
+            print(e)
+            error_message={'error_message':e}
+            return Response(data=error_message,status=404)
 
 
 @api_view(('GET','PUT'))

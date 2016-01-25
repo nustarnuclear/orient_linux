@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from tragopan.models import Element,ReactorPosition,FuelAssemblyLoadingPattern,Plant,UnitParameter,BurnablePoisonAssembly,BurnablePoisonAssemblyLoadingPattern,\
-ControlRodAssembly,ControlRodAssemblyLoadingPattern,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster,OperationDailyParameter
+ControlRodAssembly,ControlRodAssemblyLoadingPattern,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster,OperationDailyParameter,ControlRodAssemblyStep
 
 class ElementSerializer(serializers.ModelSerializer):
     
@@ -95,11 +95,11 @@ class GridPositionListingField(serializers.RelatedField):
         
 class FuelAssemblyModelSerializer(serializers.ModelSerializer): 
      
-    grids=GridPositionSerializer(many=True, read_only=True)
+    #grids=GridPositionSerializer(many=True, read_only=True)
     
     class Meta:
         model = FuelAssemblyModel
-        fields = ( 'name','overall_length','grids',)     
+        fields = ( 'name','overall_length',)     
         
         
 class BaseFuelAssemblySerializer(serializers.ModelSerializer):
@@ -149,11 +149,15 @@ class FuelAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
     class Meta:
         model = FuelAssemblyLoadingPattern
         fields = ( 'get_all_previous','if_insert_bpa','if_insert_cra')  
-        
+class ControlRodAssemblyStepSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ControlRodAssemblyStep
+        fields = ('cluster_name','step')
+            
 class OperationDailyParameterSerializer(serializers.ModelSerializer):
+    control_rods=ControlRodAssemblyStepSerializer(many=True, read_only=True)
     class Meta:
         model = OperationDailyParameter
-        depth=1
         exclude = ('time_inserted','last_modified','remark')
         
     

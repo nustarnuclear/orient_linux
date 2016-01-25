@@ -1,7 +1,5 @@
 from django.contrib import admin
 from .models import *
-from .functions import generate_prerobin_input
-from django.core.urlresolvers import reverse
 from django.utils.html import format_html
 # Register your models here.
 
@@ -80,9 +78,10 @@ admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
 class PreRobinInputAdmin(admin.ModelAdmin):
     exclude=('remark','pre_robin_file')
     list_display=('segment_identity','plant','pre_robin_file',)
-    actions = ['generate_pre_robin_input_file']
+    #actions = ['generate_pre_robin_input_file']
     filter_horizontal=('branch_composition',)
     #save_as=True
+    '''
     def generate_pre_robin_input_file(self, request, queryset):
         for obj in queryset:
             file=generate_prerobin_input(obj.pk)
@@ -96,6 +95,7 @@ class PreRobinInputAdmin(admin.ModelAdmin):
             self.message_user(request, "%d PreRobin input files successfully generated." % num)
             
     generate_pre_robin_input_file.short_description = "Generate PreRobin Input File"
+    '''
     
 admin.site.register(PreRobinInput, PreRobinInputAdmin)
 

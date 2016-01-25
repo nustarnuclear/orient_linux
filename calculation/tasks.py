@@ -25,11 +25,14 @@ def xsum(numbers):
 
 @shared_task
 def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
+    egret_instance=EgretTask.objects.get(pk=pk)
+    egret_instance.task_status=1
+    egret_instance.save()
     os.chdir(cwd)
     process=Popen(['/opt/nustar/bin/myegret','-i',input_filename,'-s',version,'-u',user])
     return_code=process.wait()
     print('return code is {}'.format(return_code))
-    egret_instance=EgretTask.objects.get(pk=pk)
+    
     #if process went wrong
     if return_code!=0:
         

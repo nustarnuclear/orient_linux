@@ -213,6 +213,7 @@ class PreRobinBranch(models.Model):
         db_table='pre_robin_branch'
         verbose_name_plural='branches'
         
+       
     def generate_value_str(self,option):
         '''1->BOR
            2->TFU
@@ -369,6 +370,8 @@ class PreRobinBranch(models.Model):
         f.close()
     def __str__(self):
         return str(self.unit)
+    
+
 
   
 class Ibis(BaseModel):
@@ -390,8 +393,6 @@ class Ibis(BaseModel):
         
     #validating objects(clean_fields->clean->validate_unique)
     def clean(self):
-        #ibis_name=self.ibis_name
-        #ibis_path=self.ibis_path
         units=self.plant.units.all()
         reactor_model=self.reactor_model
         reactor_model_lst=[unit.reactor_model for unit in units]
@@ -399,10 +400,6 @@ class Ibis(BaseModel):
             raise ValidationError({'plant':_('plant and reactor model are not compatible'), 
                                  'reactor_model':_('plant and reactor model are not compatible'),                          
             })
-            
-        #if os.path.basename(ibis_path).split(sep='.',maxsplit=1)[0] !=ibis_name:
-        #    raise ValidationError({'ibis_name':_('your ibis name should be the pathname stripped .TAB'),               
-        #    })
     
     @property
     def ibis_path(self):
@@ -567,6 +564,7 @@ class EgretTask(BaseModel):
     locked=models.BooleanField(default=False)
     class Meta:
         db_table='egret_task'
+        #unique_together = ("user", "task_name")
         
     def if_recalculated(self):
         if self.recalculation_depth>1:
@@ -613,7 +611,7 @@ class EgretTask(BaseModel):
         #                           'task_name':_('the taskname already exists with respect to user and loading_pattern'),                
         #        })
             
-        #chech sequence task type
+        #check sequence task type
         if self.task_type=='SEQUENCE':
             if self.loading_pattern:
                 raise ValidationError({
@@ -728,7 +726,8 @@ class EgretTask(BaseModel):
         input_filename=self.get_input_filename()
         start_time=datetime.now()
         self.start_time=start_time
-        self.task_status=1
+        if countdown!=0:
+            self.task_status=0
         self.save() 
         s=signature('calculation.tasks.egret_calculation_task', args=(cwd,input_filename,user,self.pk), countdown=countdown)
         s.freeze()

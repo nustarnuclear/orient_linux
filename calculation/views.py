@@ -262,13 +262,14 @@ def egret_task(request,format=None):
                 cwd=task_instance.get_cwd()
                 name=task_instance.task_name
                 task_instance.pk=None
-                new_name=name+'_backup'
+                new_name=query_params['task_name']
                 task_instance.task_name=new_name
                 task_instance.egret_input_file.name=task_instance.egret_input_file.name.replace(name,new_name)
                 task_instance.save()
                 
                 #copy the files
-                new_cwd=cwd+'_backup'
+                new_cwd=os.path.join(os.path.dirname(cwd),new_name)
+                print(new_cwd)
                 shutil.copytree(cwd, new_cwd, symlinks=True,)
                 
                 success_message={'success_message':'your request has been handled successfully',}
