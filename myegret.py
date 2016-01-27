@@ -6,6 +6,7 @@ import textwrap
 from datetime import datetime
 cwd=os.getcwd()
 DEFAULT_EGRET_VERSION=195
+'''
 try:
     ld=os.getenv("LD_LIBRARY_PATH")
     ld_lst=ld.split(":")
@@ -19,9 +20,8 @@ try:
     os.environ['LD_LIBRARY_PATH']=":".join(ld_lst)
 except:       
     os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib:/opt/intel/composer_xe_2011_sp1.11.339/compiler/lib/intel64'
-    
-os.environ['PATH']= '/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/nustar/bin:/home/django/bin:/opt/nustar/bin'
-
+'''
+os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib'  
 logfile="myegret.log"
 workspace=".workspace"
 sys_user=os.getenv('USER')
@@ -43,8 +43,6 @@ parser.add_argument('--input', '-i',dest='input_file',help='input file of the %(
 
 parser.add_argument('--switch', '-s',type=int,choices=[191,192,193,194,195],dest='custom_version',help='switch EGRET version')
 
-#parser.add_argument('--path', '-p',type=str,default=cwd,dest='path',help='designate the EGRET working directory')
-
 parser.add_argument('--user', '-u',type=str,default=sys_user,dest='user',help='designate current user')
 args = parser.parse_args()
 
@@ -56,18 +54,6 @@ args_dic=vars(args)
 input_file=args_dic['input_file']
 user=args_dic['user']
 
-#if input_file:
-    #if you provide a relative file path
-    #if not os.path.isabs(input_file):
-        #concatenate this file the cwd path
-        #input_file=os.path.join(cwd,input_file)
-
-#if not os.path.exists(path):
-    #wrong_time=datetime.now() 
-    #log_file.write('EGRET went wrong at %s\n'%wrong_time)
-    #log_file.write('Your file %s does not exist\n'%path)
-    #log_file.close()
-    #raise AssertionError('Your file path does not exist')   
     
 #if present -i or --input option
 if input_file:
@@ -112,7 +98,7 @@ if input_file:
     
     #Begin egret calculation
     
-    with Popen(['EGRET%d'%egret_version,'-i',input_file],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
+    with Popen(['/opt/nustar/bin/EGRET%d'%egret_version,'-i',input_file],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
         outs,errs=proc.communicate()
         
         if errs:

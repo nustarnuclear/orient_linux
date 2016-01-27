@@ -731,35 +731,49 @@ admin.site.register(NozzlePlugRod, NozzlePlugRodAdmin)
 
 class BurnablePoisonMaterialInline(admin.TabularInline):
     model=BurnablePoisonMaterial
-    exclude=('remark',) 
+    exclude=('remark',)
+    extra=0
+    
+class BurnablePoisonSectionAdmin(admin.ModelAdmin):
+    exclude=('remark',)
+    list_display=("pk","__str__","bottom_height")
+admin.site.register(BurnablePoisonSection, BurnablePoisonSectionAdmin) 
+ 
+
+class BurnablePoisonTransectionAdmin(admin.ModelAdmin):
+    inlines=[BurnablePoisonMaterialInline,]
+admin.site.register(BurnablePoisonTransection, BurnablePoisonTransectionAdmin) 
+
+class BurnablePoisonSectionInline(admin.TabularInline):
+    model=BurnablePoisonSection
+    exclude=('remark',)
+    extra=0
     
 class BurnablePoisonRodAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    inlines=[BurnablePoisonMaterialInline,]
+    list_display=('pk','__str__','height_lst')
 admin.site.register(BurnablePoisonRod, BurnablePoisonRodAdmin) 
 
+class BurnablePoisonMaterialAdmin(admin.ModelAdmin):
+    exclude=('remark',)
+admin.site.register(BurnablePoisonMaterial, BurnablePoisonMaterialAdmin)
 ############################################################################
 #burnable poison assembly
-
-class BurnablePoisonRodMapInline(admin.TabularInline):
+class BurnablePoisonAssemblyMapAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    model=BurnablePoisonRodMap
-    
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "burnable_poison_position":
-            try:
-                kwargs["queryset"] = FuelAssemblyPosition.objects.filter(fuel_assembly_model=BurnablePoisonAssembly.objects.get(pk=int(request.path.split(sep='/')[-2])).fuel_assembly_model)
-            except Exception:
-                pass
-            
-        return super(BurnablePoisonRodMapInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
+    list_display=['pk','__str__',]
+admin.site.register(BurnablePoisonAssemblyMap, BurnablePoisonAssemblyMapAdmin)
 
+class BurnablePoisonAssemblyMapInline(admin.TabularInline):
+    exclude=('remark',)
+    model=BurnablePoisonAssemblyMap
     
     
 class BurnablePoisonAssemblyAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    inlines=[BurnablePoisonRodMapInline]
-    list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','get_substitute_bpa']
+    inlines=[BurnablePoisonAssemblyMapInline,]
+    list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','get_substitute_bpa','height_lst','symmetry']
+    #list_editable=('symmetry',)
     
     def get_rod_num(self,obj):
         num=obj.rod_positions.count()

@@ -372,6 +372,17 @@ class PreRobinBranch(models.Model):
         return str(self.unit)
     
 
+class PreRobinTask(BaseModel):
+    task_name=models.CharField(max_length=32)
+    fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
+    burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
+    height=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',)
+    branch=models.ForeignKey(PreRobinBranch)
+    class Meta:
+        db_table='pre_robin_task'
+    
+    def __str__(self):
+        return self.task_name
 
   
 class Ibis(BaseModel):

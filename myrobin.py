@@ -7,7 +7,6 @@ from datetime import datetime
 cwd=os.getcwd()
 DEFAULT_ROBIN_VERSION=190
 
-os.environ['PATH']= '/usr/lib64/qt-3.3/bin:/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:/opt/nustar/bin:/home/django/bin:/opt/nustar/bin'
 
 logfile="myrobin.log"
 #workspace=".workspace"
@@ -70,7 +69,7 @@ if input_file:
     
     #Begin ROBIN calculation
     
-    with Popen(['ROBIN%d'%DEFAULT_ROBIN_VERSION,'-i',input_file,'-lib',lib,'-omp',omp],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
+    with Popen(['/opt/nustar/bin/ROBIN%d'%DEFAULT_ROBIN_VERSION,'-i',input_file,'-lib',lib,'-omp',omp],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
         outs,errs=proc.communicate()
         
         if errs:

@@ -11,6 +11,7 @@ from django.utils.translation import ugettext_lazy as _
 import os
 import tempfile
 from xml.dom import minidom
+from decimal import Decimal
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
@@ -889,9 +890,9 @@ class Cycle(BaseModel):
             burnable_poison_assembly_xml=doc.createElement('burnable_poison_assembly')
             bpa_position_xml.appendChild(burnable_poison_assembly_xml)
             rod_num=burnable_poison_assembly.get_poison_rod_num()
-            rod_height=burnable_poison_assembly.get_poison_rod_height()
+            #rod_height=burnable_poison_assembly.get_poison_rod_height()
             burnable_poison_assembly_xml.setAttribute('id', str(burnable_poison_assembly.pk))
-            burnable_poison_assembly_xml.setAttribute('height', str(rod_height))
+            #burnable_poison_assembly_xml.setAttribute('height', str(rod_height))
             burnable_poison_assembly_xml.appendChild(doc.createTextNode(str(rod_num)))
         return bpa_xml
     
@@ -1142,7 +1143,7 @@ class FuelAssemblyType(BaseModel):
     model=models.ForeignKey(FuelAssemblyModel)
     assembly_enrichment=models.DecimalField(max_digits=4, decimal_places=3,validators=[MinValueValidator(0)],help_text='meaningful only if using the one unique enrichment fuel',blank=True,null=True)
     map=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
-    
+    symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
     class Meta:
         db_table='fuel_assembly_type'
         
@@ -1158,31 +1159,42 @@ class FuelAssemblyType(BaseModel):
         return fuel_element_set
     
     def generate_pin_map_xml(self,bpa=None):
-        if not bpa:
-            doc=minidom.Document()
-            side_num=self.side_pin_num
-            half=int(side_num/2)+1
-            positions=self.model.positions.all()
-            #pin map
-            pin_map='\n'
-            for row in range(half,side_num+1):
-                row_lst=[]
-                for col in range(half,row+1):
-                    pin=positions.get(row=row,column=col)
-                    if pin.type=='fuel':
-                        pin_str='FUEL'
-                             
-                    elif pin.type=='guide':
+        doc=minidom.Document()
+        side_num=self.side_pin_num
+        half=int(side_num/2)+1
+        positions=self.model.positions.all()
+        if bpa is not None:
+            rod_positions=bpa.rod_positions.all()
+        #pin map
+        pin_map='\n'
+        for row in range(half,side_num+1):
+            row_lst=[]
+            for col in range(half,row+1):
+                pin=positions.get(row=row,column=col)
+                if pin.type=='fuel':
+                    pin_str='FUEL'
+                         
+                elif pin.type=='guide':
+                    #No bpa inserted
+                    if bpa is None:
                         pin_str='GT'
-                    elif  pin.type=='instrument': 
-                        pin_str='IT'  
-                    row_lst.append(pin_str)
-                pin_map +=('  '.join(row_lst)+'\n')
-                
-            pin_map_xml=doc.createElement('pin_map')
-            pin_map_xml.appendChild(doc.createTextNode(pin_map))
+                    else:
+                        rod_position_set=rod_positions.filter(row=row,column=col)
+                        #insert bpa at this position
+                        if rod_position_set.exists():
+                            rod_position=rod_position_set.get()
+                            pin_str=rod_position.burnable_poison_rod.pin_id
+                        else:
+                            pin_str='GT'   
+                elif  pin.type=='instrument': 
+                    pin_str='IT'  
+                row_lst.append(pin_str)
+            pin_map +=('  '.join(row_lst)+'\n')
             
-            return pin_map_xml
+        pin_map_xml=doc.createElement('pin_map')
+        pin_map_xml.appendChild(doc.createTextNode(pin_map))
+            
+        return pin_map_xml
         
     def generate_fuel_map_xml(self):
         doc=minidom.Document()
@@ -1323,7 +1335,7 @@ class FuelAssemblyPosition(BaseModel):
                   ('guide','guide tube'),
                   ('instrument','instrument tube'),
                   )
-    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='positions',related_query_name='position')
+    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='positions')
     row=models.PositiveSmallIntegerField()
     column=models.PositiveSmallIntegerField()
     type=models.CharField(max_length=10,choices=TYPE_CHOICES,default='fuel')
@@ -1389,13 +1401,10 @@ class Grid(BaseModel):
     name=models.CharField(max_length=50)
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grids')
     side_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
-
-    
     sleeve_height=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
     inner_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     outer_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_material=models.ForeignKey(Material,related_name='grid_sleeves',related_query_name='grid_sleeve',blank=True,null=True)
-    
     spring_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     spring_material=models.ForeignKey(Material,related_name='grid_springs',related_query_name='grid_spring',blank=True,null=True)
     functionality=models.CharField(max_length=5,choices=FUCTIONALITY_CHOICS,default='fix')
@@ -1540,11 +1549,14 @@ class FuelElement(BaseModel):
     
     class Meta:
         db_table='fuel_element'
+    @property
+    def pin_id(self):
+        return 'FUEL_'+str(self.pk)
         
     def generate_base_pin_xml(self):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
-        ID='FUEL_'+str(self.pk)
+        ID=self.pin_id
         radial_map=self.materials.order_by('radii')
         radii_lst,mat_lst=zip(*[(str(item.radii),item.material.prerobin_identifier) for item in radial_map])
         radii=','.join(radii_lst)
@@ -1851,25 +1863,94 @@ class NozzlePlugRod(BaseModel):
     def __str__(self):
         return '{} nozzle plug rod'.format(self.material)
     
-class BurnablePoisonRod(BaseModel):
-    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel,related_name='bp_rod')
-    length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')                   
-    radial_map=models.ManyToManyField(Material,through='BurnablePoisonMaterial',related_name='burnable_poison_rod')
     
+class BurnablePoisonRod(BaseModel):
+    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='bp_rod')
+    length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm')
+    active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm') 
+    bottom_height=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of fuel active part')                 
     class Meta:
         db_table='burnable_poison_rod'
-        verbose_name='Burnable absorber rod'
+        #verbose_name='Burnable absorber rod'
+    @property
+    def height_lst(self):
+        sections=self.sections.all()
+        height_lst=[section.bottom_height for section in sections]
+        return height_lst
+    
+    def which_section(self,height):
+        '''
+        based on the bottom of fuel active part
+        0 represents no bp rod 
+        '''
+        #convert height to decimal
+        if type(height)==Decimal:
+            pass
+        else:
+            height=Decimal(str(height))
+            
+        height_lst=self.height_lst
+        for i in range(len(height_lst)):
+            if height_lst[i]>height:
+                return i
+            elif height_lst[i]==height:
+                return i+1
+            
+        return len(height_lst) 
+       
+    def __str__(self):
+        return '{} burnable poison rod'.format(self.fuel_assembly_model)
+
+
+class BurnablePoisonSection(BaseModel):
+    burnable_poison_rod=models.ForeignKey(BurnablePoisonRod,related_name='sections')
+    section_num=models.PositiveSmallIntegerField()
+    length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #radial_map=models.ManyToManyField(Material,through='BurnablePoisonMaterial')
+    transection=models.ForeignKey('BurnablePoisonTransection')
+    class Meta:
+        db_table='burnable_poison_section'
+        ordering=['section_num']
         
-    def generate_base_pin_xml(self):
+    @property
+    def previous_section(self):
+        section_num=self.section_num
+        if  section_num==1:
+            return None
+        else:
+            return BurnablePoisonSection.objects.get(burnable_poison_rod=self.burnable_poison_rod,section_num=section_num-1)
+    
+    @property
+    def bottom_height(self):
+        previous_section=self.previous_section
+        if previous_section is None:
+            bottom_height=self.burnable_poison_rod.bottom_height
+        else:
+            bottom_height =previous_section.length+ previous_section.bottom_height       
+        return  bottom_height
+    
+    def __str__(self):
+        return '{} {}'.format(self.burnable_poison_rod,self.section_num)
+    
+class BurnablePoisonTransection(BaseModel):
+    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    radial_map=models.ManyToManyField(Material,through='BurnablePoisonMaterial')
+    
+    class Meta:
+        db_table='burnable_poison_transection'
+        
+    @property
+    def pin_id(self):
+        return 'BP_'+str(self.pk)
+    
+    def generate_base_pin_xml(self,guide_tube):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
-        ID='BP_'+str(self.pk)
+        ID=self.pin_id
         radial_map=self.radial_materials.order_by('radius')
         radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
   
         #insert into guide tube
-        guide_tube=self.fuel_assembly_model.guide_tube
         radii_lst=list(radii_tup)
         radii_lst.append(str(guide_tube.upper_inner_diameter))
         radii_lst.append(str(guide_tube.upper_outer_diameter))
@@ -1893,13 +1974,13 @@ class BurnablePoisonRod(BaseModel):
         base_pin_xml.appendChild(mat_xml)
         
         return base_pin_xml
-    
+        
     def __str__(self):
-        return '{} burnable poison rod'.format(self.fuel_assembly_model)
-    
+        return '{} {}'.format(self.pk,self.remark)
     
 class BurnablePoisonMaterial(BaseModel):
-    burnable_poison_rod=models.ForeignKey(BurnablePoisonRod,related_name='radial_materials')
+    transection=models.ForeignKey(BurnablePoisonTransection,related_name='radial_materials',blank=True,null=True)
+    #section=models.ForeignKey(BurnablePoisonSection,related_name='radial_materials')
     material=models.ForeignKey(Material)
     radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     
@@ -1907,7 +1988,7 @@ class BurnablePoisonMaterial(BaseModel):
         db_table='burnable_poison_rod_material'
         
     def __str__(self):
-        return '{} {}'.format(self.burnable_poison_rod,self.material)
+        return '{} {}'.format(self.transection,self.material)
 ######################################################################################################################
     
     
@@ -1916,25 +1997,34 @@ class BurnablePoisonMaterial(BaseModel):
 #the following three tables combine to describe burnable poison assembly   
 class BurnablePoisonAssembly(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
-    burnable_poison_map=models.ManyToManyField(FuelAssemblyPosition,through='BurnablePoisonRodMap',related_name='bp_burnable_poison')
-    
-    
+    map=models.ManyToManyField(BurnablePoisonRod,through='BurnablePoisonAssemblyMap')
+    symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
     class Meta:
         db_table='burnable_poison_assembly'
-        verbose_name='Burnable absorber rod pattern'
-        
+        #verbose_name='Burnable absorber rod pattern'
+        verbose_name_plural='burnable poison assemblies'
+    @property
+    def height_lst(self):
+        rods=self.map.all()
+        height_set=set()
+        for rod in rods:
+            rod_set=set(rod.height_lst)
+            height_set=height_set|rod_set
+        height_lst=sorted(list(height_set))
+        return height_lst
+    @property
+    def transection(self):
+        pass
+    
     def get_poison_rod_num(self):
         num=self.rod_positions.count()
         return num  
-    def get_poison_rod_height(self): 
-        height=self.rod_positions.first().height
-        return height
-    
+
     def get_quadrant_symbol(self):
         rod_map=self.rod_positions.all()
         symbol_lst=[]
         for rod in rod_map:
-            pos=rod.burnable_poison_position
+            pos=rod.position
             symbol=pos.generate_quadrant_symbol()
             if symbol not in symbol_lst:
                 symbol_lst.append(symbol)
@@ -1953,26 +2043,27 @@ class BurnablePoisonAssembly(BaseModel):
                 if sub_bpa.get_poison_rod_num()==sub_num:
                         return sub_bpa
             
-                
-            
     def __str__(self):
         num=self.rod_positions.count()
         return '{} {}'.format(num, self.fuel_assembly_model)
-    
-    
-class BurnablePoisonRodMap(BaseModel):
-    burnable_poison_assembly=models.ForeignKey(BurnablePoisonAssembly,related_name='rod_positions')
-    burnable_poison_position=models.ForeignKey(FuelAssemblyPosition,limit_choices_to={'type':'guide'})
-    height=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-   
 
+class BurnablePoisonAssemblyMap(BaseModel):
+    burnable_poison_assembly=models.ForeignKey(BurnablePoisonAssembly,related_name='rod_positions')
+    row=models.PositiveSmallIntegerField()
+    column=models.PositiveSmallIntegerField()
+    burnable_poison_rod=models.ForeignKey(BurnablePoisonRod)
     
     class Meta:
-        db_table='burnable_poison_rod_map'
-        unique_together=('burnable_poison_assembly','burnable_poison_position')
-    def __str__(self):
-        return '{}'.format(self.burnable_poison_assembly)
+        db_table='burnable_poison_assembly_map'
+        
+    @property    
+    def position(self):
+        return self.burnable_poison_assembly.fuel_assembly_model.positions.get(row=self.row,column=self.column)
     
+    def __str__(self):
+        return "{} R{}C{}".format(self.burnable_poison_assembly,self.row,self.column)
+    
+
 class BurnablePoisonAssemblyLoadingPattern(BaseModel):
     
     cycle=models.ForeignKey(Cycle,related_name='bpa_loading_patterns')
@@ -2012,12 +2103,6 @@ class BurnablePoisonAssemblyLoadingPattern(BaseModel):
         sysmetry_quadrant=[sysm_relation[i] for i in bpa_symbol]
         return sysmetry_quadrant
             
-            
-            
-        
-        
-        
-    
     def __str__(self):
         return '{} {}'.format(self.cycle, self.reactor_position)
     
@@ -2031,7 +2116,7 @@ class ControlRodAssemblyType(BaseModel):
     step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     side_pin_num=models.PositiveSmallIntegerField(default=17)
     map=models.ManyToManyField(ControlRodType,through='ControlRodAssemblyMap')
-    
+    symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
     class Meta:
         db_table='control_rod_assembly_type'
         
@@ -2198,32 +2283,6 @@ class ControlRodAssembly(BaseModel):
     def __str__(self):
         return '{} {}'.format(self.pk,self.cluster)
 
-'''
-class ControlRodMap(BaseModel):
-    control_rod_cluster=models.ForeignKey(ControlRodCluster,related_name='control_rods')
-    #guide_tube_position=models.ForeignKey(FuelAssemblyPosition,limit_choices_to={'type': 'guide'})
-    row=models.PositiveSmallIntegerField()
-    column=models.PositiveSmallIntegerField()
-    control_rod_type=models.ForeignKey(ControlRodType)
-    
-    
-    class Meta:
-        db_table='control_rod_map'
-        #unique_together=('control_rod_assembly','guide_tube_position')
-    def clean(self):
-        side_pin_num=self.control_rod_cluster.side_pin_num
-        if self.row>side_pin_num:
-            raise ValidationError({'row':_('the row or column is bigger than side pin number'),                         
-            })
-        if self.column>side_pin_num:
-            raise ValidationError({'column':_('the column is bigger than side pin number'),                     
-            })
-        if self.control_rod_type.reactor_model!=self.control_rod_cluster.reactor_model:
-            raise ValidationError({'control_rod_type':_('the control_rod_type is not correct'),                     
-            })
-    def __str__(self):
-        return '{} {}'.format(self.control_rod_cluster,self.control_rod_type)
-'''
        
 class ControlRodAssemblyLoadingPattern(BaseModel):
     cycle=models.ForeignKey(Cycle,related_name='control_rod_assembly_loading_patterns',blank=True,null=True)
