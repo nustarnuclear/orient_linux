@@ -1,8 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator,MaxValueValidator
-from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,ReactorModel,\
-    UnitParameter
+from django.core.validators import MinValueValidator
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter
 from django.conf import settings
 import os
 from xml.dom import minidom 
@@ -141,7 +140,7 @@ def get_pre_robin_upload_path(instance,filename):
     tmp=str(int(enrichment*1000))+str_num
     
     return "pre_robin_task/{}/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
-
+'''
 class PreRobinInput(BaseModel):
     NUM_FUEL_CHOICES=(
                  (1,1),
@@ -183,7 +182,7 @@ class PreRobinInput(BaseModel):
     
     def __str__(self):
         return self.segment_identity
-        
+'''       
 
 class PreRobinBranch(models.Model):
     unit=models.ForeignKey(UnitParameter,related_name='branches')
@@ -371,6 +370,95 @@ class PreRobinBranch(models.Model):
     def __str__(self):
         return str(self.unit)
     
+    
+class PreRobinInput(BaseModel): 
+    unit=models.ForeignKey(UnitParameter)
+    fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')  
+    burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
+    
+    class Meta:
+        db_table='pre_robin_input'
+        
+    @property    
+    def symmetry(self):
+        if not self.fuel_assembly_type.symmetry:
+            return False
+        elif self.burnable_poison_assembly and (not self.burnable_poison_assembly.symmetry):
+            return False
+        else:
+            return True
+        
+    @property
+    def side_pin_num(self):
+        return self.fuel_assembly_type.side_pin_num
+            
+    @property    
+    def height_lst(self):
+        fuel_assembly_type=self.fuel_assembly_type
+        fuel_height_lst=fuel_assembly_type.height_lst
+        burnable_poison_assembly=self.burnable_poison_assembly
+        if burnable_poison_assembly:
+            bp_height_lst=burnable_poison_assembly.height_lst
+            height_set=set(fuel_height_lst)|set(bp_height_lst)
+            height_lst=sorted(list(height_set))
+        else:
+            height_lst=fuel_height_lst
+        
+        return height_lst
+    
+    def generate_transection(self,height):
+        if self.symmetry:
+            fuel_assembly_type=self.fuel_assembly_type
+            fuel_transection=fuel_assembly_type.generate_transection(height)
+            transection=fuel_transection
+            #bpa transection
+            burnable_poison_assembly=self.burnable_poison_assembly
+            if burnable_poison_assembly:
+                bp_transection=burnable_poison_assembly.generate_transection(height)
+                transection.update(bp_transection)
+                
+            return transection
+    
+    def auto_generate_transection(self):
+        height_lst=self.height_lst
+        auto_transection={}
+        for height in height_lst:
+            transection=self.generate_transection(height)
+            auto_transection[height]=transection
+        return auto_transection
+    
+    def generate_pin_map_xml(self,height):
+        transection=self.generate_transection(height)
+        doc=minidom.Document()
+        side_num=self.side_pin_num
+        half=int(side_num/2)+1
+        positions=self.fuel_assembly_type.model.positions.all()
+        #pin map
+        pin_map='\n'
+        for row in range(half,side_num+1):
+            row_lst=[]
+            for col in range(half,row+1):
+                #pin=positions.get(row=row,column=col)
+                pos=(row,col)
+                if pos in transection:
+                    transection_pk=transection[pos]
+                    pin_str=MaterialTransection.objects.get(pk=transection_pk).pin_id
+                else:
+                    pin=positions.get(row=row,column=col)
+                    if pin.type=='guide':
+                        pin_str='GT'
+                    elif pin.type=='instrument': 
+                        pin_str='IT'  
+                        
+                row_lst.append(pin_str)
+            pin_map +=('  '.join(row_lst)+'\n')   
+        pin_map_xml=doc.createElement('pin_map')
+        pin_map_xml.appendChild(doc.createTextNode(pin_map))
+        
+        return pin_map_xml
+    
+    def __str__(self):
+        return "{} {} {}".format(self.unit,self.fuel_assembly_type,self.burnable_poison_assembly)
 
 class PreRobinTask(BaseModel):
     task_name=models.CharField(max_length=32)
@@ -393,10 +481,7 @@ class Ibis(BaseModel):
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
     #ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
-    
-    
-    
-    
+
     class Meta:
         db_table='ibis'
         order_with_respect_to='reactor_model'
@@ -419,9 +504,6 @@ class Ibis(BaseModel):
         ibis_path=os.path.join(ibis_dir,name)
         if os.path.isfile(ibis_path):
             return ibis_path
-    
-   
-        
         
     def get_non_bpa_basefuel(self):
         basefuels=self.base_fuels.all()

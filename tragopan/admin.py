@@ -691,14 +691,25 @@ class CladdingTubeInline(admin.TabularInline):
     exclude=('remark',)
     model=CladdingTube
 
-class FuelElementRadialMapInline(admin.TabularInline):
+class FuelElementSectionInline(admin.TabularInline):
+    model=FuelElementSection
+    extra=0
     exclude=('remark',)
-    model=FuelElementRadialMap
     
 class FuelElementAdmin(admin.ModelAdmin):
     exclude=('remark',) 
-    inlines=[FuelElementRadialMapInline,]
+    inlines=[CladdingTubeInline,FuelElementSectionInline]
 admin.site.register(FuelElement, FuelElementAdmin)
+
+class TransectionMaterialInline(admin.TabularInline):
+    exclude=('remark',)
+    extra=0
+    model=TransectionMaterial
+    
+class MaterialTransectionAdmin(admin.ModelAdmin):
+    inlines=[TransectionMaterialInline,]
+    list_display=('pk',"__str__","if_fuel")
+admin.site.register(MaterialTransection, MaterialTransectionAdmin)
 
 #fuel pellet type information    
 class FuelPelletAdmin(admin.ModelAdmin):
@@ -729,20 +740,12 @@ class NozzlePlugRodAdmin(admin.ModelAdmin):
     exclude=('remark',)
 admin.site.register(NozzlePlugRod, NozzlePlugRodAdmin)
 
-class BurnablePoisonMaterialInline(admin.TabularInline):
-    model=BurnablePoisonMaterial
-    exclude=('remark',)
-    extra=0
-    
+
 class BurnablePoisonSectionAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=("pk","__str__","bottom_height")
 admin.site.register(BurnablePoisonSection, BurnablePoisonSectionAdmin) 
  
-
-class BurnablePoisonTransectionAdmin(admin.ModelAdmin):
-    inlines=[BurnablePoisonMaterialInline,]
-admin.site.register(BurnablePoisonTransection, BurnablePoisonTransectionAdmin) 
 
 class BurnablePoisonSectionInline(admin.TabularInline):
     model=BurnablePoisonSection
@@ -754,9 +757,6 @@ class BurnablePoisonRodAdmin(admin.ModelAdmin):
     list_display=('pk','__str__','height_lst')
 admin.site.register(BurnablePoisonRod, BurnablePoisonRodAdmin) 
 
-class BurnablePoisonMaterialAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-admin.site.register(BurnablePoisonMaterial, BurnablePoisonMaterialAdmin)
 ############################################################################
 #burnable poison assembly
 class BurnablePoisonAssemblyMapAdmin(admin.ModelAdmin):

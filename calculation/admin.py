@@ -3,10 +3,6 @@ from .models import *
 from django.utils.html import format_html
 # Register your models here.
 
-    
-
-    
-
 class PreRobinModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
     
@@ -76,28 +72,9 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
 admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
     
 class PreRobinInputAdmin(admin.ModelAdmin):
-    exclude=('remark','pre_robin_file')
-    list_display=('segment_identity','plant','pre_robin_file',)
-    #actions = ['generate_pre_robin_input_file']
-    filter_horizontal=('branch_composition',)
-    #save_as=True
-    '''
-    def generate_pre_robin_input_file(self, request, queryset):
-        for obj in queryset:
-            file=generate_prerobin_input(obj.pk)
-            if obj.pre_robin_file:
-                obj.pre_robin_file.delete()
-            obj.pre_robin_file.save(name=os.path.basename(file),content=file)
-        num=len(queryset)
-        if num==1:
-            self.message_user(request, "%d PreRobin input file successfully generated." % num)
-        else:
-            self.message_user(request, "%d PreRobin input files successfully generated." % num)
-            
-    generate_pre_robin_input_file.short_description = "Generate PreRobin Input File"
-    '''
-    
-admin.site.register(PreRobinInput, PreRobinInputAdmin)
+    exclude=('remark','user')
+    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','auto_generate_transection')
+admin.site.register(PreRobinInput, PreRobinInputAdmin)   
 
 class IbisAdmin(admin.ModelAdmin):
     exclude=('remark','user')

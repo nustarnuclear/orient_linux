@@ -1135,7 +1135,7 @@ class FuelAssemblyModel(BaseModel):
         f=open('/home/django/Desktop/pin_databank.xml','w')   
         doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
         f.close()
-    
+        
     def __str__(self):
         return "{}".format(self.name)
 
@@ -1150,19 +1150,44 @@ class FuelAssemblyType(BaseModel):
     @property
     def side_pin_num(self):
         return self.model.side_pin_num
+    
+    @property
+    def height_lst(self):
+        rods=self.map.all()
+        height_set=set()
+        for rod in rods:
+            rod_set=set(rod.height_lst)
+            height_set=height_set|rod_set
+        height_lst=sorted(list(height_set))
+        return height_lst
+    
+    def generate_transection(self,height):
+        if self.symmetry:
+            rod_positions=self.rod_positions.all()
+            transection={}
+            for rod_position in rod_positions:
+                if rod_position.in_triangle:
+                    row=rod_position.row
+                    column=rod_position.column
+                    #get the fuel element
+                    fet=rod_position.fuel_element_type
+                    rod_transection=fet.which_transection(height)
+                    #has bpa at this height
+                    if rod_transection:
+                        transection[(row,column)]=rod_transection.pk
+            return transection
+        else:
+            return None
         
     @property   
     def assembly_name(self):
         return self.model.name
-    def get_fuel_element_set(self):
-        fuel_element_set=self.map.distinct()
-        return fuel_element_set
-    
+
     def generate_pin_map_xml(self,bpa=None):
         doc=minidom.Document()
         side_num=self.side_pin_num
         half=int(side_num/2)+1
-        positions=self.model.positions.all()
+        positions=self.model.rod_positions.all()
         if bpa is not None:
             rod_positions=bpa.rod_positions.all()
         #pin map
@@ -1240,15 +1265,7 @@ class FuelAssemblyType(BaseModel):
         f.close() 
         
     def __str__(self):
-        obj=FuelAssemblyType.objects.get(pk=self.pk)
-        if  obj.positions.all().first():
-            fe=obj.positions.all().first().fuel_element_type
-            fp=fe.fuel_pellet_map.all().first().fuel_pellet_type
-            mt=fp.material
-            
-        else:
-            mt=''
-        return "{} {} {}".format(self.pk,self.model,mt)  
+        return "{} {} {}".format(self.pk,self.model,self.assembly_enrichment)  
     
 
     
@@ -1366,7 +1383,7 @@ class FuelAssemblyPosition(BaseModel):
         return '{} R{}C{}'.format(self.fuel_assembly_model, self.row,self.column)
 
 class FuelElementTypePosition(BaseModel):
-    fuel_assembly_type=models.ForeignKey(FuelAssemblyType,related_name='positions',related_query_name='position')
+    fuel_assembly_type=models.ForeignKey(FuelAssemblyType,related_name='rod_positions',)
     fuel_assembly_position=models.ForeignKey(FuelAssemblyPosition,limit_choices_to={'type': 'fuel'})
     fuel_element_type=models.ForeignKey('FuelElementType')
     
@@ -1374,7 +1391,32 @@ class FuelElementTypePosition(BaseModel):
         db_table='fuel_element_type_position'
         unique_together=('fuel_assembly_type','fuel_assembly_position')
         verbose_name='Intra-assembly fuel element loading pattern'
+        
+    @property
+    def row(self):
+        return self.fuel_assembly_position.row
     
+    @property
+    def column(self):
+        return self.fuel_assembly_position.column
+        
+    @property
+    def in_triangle(self):
+        '''to check if this position is in the 1/8 part to be calculated
+        2|1
+        ---
+        3|4
+        the lower triangle of quadrant 4
+        '''
+        side_num=self.fuel_assembly_type.side_pin_num 
+        half=int(side_num/2)+1
+        row=self.row
+        column=self.column
+        if row>=half and column>=half and column<=row:
+            return True
+        else:
+            return False
+        
     def __str__(self):
         return '{} {}'.format(self.fuel_element_type,self.fuel_assembly_position)
     
@@ -1540,25 +1582,106 @@ class LowerNozzle(BaseModel):
 
 class FuelElement(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='fuel_elements')
-    overall_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    plenum_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    overall_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #plenum_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     #filling_gas_pressure=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MPa',blank=True,null=True)
-    #filling_gas_material=models.ForeignKey(Material,blank=True,null=True)
-    radial_map=models.ManyToManyField(Material,through='FuelElementRadialMap')
+    #filling_gas_material=models.ForeignKey(Material,related_name='filling_fuel_elements',default=46)
+    #radial_map=models.ManyToManyField(Material,through='FuelElementRadialMap')
+    #handle the coating material like IFBA
+    #coated=models.BooleanField(default=False,help_text="whether coated with some materials")
+    #coating_thickness=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #coating_material=models.ForeignKey(Material,related_name='coating_fuel_elements',blank=True,null=True)
+    #coating_bottom=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of the active part',blank=True,null=True)
+    #coating_top=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of the active part',blank=True,null=True)
     
     class Meta:
         db_table='fuel_element'
+  
+    @property
+    def height_lst(self):
+        sections=self.sections.all()
+        height_lst=[section.bottom_height for section in sections]
+        return height_lst
+    
+    def which_section(self,height):
+        '''
+        based on the bottom of fuel active part
+        0 represents fuel
+        '''
+        #convert height to decimal
+        if type(height)==Decimal:
+            pass
+        else:
+            height=Decimal(str(height))
+            
+        height_lst=self.height_lst
+        for i in range(len(height_lst)):
+            if height_lst[i]>height:
+                return i
+            elif height_lst[i]==height:
+                return i+1
+            
+        return len(height_lst) 
+    
+    def which_transection(self,height):
+        '''return the material transection object at this height
+        None represents no bpa
+        '''
+        section_num=self.which_section(height)
+        if section_num==0:
+            return None
+        else:
+            section=self.sections.get(section_num=section_num)
+            return section.material_transection
+            
+    def __str__(self):
+        return "{} fuel element".format(self.fuel_assembly_model)
+    
+class FuelElementSection(BaseModel):
+    '''
+    no containing fuel description
+    '''
+    fuel_element=models.ForeignKey(FuelElement,related_name='sections')
+    section_num=models.PositiveSmallIntegerField()
+    length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    material_transection=models.ForeignKey('MaterialTransection')
+    
+    class Meta:
+        db_table='fuel_element_section'
+        
+    @property
+    def previous_section(self):
+        section_num=self.section_num
+        if  section_num==1:
+            return None
+        else:
+            return FuelElementSection.objects.get(fuel_element=self.fuel_element,section_num=section_num-1)
+    
+    @property
+    def bottom_height(self):
+        previous_section=self.previous_section
+        if previous_section is None:
+            bottom_height=Decimal('0')
+        else:
+            bottom_height =previous_section.length+ previous_section.bottom_height       
+        return  bottom_height
+    
     @property
     def pin_id(self):
-        return 'FUEL_'+str(self.pk)
-        
+        return self.material_transection.pin_id
+    
     def generate_base_pin_xml(self):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
         ID=self.pin_id
-        radial_map=self.materials.order_by('radii')
-        radii_lst,mat_lst=zip(*[(str(item.radii),item.material.prerobin_identifier) for item in radial_map])
+        radial_map=self.material_transection.radial_materials.order_by('radius')
+        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
+  
+        radii_lst=list(radii_tup)
+        mat_lst=list(mat_tup)
+        
         radii=','.join(radii_lst)
         mat=','.join(mat_lst)
         
@@ -1575,21 +1698,48 @@ class FuelElement(BaseModel):
         base_pin_xml.appendChild(mat_xml)
         
         return base_pin_xml
-    
+        
     def __str__(self):
-        return "{} fuel element".format(self.fuel_assembly_model)
+        return '{} {}'.format(self.pk,self.remark)
     
-
-class FuelElementRadialMap(BaseModel):
-    fuel_element=models.ForeignKey(FuelElement,related_name='materials')
-    radii=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+class MaterialTransection(BaseModel):
+    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    radial_map=models.ManyToManyField(Material,through='TransectionMaterial')
+    
+    class Meta:
+        db_table='material_transection'
+        
+    @property
+    def pin_id(self):
+        if self.if_fuel:
+            return "FUEL_"+str(self.pk)
+        else:
+            return "BP_"+str(self.pk)
+    
+    
+    @property
+    def if_fuel(self):
+        materials=self.radial_map.all()
+        if "FUEL" in [str(material) for material in materials]:
+            return True
+        else:
+            return False
+        
+    def __str__(self):
+        return '{} {}'.format(self.pk,self.remark)
+    
+class TransectionMaterial(BaseModel):
+    transection=models.ForeignKey(MaterialTransection,related_name='radial_materials',)
+    layer_num=models.PositiveSmallIntegerField()
+    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     material=models.ForeignKey(Material)
     
     class Meta:
-        db_table='fuel_element_radial_map'
+        db_table='transection_material'
         
     def __str__(self):
-        return "{} radial map".format(self.fuel_element)
+        return '{} {}'.format(self.transection,self.material)
+    
 
 class FuelElementType(BaseModel):
     model=models.ForeignKey(FuelElement)
@@ -1598,6 +1748,16 @@ class FuelElementType(BaseModel):
     class Meta:
         db_table='fuel_element_type'
         
+    @property
+    def height_lst(self):
+        return self.model.height_lst
+    
+    def which_section(self,height):
+        return self.model.which_section(height)
+    
+    def which_transection(self,height):
+        return self.model.which_transection(height)
+    
     @property
     def enrichment(self):
         try:
@@ -1897,7 +2057,17 @@ class BurnablePoisonRod(BaseModel):
                 return i+1
             
         return len(height_lst) 
-       
+    
+    def which_transection(self,height):
+        '''return the material transection object at this height
+        None represents no bpa
+        '''
+        section_num=self.which_section(height)
+        if section_num==0:
+            return None
+        else:
+            section=self.sections.get(section_num=section_num)
+            return section.material_transection
     def __str__(self):
         return '{} burnable poison rod'.format(self.fuel_assembly_model)
 
@@ -1906,8 +2076,7 @@ class BurnablePoisonSection(BaseModel):
     burnable_poison_rod=models.ForeignKey(BurnablePoisonRod,related_name='sections')
     section_num=models.PositiveSmallIntegerField()
     length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #radial_map=models.ManyToManyField(Material,through='BurnablePoisonMaterial')
-    transection=models.ForeignKey('BurnablePoisonTransection')
+    material_transection=models.ForeignKey(MaterialTransection)
     class Meta:
         db_table='burnable_poison_section'
         ordering=['section_num']
@@ -1929,25 +2098,15 @@ class BurnablePoisonSection(BaseModel):
             bottom_height =previous_section.length+ previous_section.bottom_height       
         return  bottom_height
     
-    def __str__(self):
-        return '{} {}'.format(self.burnable_poison_rod,self.section_num)
-    
-class BurnablePoisonTransection(BaseModel):
-    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    radial_map=models.ManyToManyField(Material,through='BurnablePoisonMaterial')
-    
-    class Meta:
-        db_table='burnable_poison_transection'
-        
     @property
     def pin_id(self):
-        return 'BP_'+str(self.pk)
+        return self.material_transection.pin_id
     
     def generate_base_pin_xml(self,guide_tube):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
         ID=self.pin_id
-        radial_map=self.radial_materials.order_by('radius')
+        radial_map=self.material_transection.radial_materials.order_by('radius')
         radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
   
         #insert into guide tube
@@ -1974,21 +2133,10 @@ class BurnablePoisonTransection(BaseModel):
         base_pin_xml.appendChild(mat_xml)
         
         return base_pin_xml
-        
-    def __str__(self):
-        return '{} {}'.format(self.pk,self.remark)
     
-class BurnablePoisonMaterial(BaseModel):
-    transection=models.ForeignKey(BurnablePoisonTransection,related_name='radial_materials',blank=True,null=True)
-    #section=models.ForeignKey(BurnablePoisonSection,related_name='radial_materials')
-    material=models.ForeignKey(Material)
-    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    
-    class Meta:
-        db_table='burnable_poison_rod_material'
-        
     def __str__(self):
-        return '{} {}'.format(self.transection,self.material)
+        return '{} {}'.format(self.burnable_poison_rod,self.section_num)
+
 ######################################################################################################################
     
     
@@ -2012,9 +2160,28 @@ class BurnablePoisonAssembly(BaseModel):
             height_set=height_set|rod_set
         height_lst=sorted(list(height_set))
         return height_lst
+    
     @property
-    def transection(self):
-        pass
+    def side_pin_num(self):
+        return self.fuel_assembly_model.side_pin_num
+    
+    
+    def generate_transection(self,height):
+        if self.symmetry:
+            rod_positions=self.rod_positions.all()
+            transection={}
+            for rod_position in rod_positions:
+                if rod_position.in_triangle:
+                    row=rod_position.row
+                    column=rod_position.column
+                    bpr=rod_position.burnable_poison_rod
+                    rod_transection=bpr.which_transection(height)
+                    #has bpa at this height
+                    if rod_transection:
+                        transection[(row,column)]=rod_transection.pk
+            return transection
+        else:
+            return None
     
     def get_poison_rod_num(self):
         num=self.rod_positions.count()
@@ -2055,10 +2222,27 @@ class BurnablePoisonAssemblyMap(BaseModel):
     
     class Meta:
         db_table='burnable_poison_assembly_map'
-        
+            
     @property    
     def position(self):
         return self.burnable_poison_assembly.fuel_assembly_model.positions.get(row=self.row,column=self.column)
+    
+    @property
+    def in_triangle(self):
+        '''to check if this position is in the 1/8 part to be calculated
+        2|1
+        ---
+        3|4
+        the lower triangle of quadrant 4
+        '''
+        side_num=self.burnable_poison_assembly.side_pin_num 
+        half=int(side_num/2)+1
+        row=self.row
+        column=self.column
+        if row>=half and column>=half and column<=row:
+            return True
+        else:
+            return False
     
     def __str__(self):
         return "{} R{}C{}".format(self.burnable_poison_assembly,self.row,self.column)
