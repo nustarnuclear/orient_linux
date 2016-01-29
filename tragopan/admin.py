@@ -112,26 +112,7 @@ class WmisElementDataAdmin(admin.ModelAdmin):
     
 admin.site.register(WmisElementData, WmisElementDataAdmin) 
 
-'''
-#material information
-class MaterialCompositionInline(admin.TabularInline):
-    model=MaterialComposition
-    exclude=('remark',)
-    raw_id_fields = ('wims_element_data',)
-    # define the related_lookup_fields
-    autocomplete_lookup_fields = {
-        'fk': ['wims_element_data',],
-    }
-    related_lookup_fields = {
-        'fk': ['wims_element_data',],
-        
-    }
-    def get_extra(self, request, obj=None, **kwargs):
-        extra = 1
-        if obj:
-            return extra-1
-        return extra
-'''
+
 #mixture information
 class MixtureCompositionInline(admin.TabularInline):
     model=MixtureComposition
@@ -488,7 +469,7 @@ class FuelPelletInline(admin.TabularInline):
      
 class FuelAssemblyModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num','generate_assembly_model_xml')
+    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num',)
     inlines=[GridPositionInline,UpperNozzleInline,LowerNozzleInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline]
     
     def get_fuel_element_num(self,obj):
@@ -572,7 +553,7 @@ class FuelAssemblyRepositoryAdmin(admin.ModelAdmin):
     actions=['update_batch_number','make_disable','make_broken','make_broken_and_disable']
     action_form = BatchNumberForm
     exclude=('remark',)
-    list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position','availability','broken','batch_number',FuelAssemblyStatusListFilter]
+    list_filter=['type','unit','cycle_positions__cycle','cycle_positions__reactor_position','availability','broken','batch_number',]
     list_display=['pk','type','unit','batch_number',]
     search_fields=('=id',)
     list_select_related = True
@@ -639,7 +620,7 @@ admin.site.register(FuelElementTypePosition, FuelElementTypePositionAdmin)
     
 class FuelAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('pk','assembly_enrichment','model','generate_assembly_model_xml')
+    list_display=('pk','assembly_enrichment','model',)
     #list_editable=('assembly_enrichment',)
 admin.site.register(FuelAssemblyType, FuelAssemblyTypeAdmin)
 

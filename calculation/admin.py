@@ -8,7 +8,7 @@ class PreRobinModelAdmin(admin.ModelAdmin):
     
     fieldsets =(
                 (None,{
-                       'fields':('model_name','user','system_pressure',)
+                       'fields':('model_name','default')
                 }),
                 
                 ('accuracy control',{
@@ -70,11 +70,20 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
                 }),
     )
 admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
-    
+ 
+
 class PreRobinInputAdmin(admin.ModelAdmin):
     exclude=('remark','user')
     list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','auto_generate_transection')
 admin.site.register(PreRobinInput, PreRobinInputAdmin)   
+
+class DepletionStateAdmin(admin.ModelAdmin):
+    pass
+admin.site.register(DepletionState, DepletionStateAdmin)
+
+class PreRobinTaskAdmin(admin.ModelAdmin):
+    pass
+admin.site.register(PreRobinTask, PreRobinTaskAdmin)
 
 class IbisAdmin(admin.ModelAdmin):
     exclude=('remark','user')

@@ -1,6 +1,6 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator,MaxValueValidator
 from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter
 from django.conf import settings
 import os
@@ -54,14 +54,8 @@ media_url=settings.MEDIA_URL
 #concrete model in DATABASE
 
     
-class PreRobinModel(BaseModel):
+class PreRobinModel(models.Model):
     
-    DEP_STRATEGY_CHOICES=(
-                          ('LLR','LLR'),
-                          ('PPC','PPC'),
-                          ('LR','LR'),
-                          ('PC','PC'),
-    )
     POLAR_TYPE_CHOICES=(
                         ('LCMD','LCMD'),
                         ('TYPL','TYPL'),
@@ -94,14 +88,7 @@ class PreRobinModel(BaseModel):
    
     
     model_name=models.CharField(max_length=32)
-    
-
-   
-    #depletion state
-    system_pressure=models.DecimalField(max_digits=7,decimal_places=5,default=15.51,validators=[MinValueValidator(0)],help_text='MPa')
-    dep_strategy=models.CharField(max_length=3,choices=DEP_STRATEGY_CHOICES,default='LLR',blank=True,null=True)
-  
-    
+    default=models.BooleanField(default=False,help_text="set it as default",unique=True)
     #accuracy_control
     track_density=models.DecimalField(max_digits=5,decimal_places=5,default=0.03,validators=[MinValueValidator(0)],help_text='cm')
     polar_type=models.CharField(max_length=4,choices=POLAR_TYPE_CHOICES,default='LCMD')
@@ -120,9 +107,94 @@ class PreRobinModel(BaseModel):
     #edit_control
     num_group_edit=models.PositiveSmallIntegerField(choices=NUM_GROUP_2D_CHIOCES,default=2)
     micro_xs_output=models.BooleanField(default=False)
+    
     class Meta:
         db_table='pre_robin_model'
+        
+    def generate_accuracy_control_xml(self):
+        doc=minidom.Document()
+        accuracy_control_xml=doc.createElement('accuracy_control')
+        
+        track_density_xml=doc.createElement('track_density')
+        track_density_xml.appendChild(doc.createTextNode(str(self.track_density)))
+        accuracy_control_xml.appendChild(track_density_xml)
+        
+        polar_type_xml=doc.createElement('polar_type')
+        polar_type_xml.appendChild(doc.createTextNode(str(self.polar_type)))
+        accuracy_control_xml.appendChild(polar_type_xml)
+        
+        polar_azimuth_xml=doc.createElement('polar_azimuth')
+        polar_azimuth_xml.appendChild(doc.createTextNode(str(self.polar_azimuth)))
+        accuracy_control_xml.appendChild(polar_azimuth_xml)
+        
+        track_density_xml=doc.createElement('track_density')
+        track_density_xml.appendChild(doc.createTextNode(str(self.track_density)))
+        accuracy_control_xml.appendChild(track_density_xml)
+        
+        iter_inner_xml=doc.createElement('iter_inner')
+        iter_inner_xml.appendChild(doc.createTextNode(str(self.iter_inner)))
+        accuracy_control_xml.appendChild(iter_inner_xml)
+        
+        iter_outer_xml=doc.createElement('iter_outer')
+        iter_outer_xml.appendChild(doc.createTextNode(str(self.iter_outer)))
+        accuracy_control_xml.appendChild(iter_outer_xml)
+        
+        eps_keff_xml=doc.createElement('eps_keff')
+        track_density_xml.appendChild(doc.createTextNode(str(self.eps_keff)))
+        accuracy_control_xml.appendChild(eps_keff_xml)
+        
+        eps_flux_xml=doc.createElement('eps_flux')
+        track_density_xml.appendChild(doc.createTextNode(str(self.eps_flux)))
+        accuracy_control_xml.appendChild(eps_flux_xml)
+        
+        return accuracy_control_xml
+        
+    def generate_fundamental_mode_xml(self):
+        doc=minidom.Document()
+        fundamental_mode_xml=doc.createElement('fundamental_mode')
+        
+        leakage_corrector_path_xml=doc.createElement('leakage_corrector_path')
+        leakage_corrector_path_xml.appendChild(doc.createTextNode(str(self.leakage_corrector_path)))
+        fundamental_mode_xml.appendChild(leakage_corrector_path_xml)
+        
+        leakage_corrector_method_xml=doc.createElement('leakage_corrector_method')
+        leakage_corrector_method_xml.appendChild(doc.createTextNode(str(self.leakage_corrector_method)))
+        fundamental_mode_xml.appendChild(leakage_corrector_method_xml)
+        
+        buckling_or_keff_xml=doc.createElement('buckling_or_keff')
+        buckling_or_keff_xml.appendChild(doc.createTextNode(str(self.buckling_or_keff)))
+        fundamental_mode_xml.appendChild(buckling_or_keff_xml)
+        
+        return fundamental_mode_xml
     
+    def generate_energy_condensation_xml(self):
+        doc=minidom.Document()
+        energy_condensation_xml=doc.createElement('energy_condensation')
+        
+        condensation_path_xml=doc.createElement('condensation_path')
+        condensation_path_xml.appendChild(doc.createTextNode(str(self.condensation_path)))
+        energy_condensation_xml.appendChild(condensation_path_xml)
+        
+        num_group_2D_xml=doc.createElement('num_group_2D')
+        num_group_2D_xml.appendChild(doc.createTextNode(str(self.num_group_2D)))
+        energy_condensation_xml.appendChild(num_group_2D_xml)
+        
+        return energy_condensation_xml
+    
+    def generate_edit_control_xml(self):
+        doc=minidom.Document()
+        edit_control_xml=doc.createElement('edit_control')
+        
+        num_group_edit_xml=doc.createElement('num_group_edit')
+        num_group_edit_xml.appendChild(doc.createTextNode(str(self.num_group_edit)))
+        edit_control_xml.appendChild(num_group_edit_xml)
+        
+        micro_xs_output_xml=doc.createElement('micro_xs_output')
+        micro_xs_output_xml.appendChild(doc.createTextNode(str(self.num_group_2D)))
+        edit_control_xml.appendChild(micro_xs_output_xml)
+        
+        return edit_control_xml
+        
     def __str__(self):
         return self.model_name
       
@@ -140,49 +212,6 @@ def get_pre_robin_upload_path(instance,filename):
     tmp=str(int(enrichment*1000))+str_num
     
     return "pre_robin_task/{}/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
-'''
-class PreRobinInput(BaseModel):
-    NUM_FUEL_CHOICES=(
-                 (1,1),
-                 (2,2),
-                 (3,3),
-    )
-    NUM_EDIT_NODE_CHOICES=(
-                        (16,16),
-                        (4,4),
-    )
-    
-    segment_identity=models.CharField(max_length=32)
-    plant=models.ForeignKey('tragopan.Plant')
-    file_type=models.CharField(max_length=9,choices=FILE_TYPE_CHOICES)
-    use_pre_segment=models.ForeignKey('self',blank=True,null=True)
-    pre_robin_model=models.ForeignKey(PreRobinModel,default=1)
-    fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
-    burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
-    grid=models.ForeignKey('tragopan.Grid',blank=True,null=True)
-    
-    #depletion computation
-    power_density=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='w/g',blank=True,null=True)
-    assembly_maxium_burnup=models.DecimalField(max_digits=7,decimal_places=5,validators=[MinValueValidator(0),MaxValueValidator(100)],help_text='GWd/tU',blank=True,null=True)
-    boron_density=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='ppm',blank=True,null=True)
-    moderator_temperature=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='K',blank=True,null=True)
-    fuel_temperature=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='K',blank=True,null=True)
-    
-    #reflector model computation
-    core_baffle=models.ForeignKey('tragopan.CoreBaffle',blank=True,null=True)
-    num_fuel_assembly=models.PositiveSmallIntegerField(choices=NUM_FUEL_CHOICES,blank=True,null=True)
-    num_edit_node=models.PositiveSmallIntegerField(default=16,choices=NUM_EDIT_NODE_CHOICES,blank=True,null=True)
-    #branch computation
-    branch_composition=models.ManyToManyField('PreRobinBranch',related_name='branches')
-    #prerobin file
-    pre_robin_file=models.FileField(upload_to=get_pre_robin_upload_path,blank=True,null=True)
-   
-    class Meta:
-        db_table='pre_robin_input'
-    
-    def __str__(self):
-        return self.segment_identity
-'''       
 
 class PreRobinBranch(models.Model):
     unit=models.ForeignKey(UnitParameter,related_name='branches')
@@ -427,6 +456,26 @@ class PreRobinInput(BaseModel):
             auto_transection[height]=transection
         return auto_transection
     
+    
+    def get_pin_lst(self,height):
+        transection=self.generate_transection(height)
+        side_num=self.side_pin_num
+        half=int(side_num/2)+1
+        pin_lst=[]
+        for row in range(half,side_num+1):
+            for col in range(half,row+1):
+                pos=(row,col)
+                if pos in transection:
+                    pin_lst.append(transection[pos])
+                    
+                else:
+                    pin_lst.append(0)
+                    
+        return  pin_lst
+                  
+    def get_fuel_lst(self,height):
+        return self.fuel_assembly_type.get_fuel_lst(height)                        
+    
     def generate_pin_map_xml(self,height):
         transection=self.generate_transection(height)
         doc=minidom.Document()
@@ -457,15 +506,102 @@ class PreRobinInput(BaseModel):
         
         return pin_map_xml
     
+    def generate_fuel_map_xml(self,height):
+        return self.fuel_assembly_type.generate_fuel_map_xml(height)
+    
+    def generate_pin_databank_xml(self):
+        pass
+    
+    def create_depletion_state(self):
+        unit=self.unit
+        lst=unit.depletion_state_lst
+        obj,created=DepletionState.objects.get_or_create(system_pressure=lst[0],fuel_temperature=lst[1],moderator_temperature=lst[2],boron_density=lst[3],power_density=lst[4])
+        return obj
+    
     def __str__(self):
         return "{} {} {}".format(self.unit,self.fuel_assembly_type,self.burnable_poison_assembly)
-
+    
+'''
+class AssemblyLamination(models.Model):
+    pass
+    
+'''
+class DepletionState(models.Model):
+    DEP_STRATEGY_CHOICES=(
+                          ('LLR','LLR'),
+                          ('PPC','PPC'),
+                          ('LR','LR'),
+                          ('PC','PC'),
+    )
+    BURNUP_UNIT_CHOICES=(
+                         ('GWd/tU','GWd/tU'),
+                         ('DGWd/tU','DGWd/tU'),
+                         ('day','day'),
+                         ('Dday','Dday'),
+    )
+    
+    #depletion state
+    system_pressure=models.DecimalField(max_digits=7,decimal_places=5,default=15.51,validators=[MinValueValidator(0)],help_text='MPa')
+    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=60,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
+    burnup_unit=models.CharField(max_length=7,default='GWd/tU',choices=BURNUP_UNIT_CHOICES)
+    fuel_temperature=models.PositiveSmallIntegerField(help_text='K',)
+    moderator_temperature=models.PositiveSmallIntegerField(help_text='K',)
+    boron_density=models.PositiveSmallIntegerField(help_text='ppm')
+    dep_strategy=models.CharField(max_length=3,choices=DEP_STRATEGY_CHOICES,default='LLR')
+    power_density=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:w/g')
+    
+    class Meta:
+        db_table="depletion_state"
+        
+    
+    def generate_depletion_state_xml(self):
+        doc=minidom.Document()
+        depletion_state_xml=doc.createElement('depletion_state')
+        
+        system_pressure_xml=doc.createElement('system_pressure')
+        system_pressure_xml.appendChild(doc.createTextNode(str(self.system_pressure)))
+        
+        burnup_point_xml=doc.createElement('burnup_point')
+        burnup_point_xml.appendChild(doc.createTextNode(str(self.burnup_point)))
+        
+        burnup_unit_xml=doc.createElement('burnup_unit')
+        burnup_unit_xml.appendChild(doc.createTextNode(self.burnup_unit))
+        
+        dep_strategy_xml=doc.createElement('dep_strategy')
+        dep_strategy_xml.appendChild(doc.createTextNode(self.dep_strategy))
+        
+        power_density_xml=doc.createElement('power_density')
+        power_density_xml.appendChild(doc.createTextNode(str(self.power_density)))
+        
+        BOR_xml=doc.createElement('BOR')
+        BOR_xml.appendChild(doc.createTextNode(str(self.boron_density)))
+        
+        TMO_xml=doc.createElement('TMO')
+        TMO_xml.appendChild(doc.createTextNode(str(self.moderator_temperature)))
+        
+        TFU_xml=doc.createElement('TFU')
+        TFU_xml.appendChild(doc.createTextNode(str(self.fuel_temperature)))
+        
+        depletion_state_xml.appendChild(system_pressure_xml)
+        depletion_state_xml.appendChild(burnup_point_xml)
+        depletion_state_xml.appendChild(burnup_unit_xml)
+        depletion_state_xml.appendChild(dep_strategy_xml)
+        depletion_state_xml.appendChild(power_density_xml)
+        depletion_state_xml.appendChild(BOR_xml)
+        depletion_state_xml.appendChild(TMO_xml)
+        depletion_state_xml.appendChild(TFU_xml)
+        
+        return depletion_state_xml
+    def __str__(self):
+        return "{} {}".format(self.pk,self.system_pressure)
+    
 class PreRobinTask(BaseModel):
-    task_name=models.CharField(max_length=32)
-    fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
-    burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
-    height=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',)
+    pin_map=models.CommaSeparatedIntegerField(max_length=256)
+    fuel_map=models.CommaSeparatedIntegerField(max_length=256)
     branch=models.ForeignKey(PreRobinBranch)
+    depletion_state=models.ForeignKey(DepletionState)
+    pre_robin_model=models.ForeignKey(PreRobinModel)
+    
     class Meta:
         db_table='pre_robin_task'
     

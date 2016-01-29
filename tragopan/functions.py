@@ -314,12 +314,6 @@ def add_cycle(filename,plantname,unit_num):
             
     return lst
 
-
-
-
-
-
-
 ###########################################################################################################
 #class to handle monthly operation data
 class OperationDataHandler:

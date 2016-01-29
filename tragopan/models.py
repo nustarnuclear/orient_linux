@@ -20,8 +20,33 @@ def create_auth_token(sender, instance=None, created=False, **kwargs):
         token=Token.objects.get(user=instance)
         token.delete()
         Token.objects.create(user=instance)
+        
+def which_section(height,height_lst):
+    if type(height)==Decimal:
+        pass
+    else:
+        height=Decimal(str(height))
+   
+    for i in range(len(height_lst)):
+        if height_lst[i]>height:
+            return i
+        elif height_lst[i]==height:
+            return i+1
+            
+    return len(height_lst)
 
-    
+def format_line(lst,width=16):
+    result_lst=[]
+    for item in lst:
+        blank_num=width-len(str(item))
+        result_lst.append(str(item)+' '*blank_num)
+    result_lst.append('\n')
+    return ''.join(result_lst) 
+
+#some common constant
+MEDIA_ROOT=settings.MEDIA_ROOT
+BASIC_DATA_PATH=os.path.join(MEDIA_ROOT,'basic_data')    
+PRE_ROBIN_PATH=os.path.join(MEDIA_ROOT,'pre_robin')
 # base model to contain the basic information
 class BaseModel(models.Model):
     time_inserted = models.DateTimeField(auto_now_add=True)
@@ -180,6 +205,63 @@ class BasicMaterial(BaseModel):
                 return False
         return True
     data_integrity.boolean=True
+    
+    #class attribute
+    material_element_lib_path=os.path.join(BASIC_DATA_PATH,'material_element.lib')
+    
+    @classmethod
+    def generate_material_lib(cls):
+        if not os.path.exists(BASIC_DATA_PATH):
+            os.makedirs(BASIC_DATA_PATH)
+        f=open(cls.material_element_lib_path,'w')
+        
+        #write general info
+        general_descrip=['nuclides','elements','compounds','mixtures']
+        f.write(format_line(general_descrip))
+        
+        nuclide_num=WimsNuclideData.objects.count()
+        element_num=WmisElementData.objects.count()
+        compound_num=cls.objects.filter(type=1).count()
+        mixture_num=cls.objects.filter(type=2).count()
+        f.write(format_line([nuclide_num,element_num,compound_num,mixture_num]))
+        f.write('\n')
+        #write nuclides info
+        nuclide_descrip=['isotope','ID in lib','amu','res_trig','dep_trig']
+        f.write(format_line(nuclide_descrip))
+        for item in WimsNuclideData.generate_nuclide_lib():
+            f.write(format_line(item))
+        f.write('\n')    
+        #write elements info
+        f.write('elements:\n')
+        for element in WmisElementData.objects.all():
+            element_descrip=[element.element_name,element.get_nuclide_num()]
+            f.write(format_line(element_descrip))
+            for compo in element.nuclides.all():
+                nuclide_info=[' ',compo.wmis_nuclide.pk,compo.weight_percent/100] 
+                f.write(format_line(nuclide_info))
+        f.write('\n')        
+        #write compounds info
+        f.write('compounds:\n')
+        for compound in cls.objects.filter(type=1):
+            compound_descrip=[compound.name,compound.get_element_num(),compound.density]
+            f.write(format_line(compound_descrip))
+            for compo in compound.elements.all():
+                element_info=[' ',compo.wims_element.element_name,compo.weight_percent/100 if compo.weight_percent else compo.element_number]
+                f.write(format_line(element_info))
+        f.write('\n') 
+        
+        #write mixture info
+        f.write('mixtures:\n')
+        for mixture in cls.objects.filter(type=2):
+            mixture_descrip=[mixture.name,mixture.get_element_num(),mixture.density]
+            f.write(format_line(mixture_descrip))
+            for compo in mixture.elements.all():
+                element_info=[' ',compo.wims_element.element_name,compo.weight_percent/100 if compo.weight_percent else compo.element_number]
+                f.write(format_line(element_info))
+        f.write('\n')
+               
+        f.close()
+        
     def __str__(self):
         return self.name
 
@@ -304,23 +386,15 @@ class Material(BaseModel):
             result['composition_ID']=self.basic_material.name
             
         return  result  
+    
+    #class attribute
+    material_databank_path=os.path.join(PRE_ROBIN_PATH,'material_databank.xml')
     @classmethod
-    def generate_material_databank(cls):
-        '''
-        materials=cls.objects.all()
-        f=open('/home/django/Desktop/material_databank.txt','w')
-        f.write('material_databank:\n')
-        for material in  materials:
-            base_mat=material.generate_base_mat()
-            if base_mat:
-                f.write('  base_mat:\n')
-                for key,value in base_mat.items():
-                    f.write('    {} = {}\n'.format(key, value))
-                f.write('   /base_mat\n')
-            f.write('\n')
-        f.write('/material_databank\n') 
-        f.close()  
-        '''
+    def generate_material_databank_xml(cls):
+        if not os.path.exists(PRE_ROBIN_PATH):
+            os.makedirs(PRE_ROBIN_PATH)
+        f=open(cls.material_databank_path,'w')
+        
         doc = minidom.Document()
         material_databank_xml=doc.createElement('material_databank')
         materials=cls.objects.all()
@@ -334,8 +408,7 @@ class Material(BaseModel):
                     base_mat_xml.appendChild(key_xml)
                 material_databank_xml.appendChild(base_mat_xml)
                 
-        doc.appendChild(material_databank_xml)        
-        f=open('/home/django/Desktop/material_databank.xml','w')   
+        doc.appendChild(material_databank_xml)          
         doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
         f.close()
                     
@@ -680,7 +753,7 @@ class UnitParameter(BaseModel):
     primary_system_pressure= models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MPa')
     ave_linear_power_density= models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:KW/m')
     ave_vol_power_density = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:KW/L', blank=True, null=True)
-    ave_mass_power_density = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:KW/Kg (fuel)', blank=True, null=True)
+    ave_mass_power_density = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:W/g (fuel)')
     best_estimated_cool_vol_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3/h', blank=True, null=True)
     best_estimated_cool_mass_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:kg/h', blank=True, null=True)
     coolant_volume=models.DecimalField(max_digits=20, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3', blank=True, null=True)
@@ -701,7 +774,15 @@ class UnitParameter(BaseModel):
     def unit_dir(self):
         plant=self.plant
         return os.path.join(plant.plant_dir,'unit'+str(self.unit))
-         
+    
+    @property     
+    def depletion_state_lst(self):
+        primary_system_pressure=self.primary_system_pressure
+        ave_mass_power_density=self.ave_mass_power_density
+        boron_density=self.boron_density
+        fuel_temperature=self.fuel_temperature
+        moderator_temperature=self.moderator_temperature
+        return [primary_system_pressure,fuel_temperature,moderator_temperature,boron_density,ave_mass_power_density]
     @property    
     def base_component_path(self):
         plant=self.plant
@@ -1161,7 +1242,7 @@ class FuelAssemblyType(BaseModel):
         height_lst=sorted(list(height_set))
         return height_lst
     
-    def generate_transection(self,height):
+    def generate_transection(self,height,fuel=False):
         if self.symmetry:
             rod_positions=self.rod_positions.all()
             transection={}
@@ -1171,10 +1252,10 @@ class FuelAssemblyType(BaseModel):
                     column=rod_position.column
                     #get the fuel element
                     fet=rod_position.fuel_element_type
-                    rod_transection=fet.which_transection(height)
+                    rod_transection_pk=fet.which_transection(height,fuel=fuel)
                     #has bpa at this height
-                    if rod_transection:
-                        transection[(row,column)]=rod_transection.pk
+                    if rod_transection_pk:
+                        transection[(row,column)]=rod_transection_pk
             return transection
         else:
             return None
@@ -1182,75 +1263,49 @@ class FuelAssemblyType(BaseModel):
     @property   
     def assembly_name(self):
         return self.model.name
-
-    def generate_pin_map_xml(self,bpa=None):
+    
+    def get_fuel_lst(self,height):
+        transection=self.generate_transection(height,fuel=True)
+        side_num=self.side_pin_num
+        half=int(side_num/2)+1
+        fuel_lst=[]
+        for row in range(half,side_num+1):
+            for col in range(half,row+1):
+                pos=(row,col)
+                if pos in transection:
+                    fuel_lst.append(transection[pos])
+                    
+                else:
+                    fuel_lst.append(0)
+                    
+        return  fuel_lst 
+  
+    def generate_fuel_map_xml(self,height):
+        transection=self.generate_transection(height=height,fuel=True)
         doc=minidom.Document()
         side_num=self.side_pin_num
         half=int(side_num/2)+1
-        positions=self.model.rod_positions.all()
-        if bpa is not None:
-            rod_positions=bpa.rod_positions.all()
-        #pin map
-        pin_map='\n'
+        
+        #fuel map
+        fuel_map='\n'
         for row in range(half,side_num+1):
             row_lst=[]
             for col in range(half,row+1):
-                pin=positions.get(row=row,column=col)
-                if pin.type=='fuel':
-                    pin_str='FUEL'
-                         
-                elif pin.type=='guide':
-                    #No bpa inserted
-                    if bpa is None:
-                        pin_str='GT'
-                    else:
-                        rod_position_set=rod_positions.filter(row=row,column=col)
-                        #insert bpa at this position
-                        if rod_position_set.exists():
-                            rod_position=rod_position_set.get()
-                            pin_str=rod_position.burnable_poison_rod.pin_id
-                        else:
-                            pin_str='GT'   
-                elif  pin.type=='instrument': 
-                    pin_str='IT'  
-                row_lst.append(pin_str)
-            pin_map +=('  '.join(row_lst)+'\n')
-            
-        pin_map_xml=doc.createElement('pin_map')
-        pin_map_xml.appendChild(doc.createTextNode(pin_map))
-            
-        return pin_map_xml
+                pos=(row,col)
+                if pos in transection:
+                    transection_pk=transection[pos]
+                    fuel_str=str(transection_pk)
+                else:
+                    fuel_str='0'
+                    
+                row_lst.append(fuel_str)
+                
+            fuel_map +=('  '.join(row_lst)+'\n')
         
-    def generate_fuel_map_xml(self):
-        doc=minidom.Document()
-        side_num=self.side_pin_num
-        half=int(side_num/2)+1
-        assembly_enrichment=self.assembly_enrichment
-        positions=self.model.positions.all()
-        #all the fuel pins have the same enrichment
-        if assembly_enrichment is not None:
-            material=Material.objects.get(enrichment=assembly_enrichment)
-            
-            fuel_map='\n'
-            for row in range(half,side_num+1):
-                row_lst=[]
-                for col in range(half,row+1):
-                    pin=positions.get(row=row,column=col)
-                    if pin.type=='fuel':
-                        fuel_str=str(material.pk)
-                             
-                    else:
-                        fuel_str='0'  
-                    row_lst.append(fuel_str)
-                fuel_map +=('  '.join(row_lst)+'\n')  
-            fuel_map_xml=doc.createElement('fuel_map')
-            fuel_map_xml.appendChild(doc.createTextNode(fuel_map))
-            return fuel_map_xml
-        
-        #doc.appendChild(assembly_model_xml)
-        #f=open('/home/django/Desktop/assembly_model.xml','w')
-        #doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        #f.close() 
+        fuel_map_xml=doc.createElement('fuel_map')
+        fuel_map_xml.appendChild(doc.createTextNode(fuel_map))
+        return fuel_map_xml
+                
     def generate_assembly_model_xml(self):
         assembly_model_xml=self.model.generate_assembly_model_xml()
         fuel_map_xml=self.generate_fuel_map_xml()
@@ -1482,7 +1537,7 @@ class GuideTube(BaseModel):
     def generate_base_pin_xml(self):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
-        ID='GT_'+str(self.pk)
+        ID='GT'
         radii="{},{}".format(self.upper_inner_diameter,self.upper_outer_diameter)
         mat='MOD,'+self.material.prerobin_identifier
         
@@ -1523,7 +1578,7 @@ class InstrumentTube(BaseModel):
     def generate_base_pin_xml(self):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
-        ID='IT_'+str(self.pk)
+        ID='IT'
         radii="{},{}".format(self.inner_diameter,self.outer_diameter)
         mat='MOD,'+self.material.prerobin_identifier
         
@@ -1610,23 +1665,12 @@ class FuelElement(BaseModel):
         based on the bottom of fuel active part
         0 represents fuel
         '''
-        #convert height to decimal
-        if type(height)==Decimal:
-            pass
-        else:
-            height=Decimal(str(height))
             
         height_lst=self.height_lst
-        for i in range(len(height_lst)):
-            if height_lst[i]>height:
-                return i
-            elif height_lst[i]==height:
-                return i+1
-            
-        return len(height_lst) 
+        return which_section(height, height_lst)
     
     def which_transection(self,height):
-        '''return the material transection object at this height
+        '''return the material transection pk at this height
         None represents no bpa
         '''
         section_num=self.which_section(height)
@@ -1634,7 +1678,7 @@ class FuelElement(BaseModel):
             return None
         else:
             section=self.sections.get(section_num=section_num)
-            return section.material_transection
+            return section.material_transection.pk
             
     def __str__(self):
         return "{} fuel element".format(self.fuel_assembly_model)
@@ -1748,14 +1792,29 @@ class FuelElementType(BaseModel):
     class Meta:
         db_table='fuel_element_type'
         
-    @property
-    def height_lst(self):
-        return self.model.height_lst
+    def get_height_lst(self,fuel=False):
+        if fuel:
+            pellet_sections=self.fuel_pellet_map.order_by('section_num')
+            height_lst=[pellet_section.bottom_height for pellet_section in pellet_sections]
+        else:
+            height_lst=self.model.height_lst
+            
+        return height_lst
     
-    def which_section(self,height):
-        return self.model.which_section(height)
+    def which_section(self,height,fuel=False):
+        #convert height to decimal   
+        height_lst=self.get_height_lst(fuel)
+        return which_section(height,height_lst)
     
-    def which_transection(self,height):
+    def which_transection(self,height,fuel=False):
+        #if fuel return material pk
+        #else return material transection object
+        if fuel:
+            section_num=self.which_section(height=height,fuel=True) 
+            pellet_section=self.fuel_pellet_map.get(section_num=section_num)
+            fuel_pellet_type=pellet_section.fuel_pellet_type
+            return fuel_pellet_type.material.pk
+       
         return self.model.which_transection(height)
     
     @property
@@ -1765,12 +1824,6 @@ class FuelElementType(BaseModel):
             return pellet_pos.enrichment
         except:
             return None
-        
-        
-    def get_pellet_composition(self):
-        pellet_composition=self.fuel_pellet_map.all().order_by('section')
-        result=[(item.section,item.fuel_pellet_type) for item in pellet_composition]
-        return result
         
     def __str__(self):
         obj=FuelElementType.objects.get(pk=self.pk)
@@ -1898,14 +1951,33 @@ class FuelPelletType(BaseModel):
     
 class FuelElementPelletLoadingScheme(BaseModel):
     fuel_element_type=models.ForeignKey(FuelElementType,related_name='fuel_pellet_map')
+    section_num=models.PositiveSmallIntegerField()
     fuel_pellet_type=models.ForeignKey(FuelPelletType)
-    section=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm height base on bottom')
+    length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)])
     
     class Meta:
         db_table='fuel_element_pellet_loading_scheme'
         
+    @property
+    def previous_section(self):
+        section_num=self.section_num
+        if  section_num==1:
+            return None
+        else:
+            return FuelElementPelletLoadingScheme.objects.get(fuel_element_type=self.fuel_element_type,section_num=section_num-1)
+    
+    @property
+    def bottom_height(self):
+        previous_section=self.previous_section
+        if previous_section is None:
+            bottom_height=Decimal('0')
+        else:
+            bottom_height =previous_section.length+ previous_section.bottom_height       
+        return  bottom_height
+    
+        
     def __str__(self):
-        return '{} {} {}'.format(self.fuel_element_type, self.section,self.fuel_pellet_type)
+        return '{} {} {}'.format(self.fuel_element_type, self.section_num,self.fuel_pellet_type)
     
 
     
@@ -2059,15 +2131,15 @@ class BurnablePoisonRod(BaseModel):
         return len(height_lst) 
     
     def which_transection(self,height):
-        '''return the material transection object at this height
-        None represents no bpa
+        '''return the material transection pk at this height
+        0 represents no bpa
         '''
         section_num=self.which_section(height)
         if section_num==0:
-            return None
+            return 0
         else:
             section=self.sections.get(section_num=section_num)
-            return section.material_transection
+            return section.material_transection.pk
     def __str__(self):
         return '{} burnable poison rod'.format(self.fuel_assembly_model)
 
@@ -2175,10 +2247,10 @@ class BurnablePoisonAssembly(BaseModel):
                     row=rod_position.row
                     column=rod_position.column
                     bpr=rod_position.burnable_poison_rod
-                    rod_transection=bpr.which_transection(height)
+                    rod_transection_pk=bpr.which_transection(height)
                     #has bpa at this height
-                    if rod_transection:
-                        transection[(row,column)]=rod_transection.pk
+                    if rod_transection_pk!=0:
+                        transection[(row,column)]=rod_transection_pk
             return transection
         else:
             return None
