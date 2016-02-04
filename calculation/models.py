@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django.core.validators import MinValueValidator,MaxValueValidator
-from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter
+from django.core.validators import MinValueValidator
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter,PRE_ROBIN_PATH
 from django.conf import settings
 import os
 from xml.dom import minidom 
@@ -10,6 +10,7 @@ from django.utils.translation import ugettext_lazy as _
 import shutil
 from celery import signature
 from datetime import datetime
+from decimal import Decimal
 # Create your models here.
 
 def get_ibis_upload_path(instance,filename):
@@ -88,7 +89,7 @@ class PreRobinModel(models.Model):
    
     
     model_name=models.CharField(max_length=32)
-    default=models.BooleanField(default=False,help_text="set it as default",unique=True)
+    default=models.BooleanField(default=False,help_text="set it as default",)
     #accuracy_control
     track_density=models.DecimalField(max_digits=5,decimal_places=5,default=0.03,validators=[MinValueValidator(0)],help_text='cm')
     polar_type=models.CharField(max_length=4,choices=POLAR_TYPE_CHOICES,default='LCMD')
@@ -140,11 +141,11 @@ class PreRobinModel(models.Model):
         accuracy_control_xml.appendChild(iter_outer_xml)
         
         eps_keff_xml=doc.createElement('eps_keff')
-        track_density_xml.appendChild(doc.createTextNode(str(self.eps_keff)))
+        eps_keff_xml.appendChild(doc.createTextNode(str(self.eps_keff)))
         accuracy_control_xml.appendChild(eps_keff_xml)
         
         eps_flux_xml=doc.createElement('eps_flux')
-        track_density_xml.appendChild(doc.createTextNode(str(self.eps_flux)))
+        eps_flux_xml.appendChild(doc.createTextNode(str(self.eps_flux)))
         accuracy_control_xml.appendChild(eps_flux_xml)
         
         return accuracy_control_xml
@@ -215,6 +216,7 @@ def get_pre_robin_upload_path(instance,filename):
 
 class PreRobinBranch(models.Model):
     unit=models.ForeignKey(UnitParameter,related_name='branches')
+    default=models.BooleanField(default=False,help_text="set it as default",)
     max_burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=60,help_text='GWd/tU')
     #reactor_model=models.ForeignKey(ReactorModel,related_name='branches')
     #identity=models.CharField(max_length=32)
@@ -393,9 +395,7 @@ class PreRobinBranch(models.Model):
             databank_xml.appendChild(crat_branch_xml)
         
         doc.appendChild(databank_xml)
-        f=open('/home/django/Desktop/branch_calc_databank.xml','w')   
-        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        f.close()
+        
     def __str__(self):
         return str(self.unit)
     
@@ -404,10 +404,34 @@ class PreRobinInput(BaseModel):
     unit=models.ForeignKey(UnitParameter)
     fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')  
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
-    
+    task=models.ManyToManyField('PreRobinTask',through='AssemblyLamination')
     class Meta:
         db_table='pre_robin_input'
         
+    @property
+    def rela_file_path(self):
+        fat_str=str(self.fuel_assembly_type.pk).zfill(3)
+        bpa_pk=self.burnable_poison_assembly.pk
+        if bpa_pk:
+            bpa_str=str(bpa_pk).zfill(3)
+        else:
+            bpa_str="000"
+        return fat_str+bpa_str
+        
+        
+    @property
+    def abs_file_path(self):
+        unit=self.unit
+        plant=unit.plant
+        return os.path.join(PRE_ROBIN_PATH,plant.abbrEN,'unit'+str(unit.unit),self.fuel_assembly_type.assembly_name,self.rela_file_path)    
+    
+    def create_file_path(self):
+        abs_file_path=self.abs_file_path
+        if not os.path.exists(abs_file_path):
+            os.makedirs(abs_file_path)
+     
+        return abs_file_path
+    
     @property    
     def symmetry(self):
         if not self.fuel_assembly_type.symmetry:
@@ -420,11 +444,12 @@ class PreRobinInput(BaseModel):
     @property
     def side_pin_num(self):
         return self.fuel_assembly_type.side_pin_num
-            
-    @property    
-    def height_lst(self):
+                
+    def get_height_lst(self,fuel=False):
         fuel_assembly_type=self.fuel_assembly_type
-        fuel_height_lst=fuel_assembly_type.height_lst
+        fuel_height_lst=fuel_assembly_type.get_height_lst(fuel=fuel)
+        if fuel:
+            return fuel_height_lst
         burnable_poison_assembly=self.burnable_poison_assembly
         if burnable_poison_assembly:
             bp_height_lst=burnable_poison_assembly.height_lst
@@ -434,11 +459,19 @@ class PreRobinInput(BaseModel):
             height_lst=fuel_height_lst
         
         return height_lst
-    
-    def generate_transection(self,height):
+    @property
+    def total_height_lst(self):
+        fuel_height_lst=self.get_height_lst(fuel=True)
+        pin_height_lst=self.get_height_lst(fuel=False)
+        height_set=set(fuel_height_lst)|set(pin_height_lst)
+        height_lst=sorted(list(height_set))
+        return height_lst
+    def generate_transection(self,height,fuel=False):
         if self.symmetry:
             fuel_assembly_type=self.fuel_assembly_type
-            fuel_transection=fuel_assembly_type.generate_transection(height)
+            fuel_transection=fuel_assembly_type.generate_transection(height,fuel=fuel)
+            if fuel:
+                return fuel_transection
             transection=fuel_transection
             #bpa transection
             burnable_poison_assembly=self.burnable_poison_assembly
@@ -448,36 +481,33 @@ class PreRobinInput(BaseModel):
                 
             return transection
     
-    def auto_generate_transection(self):
-        height_lst=self.height_lst
+    def auto_generate_transection(self,fuel=False):
+        height_lst=self.get_height_lst(fuel=fuel)
         auto_transection={}
         for height in height_lst:
-            transection=self.generate_transection(height)
+            transection=self.generate_transection(height,fuel=fuel)
             auto_transection[height]=transection
         return auto_transection
     
-    
-    def get_pin_lst(self,height):
-        transection=self.generate_transection(height)
+        
+    def get_lst(self,height,fuel=False):
+        transection=self.generate_transection(height,fuel=fuel)
         side_num=self.side_pin_num
         half=int(side_num/2)+1
-        pin_lst=[]
+        lst=[]
         for row in range(half,side_num+1):
             for col in range(half,row+1):
                 pos=(row,col)
                 if pos in transection:
-                    pin_lst.append(transection[pos])
+                    lst.append(transection[pos])
                     
                 else:
-                    pin_lst.append(0)
+                    lst.append(0)
                     
-        return  pin_lst
-                  
-    def get_fuel_lst(self,height):
-        return self.fuel_assembly_type.get_fuel_lst(height)                        
+        return  lst                              
     
     def generate_pin_map_xml(self,height):
-        transection=self.generate_transection(height)
+        transection=self.generate_transection(height,fuel=False)
         doc=minidom.Document()
         side_num=self.side_pin_num
         half=int(side_num/2)+1
@@ -509,23 +539,85 @@ class PreRobinInput(BaseModel):
     def generate_fuel_map_xml(self,height):
         return self.fuel_assembly_type.generate_fuel_map_xml(height)
     
-    def generate_pin_databank_xml(self):
-        pass
+    def get_guide_tube_xml(self):
+        return self.fuel_assembly_type.model.guide_tube.generate_base_pin_xml()
     
+    def get_instrument_tube_xml(self):
+        return self.fuel_assembly_type.model.instrument_tube.generate_base_pin_xml()
+    
+    def get_base_bin(self):
+        transection_dic=self.auto_generate_transection(fuel=False)
+        base_bin_set=set()
+        for height, transection in transection_dic.items():
+            for pos,pk in transection.items():
+                base_bin_set.add(pk)
+                  
+        return base_bin_set
+    def generate_pin_databank_xml(self):
+        guide_tube_xml=self.get_guide_tube_xml()
+        instrument_tube_xml=self.get_instrument_tube_xml()
+        
+        doc=minidom.Document()
+        pin_databank_xml=doc.createElement('pin_databank')
+        pin_databank_xml.appendChild(guide_tube_xml)
+        pin_databank_xml.appendChild(instrument_tube_xml)
+        
+        #fuel pin xml
+        material_transections=self.get_base_bin()
+        for pk in material_transections:
+            mt=MaterialTransection.objects.get(pk=pk)
+            base_pin_xml=mt.generate_base_pin_xml()
+            pin_databank_xml.appendChild(base_pin_xml)
+            
+        dir_path=self.create_file_path()
+        file_path=os.path.join(dir_path,'pin_databank.xml')
+        f=open(file_path,'w')
+        pin_databank_xml.writexml(f, '  ','  ', '\n')
+        f.close()
+        
     def create_depletion_state(self):
         unit=self.unit
         lst=unit.depletion_state_lst
         obj,created=DepletionState.objects.get_or_create(system_pressure=lst[0],fuel_temperature=lst[1],moderator_temperature=lst[2],boron_density=lst[3],power_density=lst[4])
         return obj
+    @property
+    def default_branch(self):
+        unit=self.unit
+        return unit.branches.get(default=True)
+    @property
+    def default_model(self):
+        return PreRobinModel.objects.get(default=True)
     
+    def create_task(self):
+        fuel_assembly_type=self.fuel_assembly_type
+        plant=self.unit.plant
+        total_height_lst=self.total_height_lst
+        branch=self.default_branch
+        model=self.default_model
+        depletion_state=self.create_depletion_state()
+        for height in total_height_lst:
+            fuel_lst=[str(item) for item in self.get_lst(height, fuel=True)]
+            pin_lst=[str(item) for item in self.get_lst(height, fuel=False)]
+            fuel_map=",".join(fuel_lst)
+            pin_map=",".join(pin_lst)
+            obj,created=PreRobinTask.objects.get_or_create(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,pre_robin_model=model,depletion_state=depletion_state)
+            AssemblyLamination.objects.create(pre_robon_input=self,height=height,pre_robin_task=obj)
+            
     def __str__(self):
         return "{} {} {}".format(self.unit,self.fuel_assembly_type,self.burnable_poison_assembly)
     
-'''
+
 class AssemblyLamination(models.Model):
-    pass
+    pre_robon_input=models.ForeignKey(PreRobinInput)
+    height =models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    pre_robin_task=models.ForeignKey('PreRobinTask')
     
-'''
+    class Meta:
+        db_table="assembly_lamination"
+        
+    def __str__(self):
+        return "{} {} {}".format(self.pre_robon_input, self.height,self.pre_robin_task)
+
 class DepletionState(models.Model):
     DEP_STRATEGY_CHOICES=(
                           ('LLR','LLR'),
@@ -562,7 +654,7 @@ class DepletionState(models.Model):
         system_pressure_xml.appendChild(doc.createTextNode(str(self.system_pressure)))
         
         burnup_point_xml=doc.createElement('burnup_point')
-        burnup_point_xml.appendChild(doc.createTextNode(str(self.burnup_point)))
+        burnup_point_xml.appendChild(doc.createTextNode(str(-self.burnup_point)))
         
         burnup_unit_xml=doc.createElement('burnup_unit')
         burnup_unit_xml.appendChild(doc.createTextNode(self.burnup_unit))
@@ -596,6 +688,8 @@ class DepletionState(models.Model):
         return "{} {}".format(self.pk,self.system_pressure)
     
 class PreRobinTask(BaseModel):
+    plant=models.ForeignKey('tragopan.Plant')
+    fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
     pin_map=models.CommaSeparatedIntegerField(max_length=256)
     fuel_map=models.CommaSeparatedIntegerField(max_length=256)
     branch=models.ForeignKey(PreRobinBranch)
@@ -604,9 +698,133 @@ class PreRobinTask(BaseModel):
     
     class Meta:
         db_table='pre_robin_task'
+        
+    @property
+    def segment_ID(self):
+        fuel_assembly_type=self.fuel_assembly_type
+        return fuel_assembly_type.assembly_name+'_'+self.rela_file_path
+        
+    @property    
+    def rela_file_path(self):
+        return str(self.pk).zfill(5)
     
+    @property
+    def abs_file_path(self):
+        plant=self.plant
+        fuel_assembly_type=self.fuel_assembly_type
+        return os.path.join(PRE_ROBIN_PATH,plant.abbrEN,'task',fuel_assembly_type.assembly_name,str(fuel_assembly_type.assembly_enrichment),self.rela_file_path) 
+    
+    def create_file_path(self):
+        abs_file_path=self.abs_file_path
+        if not os.path.exists(abs_file_path):
+            os.makedirs(abs_file_path)
+        return abs_file_path
+    
+    def get_lst(self,fuel=False):
+        if fuel:
+            rod_map=self.fuel_map
+        else:
+            rod_map=self.pin_map
+            
+        lst=rod_map.split(sep=',')
+        
+        return lst
+    
+    def generate_depletion_state_xml(self):
+        return self.depletion_state.generate_depletion_state_xml()
+    
+    def generate_fuel_map_xml(self):
+        fuel_lst=self.get_lst(fuel=True)
+        fuel_map='\n'
+        num=len(fuel_lst)
+        i=0
+        row=1
+        while i<num:
+            row_lst=fuel_lst[i:i+row]
+            i +=row
+            row +=1
+            fuel_map +=('  '.join(row_lst)+'\n')
+        doc=minidom.Document()
+        fuel_map_xml=doc.createElement('fuel_map')
+        fuel_map_xml.appendChild(doc.createTextNode(fuel_map))
+        return fuel_map_xml
+    
+    def generate_pin_map_xml(self):
+        pin_lst=self.get_lst(fuel=False)
+        doc=minidom.Document()
+        side_num=self.fuel_assembly_type.side_pin_num
+        half=int(side_num/2)+1
+        positions=self.fuel_assembly_type.model.positions.all()
+        #pin map
+        pin_map='\n'
+        num=len(pin_lst)
+        i=0
+        row=1
+        while i<num:
+            row_lst=[]
+            line_lst=pin_lst[i:i+row]
+            #handle one row
+            for j in range(len(line_lst)):
+                real_col=half+j
+                real_row=half+row-1
+                pk=int(line_lst[j])
+                #GT or IT
+                if pk==0:
+                    pin=positions.get(row=real_row,column=real_col)
+                    if pin.type=='guide':
+                        pin_str='GT'
+                    elif pin.type=='instrument': 
+                        pin_str='IT' 
+                else:
+                    pin_str=MaterialTransection.objects.get(pk=pk).pin_id
+                
+                row_lst.append(pin_str)
+            
+            pin_map +=('  '.join(row_lst)+'\n') 
+            i +=row
+            row +=1       
+              
+        pin_map_xml=doc.createElement('pin_map')
+        pin_map_xml.appendChild(doc.createTextNode(pin_map))
+        return pin_map_xml
+        
+        
+    def generate_assembly_model_xml(self):
+        assembly_model_xml=self.fuel_assembly_type.model.generate_assembly_model_xml()
+        fuel_map_xml=self.generate_fuel_map_xml()
+        pin_map_xml=self.generate_pin_map_xml()
+        
+        assembly_model_xml.appendChild(fuel_map_xml)
+        assembly_model_xml.appendChild(pin_map_xml)
+        return assembly_model_xml
+    
+    def generate_calculation_segment_xml(self):
+        assembly_model_xml=self.generate_assembly_model_xml()
+        depletion_state_xml=self.generate_depletion_state_xml()
+        
+        doc=minidom.Document()
+        calculation_segment_xml=doc.createElement('calculation_segment')
+        segment_ID_xml=doc.createElement('segment_ID')
+        segment_ID_xml.appendChild(doc.createTextNode(self.segment_ID))
+        
+        #prerobin default
+        pre_robin_model=self.pre_robin_model
+        accuracy_control_xml=pre_robin_model.generate_accuracy_control_xml()
+        fundamental_mode_xml=pre_robin_model.generate_fundamental_mode_xml()
+        energy_condensation_xml=pre_robin_model.generate_energy_condensation_xml()
+        edit_control_xml=pre_robin_model.generate_edit_control_xml()
+        
+        calculation_segment_xml.appendChild(segment_ID_xml)
+        calculation_segment_xml.appendChild(assembly_model_xml)
+        calculation_segment_xml.appendChild(depletion_state_xml)
+        
+        calculation_segment_xml.appendChild(accuracy_control_xml)
+        calculation_segment_xml.appendChild(fundamental_mode_xml)
+        calculation_segment_xml.appendChild(energy_condensation_xml)
+        calculation_segment_xml.appendChild(edit_control_xml)
+        return calculation_segment_xml
     def __str__(self):
-        return self.task_name
+        return "{} {}".format(self.fuel_assembly_type,self.pin_map)
 
   
 class Ibis(BaseModel):

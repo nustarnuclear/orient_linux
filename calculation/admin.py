@@ -42,7 +42,7 @@ admin.site.register(PreRobinModel, PreRobinModelAdmin)
 class PreRobinBranchAdmin(admin.ModelAdmin):
     fieldsets =(
                 (None,{
-                       'fields':('unit','max_burnup_point')
+                       'fields':('unit','default','max_burnup_point')
                 }),
                 
                 ('boron density branch',{
@@ -69,12 +69,16 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
                                      
                 }),
     )
+    list_display=('pk',"__str__",'default')
 admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
  
-
+class AssemblyLaminationInline(admin.TabularInline):
+    model=AssemblyLamination
+    extra=0
 class PreRobinInputAdmin(admin.ModelAdmin):
     exclude=('remark','user')
-    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','auto_generate_transection')
+    inlines=[AssemblyLaminationInline,]
+    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry',)
 admin.site.register(PreRobinInput, PreRobinInputAdmin)   
 
 class DepletionStateAdmin(admin.ModelAdmin):

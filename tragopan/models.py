@@ -45,7 +45,6 @@ def format_line(lst,width=16):
 
 #some common constant
 MEDIA_ROOT=settings.MEDIA_ROOT
-BASIC_DATA_PATH=os.path.join(MEDIA_ROOT,'basic_data')    
 PRE_ROBIN_PATH=os.path.join(MEDIA_ROOT,'pre_robin')
 # base model to contain the basic information
 class BaseModel(models.Model):
@@ -207,12 +206,12 @@ class BasicMaterial(BaseModel):
     data_integrity.boolean=True
     
     #class attribute
-    material_element_lib_path=os.path.join(BASIC_DATA_PATH,'material_element.lib')
+    material_element_lib_path=os.path.join(PRE_ROBIN_PATH,'material_element.lib')
     
     @classmethod
     def generate_material_lib(cls):
-        if not os.path.exists(BASIC_DATA_PATH):
-            os.makedirs(BASIC_DATA_PATH)
+        if not os.path.exists(PRE_ROBIN_PATH):
+            os.makedirs(PRE_ROBIN_PATH)
         f=open(cls.material_element_lib_path,'w')
         
         #write general info
@@ -1185,38 +1184,7 @@ class FuelAssemblyModel(BaseModel):
         
         return assembly_model_xml
         
-        
-        
-    def generate_pin_xml(self):
-        doc = minidom.Document()
-        pin_xml=doc.createElement('pin_databank')
-        doc.appendChild(pin_xml)
-        #FEUL PIN
-        fuel_elements=self.fuel_elements.all()
-        
-        for fuel_element in fuel_elements:
-            fuel_xml=fuel_element.generate_base_pin_xml()
-            pin_xml.appendChild(fuel_xml)
-            
-        #instrument pin
-        instrument_tube=self.instrument_tube
-        instrument_xml=instrument_tube.generate_base_pin_xml()
-        pin_xml.appendChild(instrument_xml)  
-        
-        #guide tube
-        guide_tube=self.guide_tube
-        guide_xml=guide_tube.generate_base_pin_xml()
-        pin_xml.appendChild(guide_xml)
-         
-        #bp rod
-        bp_rod=self.bp_rod
-        bp_rod_xml=bp_rod.generate_base_pin_xml()
-        pin_xml.appendChild(bp_rod_xml)
-         
-        f=open('/home/django/Desktop/pin_databank.xml','w')   
-        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        f.close()
-        
+           
     def __str__(self):
         return "{}".format(self.name)
 
@@ -1232,12 +1200,11 @@ class FuelAssemblyType(BaseModel):
     def side_pin_num(self):
         return self.model.side_pin_num
     
-    @property
-    def height_lst(self):
+    def get_height_lst(self,fuel=False):
         rods=self.map.all()
         height_set=set()
         for rod in rods:
-            rod_set=set(rod.height_lst)
+            rod_set=set(rod.get_height_lst(fuel=fuel))
             height_set=height_set|rod_set
         height_lst=sorted(list(height_set))
         return height_lst
@@ -1306,18 +1273,7 @@ class FuelAssemblyType(BaseModel):
         fuel_map_xml.appendChild(doc.createTextNode(fuel_map))
         return fuel_map_xml
                 
-    def generate_assembly_model_xml(self):
-        assembly_model_xml=self.model.generate_assembly_model_xml()
-        fuel_map_xml=self.generate_fuel_map_xml()
-        pin_map_xml=self.generate_pin_map_xml()
-        assembly_model_xml.appendChild(pin_map_xml)  
-        assembly_model_xml.appendChild(fuel_map_xml)  
         
-        doc=minidom.Document()
-        doc.appendChild(assembly_model_xml)
-        f=open('/home/django/Desktop/assembly_model.xml','w')
-        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        f.close() 
         
     def __str__(self):
         return "{} {} {}".format(self.pk,self.model,self.assembly_enrichment)  
@@ -1538,7 +1494,7 @@ class GuideTube(BaseModel):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
         ID='GT'
-        radii="{},{}".format(self.upper_inner_diameter,self.upper_outer_diameter)
+        radii="{},{}".format(self.upper_inner_diameter/2,self.upper_outer_diameter/2)
         mat='MOD,'+self.material.prerobin_identifier
         
         ID_xml=doc.createElement('ID')
@@ -1579,7 +1535,7 @@ class InstrumentTube(BaseModel):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
         ID='IT'
-        radii="{},{}".format(self.inner_diameter,self.outer_diameter)
+        radii="{},{}".format(self.inner_diameter/2,self.outer_diameter/2)
         mat='MOD,'+self.material.prerobin_identifier
         
         ID_xml=doc.createElement('ID')
@@ -1717,10 +1673,55 @@ class FuelElementSection(BaseModel):
         return self.material_transection.pin_id
     
     def generate_base_pin_xml(self):
+        return self.material_transection.generate_base_pin_xml()
+        
+    def __str__(self):
+        return '{} {}'.format(self.pk,self.remark)
+    
+class MaterialTransection(BaseModel):
+    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    radial_map=models.ManyToManyField(Material,through='TransectionMaterial')
+    
+    class Meta:
+        db_table='material_transection'
+        
+    @property
+    def pin_id(self):
+        if self.if_fuel:
+            return "FUEL_"+str(self.pk)
+        elif self.if_control_rod:
+            return "CR_"+str(self.pk)
+        else:
+            return "BP_"+str(self.pk)
+    
+    
+    @property
+    def if_fuel(self):
+        materials=self.radial_map.all()
+        if "FUEL" in [str(material) for material in materials]:
+            return True
+        else:
+            return False
+        
+    @property
+    def if_control_rod(self):
+        if self.control_rod_sections.all().exists():
+            return True
+        else:
+            return False
+        
+    @property
+    def if_bp_rod(self):
+        if self.if_control_rod or self.if_fuel:
+            return False
+        else:
+            return True
+        
+    def generate_base_pin_xml(self):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
         ID=self.pin_id
-        radial_map=self.material_transection.radial_materials.order_by('radius')
+        radial_map=self.radial_materials.order_by('radius')
         radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
   
         radii_lst=list(radii_tup)
@@ -1742,32 +1743,6 @@ class FuelElementSection(BaseModel):
         base_pin_xml.appendChild(mat_xml)
         
         return base_pin_xml
-        
-    def __str__(self):
-        return '{} {}'.format(self.pk,self.remark)
-    
-class MaterialTransection(BaseModel):
-    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    radial_map=models.ManyToManyField(Material,through='TransectionMaterial')
-    
-    class Meta:
-        db_table='material_transection'
-        
-    @property
-    def pin_id(self):
-        if self.if_fuel:
-            return "FUEL_"+str(self.pk)
-        else:
-            return "BP_"+str(self.pk)
-    
-    
-    @property
-    def if_fuel(self):
-        materials=self.radial_map.all()
-        if "FUEL" in [str(material) for material in materials]:
-            return True
-        else:
-            return False
         
     def __str__(self):
         return '{} {}'.format(self.pk,self.remark)
@@ -1988,33 +1963,99 @@ class FuelElementPelletLoadingScheme(BaseModel):
 ####################################################################################################################################
 #the following five models describe all the component rod type
 class ControlRodType(BaseModel):
-    #fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
     reactor_model=models.ForeignKey(ReactorModel,blank=True,null=True)
     active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)  
+    black=models.BooleanField(default=True)
     #absorb_material=models.ForeignKey(Material,related_name='control_rod_absorb')
     #absorb_length=models.DecimalField(max_digits=9, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     #absorb_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     #cladding_material=models.ForeignKey(Material,related_name='control_rod_cladding')
     #cladding_inner_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     #cladding_outer_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    radial_map=models.ManyToManyField(Material,through='ControlRodRadialMap')
+    #radial_map=models.ManyToManyField(Material,through='ControlRodRadialMap')
     class Meta:
         db_table='control_rod_type'
         verbose_name='Control rod'
         
     @property
-    def base_pin_id(self):
-        return 'CR_'+str(self.pk)
+    def height_lst(self):
+        sections=self.sections.all()
+        height_lst=[section.bottom_height for section in sections]
+        return height_lst
     
-    def generate_base_pin_xml(self,fuel_assembly_model):
+    def which_section(self,height):
+        #convert height to decimal
+        if type(height)==Decimal:
+            pass
+        else:
+            height=Decimal(str(height))
+            
+        height_lst=self.height_lst
+        for i in range(len(height_lst)):
+            if height_lst[i]>height:
+                return i
+            elif height_lst[i]==height:
+                return i+1
+            
+        return len(height_lst) 
+    
+    def which_transection(self,height):
+        '''return the material transection pk at this height
+        0 represents no cra
+        '''
+        section_num=self.which_section(height)
+        if section_num==0:
+            return 0
+        else:
+            section=self.sections.get(section_num=section_num)
+            return section.material_transection.pk
+             
+    def __str__(self):
+        if self.black:  
+            return "{} black rod {}".format(self.reactor_model, self.active_length)
+        else:
+            return "{} grey rod {}".format(self.reactor_model, self.active_length)
+        
+class ControlRodSection(BaseModel):
+    control_rod_type=models.ForeignKey(ControlRodType,related_name='sections')
+    section_num=models.PositiveSmallIntegerField()
+    length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    material_transection=models.ForeignKey(MaterialTransection,related_name="control_rod_sections")
+    
+    class Meta:
+        db_table='control_rod_section'
+        ordering=['section_num']
+        
+        
+    @property
+    def previous_section(self):
+        section_num=self.section_num
+        if  section_num==1:
+            return None
+        else:
+            return ControlRodSection.objects.get(control_rod_type=self.control_rod_type,section_num=section_num-1)
+    
+    @property
+    def bottom_height(self):
+        previous_section=self.previous_section
+        if previous_section is None:
+            bottom_height=Decimal('0')
+        else:
+            bottom_height =previous_section.length+ previous_section.bottom_height       
+        return  bottom_height
+    
+    @property
+    def pin_id(self):
+        return self.material_transection.pin_id
+    
+    def generate_base_pin_xml(self,guide_tube):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
-        ID=self.base_pin_id
-        radial_map=self.radial_materials.order_by('radii')
-        radii_tup,mat_tup=zip(*[(str(item.radii),item.material.prerobin_identifier) for item in radial_map])
+        ID=self.pin_id
+        radial_map=self.material_transection.radial_materials.order_by('radius')
+        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
   
         #insert into guide tube
-        guide_tube=fuel_assembly_model.guide_tube
         radii_lst=list(radii_tup)
         radii_lst.append(str(guide_tube.upper_inner_diameter))
         radii_lst.append(str(guide_tube.upper_outer_diameter))
@@ -2038,32 +2079,10 @@ class ControlRodType(BaseModel):
         base_pin_xml.appendChild(mat_xml)
         
         return base_pin_xml
-    @property
-    def black(self):
-        materials=self.radial_map.all()
-        #AIC
-        AIC=Material.objects.get(pk=7)
-        if AIC in materials:
-            return True
-        else:
-            return False
-        
-    def __str__(self):
-        if self.black:
-            return '{} black rod'.format(self.reactor_model)
-        else:
-            return '{} grey rod'.format(self.reactor_model)
     
-class ControlRodRadialMap(BaseModel):
-    control_rod=models.ForeignKey(ControlRodType,related_name='radial_materials')
-    radii=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    material=models.ForeignKey(Material)
-    
-    class Meta:
-        db_table='control_rod_radial_map'
-        
     def __str__(self):
-        return "{} radial map".format(self.control_rod)
+        return '{} {}'.format(self.control_rod_type,self.section_num)
+    
     
 class SourceRodType(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
@@ -2397,51 +2416,95 @@ class ControlRodAssemblyType(BaseModel):
                 gnum+=1
         return (bnum,gnum)
     
-    @property
-    def base_branch_id(self):
-        return 'BRCH_'+'CRD_'+str(self.pk)
     
-    def generate_base_branch_xml(self): 
-        side_num=self.side_pin_num 
+    @property
+    def height_lst(self):
+        rods=self.map.all()
+        height_set=set()
+        for rod in rods:
+            rod_set=set(rod.height_lst)
+            height_set=height_set|rod_set
+        height_lst=sorted(list(height_set))
+        
+        result_lst=[]
+        if len(height_lst)==1:
+            result_lst=height_lst
+        else:
+            transection_lst=[]
+            for height in height_lst:
+                transection=self.generate_transection(height)
+                if transection not in transection_lst:
+                    result_lst.append(height)
+                    transection_lst.append(transection)
+        
+        return result_lst
+    
+    def generate_transection(self,height):
+        if self.symmetry:
+            rod_positions=self.rod_positions.all()
+            transection={}
+            for rod_position in rod_positions:
+                if rod_position.in_triangle:
+                    row=rod_position.row
+                    column=rod_position.column
+                    crt=rod_position.control_rod_type
+                    rod_transection_pk=crt.which_transection(height)
+                    #has crt at this height
+                    if rod_transection_pk!=0:
+                        transection[(row,column)]=rod_transection_pk
+            return transection
+        else:
+            return None
+    
+    
+    def get_branch_ID(self,height):
+        return "CRD_{}_{}".format(self.pk,height)
+    
+    def generate_base_branch_xml(self,height):
+        transection=self.generate_transection(height)
+        doc=minidom.Document()
+        base_branch_xml=doc.createElement('base_branch')
+        branch_ID=self.get_branch_ID(height)
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(branch_ID))
+        base_branch_xml.appendChild(ID_xml)
+        
+        side_num=self.side_pin_num
         half=int(side_num/2)+1
-        control_rod_pos=self.control_rod_pos.all()
+        #CRD
         CRD='\n'
         for row in range(half,side_num+1):
             row_lst=[]
             for col in range(half,row+1):
-                if control_rod_pos.filter(row=row,column=col).exists():
-                    control_rod_id=control_rod_pos.get(row=row,column=col).control_rod_type.base_pin_id
-                         
-                else:   
-                    control_rod_id='NONE'
-                row_lst.append(control_rod_id)
-        
-            CRD +=('  '.join(row_lst)+'\n')
+                pos=(row,col)
+                if pos in transection:
+                    pk=transection[pos]
+                    mt=MaterialTransection.objects.get(pk=pk)
+                    row_lst.append(mt.pin_id)
+                else:
+                    row_lst.append('NONE')
             
-        ID=self.base_branch_id
-        doc=minidom.Document()
-        base_branch_xml=doc.createElement('base_branch')
-        
-        ID_xml=doc.createElement('ID')
-        ID_xml.appendChild(doc.createTextNode(ID))
-        base_branch_xml.appendChild(ID_xml)
+            CRD +=('  '.join(row_lst)+'\n')
         
         CRD_xml=doc.createElement('CRD')
         CRD_xml.appendChild(doc.createTextNode(CRD))
         base_branch_xml.appendChild(CRD_xml)
         
-        #doc.appendChild(base_branch_xml)
-        #f=open('/home/django/Desktop/branch_crd.xml','w')
-        #doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        #f.close()
         return base_branch_xml
     
+    def generate_base_branch_xml_lst(self):
+        base_branch_xml_lst=[]
+        for height in self.height_lst:
+            base_branch_xml=self.generate_base_branch_xml(height)
+            base_branch_xml_lst.append(base_branch_xml)
+            
+        return base_branch_xml_lst
+        
     def __str__(self):
         return '{} {}'.format(self.reactor_model,self.type)
 
 class ControlRodAssemblyMap(BaseModel):
-    control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='control_rod_pos')
-    #guide_tube_position=models.ForeignKey(FuelAssemblyPosition,limit_choices_to={'type': 'guide'})
+    control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='rod_positions')
     row=models.PositiveSmallIntegerField()
     column=models.PositiveSmallIntegerField()
     control_rod_type=models.ForeignKey(ControlRodType)
@@ -2449,7 +2512,6 @@ class ControlRodAssemblyMap(BaseModel):
     
     class Meta:
         db_table='control_rod_assembly_map'
-        #unique_together=('control_rod_assembly','guide_tube_position')
     def clean(self):
         side_pin_num=self.control_rod_assembly_type.side_pin_num
         if self.row>side_pin_num:
@@ -2458,9 +2520,24 @@ class ControlRodAssemblyMap(BaseModel):
         if self.column>side_pin_num:
             raise ValidationError({'column':_('the column is bigger than side pin number'),                     
             })
-        #if self.control_rod_type.reactor_model!=self.control_rod_assembly_type.reactor_model:
-        #    raise ValidationError({'control_rod_type':_('the control_rod_type is not correct'),                     
-        #    })
+            
+    @property
+    def in_triangle(self):
+        '''to check if this position is in the 1/8 part to be calculated
+        2|1
+        ---
+        3|4
+        the lower triangle of quadrant 4
+        '''
+        side_num=self.control_rod_assembly_type.side_pin_num 
+        half=int(side_num/2)+1
+        row=self.row
+        column=self.column
+        if row>=half and column>=half and column<=row:
+            return True
+        else:
+            return False
+        
     def __str__(self):
         return '{} {}'.format(self.control_rod_assembly_type,self.control_rod_type)
   
@@ -2469,10 +2546,6 @@ class ControlRodCluster(BaseModel):
     reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_clusters')
     control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='clusters')
     cluster_name=models.CharField(max_length=5)
-    #basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    #step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    #side_pin_num=models.PositiveSmallIntegerField(default=17)
-    #map=models.ManyToManyField(ControlRodType,through='ControlRodMap')
     class Meta:
         db_table='control_rod_cluster'
         
@@ -2503,16 +2576,7 @@ class ControlRodCluster(BaseModel):
     
 #the following two models describe control rod assembly
 class ControlRodAssembly(BaseModel):
-    TYPE_CHOICES=(
-                  (1,'black rod'),
-                  (2,'grey rod'),
-    )
     cluster=models.ForeignKey(ControlRodCluster,related_name='control_rod_assemblies',blank=True,null=True)
-    #type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
-    #basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #primary=models.BooleanField(default=False,verbose_name='if primary?')
-    #control_rod_map=models.ManyToManyField(FuelAssemblyPosition,through='ControlRodMap')
     
     class Meta:
         db_table='control_rod_assembly'

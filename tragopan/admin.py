@@ -689,7 +689,7 @@ class TransectionMaterialInline(admin.TabularInline):
     
 class MaterialTransectionAdmin(admin.ModelAdmin):
     inlines=[TransectionMaterialInline,]
-    list_display=('pk',"__str__","if_fuel")
+    list_display=('pk',"__str__","if_fuel",'if_control_rod','if_bp_rod')
 admin.site.register(MaterialTransection, MaterialTransectionAdmin)
 
 #fuel pellet type information    
@@ -703,13 +703,14 @@ admin.site.register(FakeFuelElementType, FakeFuelElementTypeAdmin)
 
 #########################################################################################
 #component assembly rod
-class ControlRodRadialMapInline(admin.TabularInline):
+    
+class ControlRodSectionInline(admin.TabularInline):
     exclude=('remark',)
-    model=ControlRodRadialMap
+    model=ControlRodSection
 
 class ControlRodTypeAdmin(admin.ModelAdmin):
-    inlines=(ControlRodRadialMapInline,)
-    list_display=('pk','__str__','black')
+    inlines=(ControlRodSectionInline,)
+    list_display=('pk','__str__','height_lst')
     exclude=('remark',)
 admin.site.register(ControlRodType, ControlRodTypeAdmin)
 
@@ -777,7 +778,7 @@ class ControlRodAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[ControlRodAssemblyMapInline,]
     model=ControlRodAssemblyType
-    list_display=('pk','reactor_model','type','black_grey_rod_num')
+    list_display=('pk','reactor_model','type','black_grey_rod_num','height_lst')
 admin.site.register(ControlRodAssemblyType, ControlRodAssemblyTypeAdmin)
    
 class ControlRodAssemblyAdmin(admin.ModelAdmin):
