@@ -720,7 +720,7 @@ class MyXMLParser(XMLParser):
 
             return data
             
-def parse_xml_to_lst(path='/home/django/Desktop/material_databank.xml'):
+def parse_xml_to_lst(path):
     f=open(path)
     line_lst=f.readlines()
     f.close()
@@ -757,7 +757,6 @@ def parse_xml_to_lst(path='/home/django/Desktop/material_databank.xml'):
     for i in range(len(result_lst)):
         line=result_lst[i]
         split_lst=re.split('[<>]', line)
-        print(split_lst)
         if total.search(line):
             assert(len(split_lst)==5)
             result_lst[i]='  '*index+split_lst[1]+' = '+split_lst[2]+'\n'
@@ -768,8 +767,11 @@ def parse_xml_to_lst(path='/home/django/Desktop/material_databank.xml'):
             else:
                 result_lst[i]='  '*index+split_lst[1]+':'+'\n'
                 index +=1
-                 
-    sfile=open('/home/django/Desktop/material_databank.txt','w')
+    
+    dir_path=os.path.dirname(path)
+    filename=os.path.basename(path)  
+    new_filename=filename.replace('.xml','.txt')           
+    sfile=open(os.path.join(dir_path,new_filename),'w')
     sfile.writelines(result_lst)
     sfile.close()
         

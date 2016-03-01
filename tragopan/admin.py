@@ -79,8 +79,8 @@ class WimsNuclideDataAdmin(admin.ModelAdmin):
     list_display=('__str__','element','id_wims','id_self_defined','amu','nf','material_type','descrip','res_trig','dep_trig')
     #list_editable=('id_self_defined',)
     ordering=('time_inserted',)
-    list_filter=('element','id_wims','nf','material_type')
-    search_fields=('=id_wims','=element__symbol',)
+    list_filter=('element','id_wims','nf','material_type',)
+    search_fields=('=id_wims','=element__symbol','=id_self_defined')
     raw_id_fields = ('element',)
     autocomplete_lookup_fields = {
         'fk': ['element',],
@@ -119,6 +119,11 @@ class MixtureCompositionInline(admin.TabularInline):
     exclude=('remark',)
     fk_name='mixture'
     extra=0
+    
+class MaterialWeightCompositionInline(admin.TabularInline):
+    model=MaterialWeightComposition
+    exclude=('remark',)
+    extra=0
 
 
 class MaterialAttributeInline(admin.TabularInline):
@@ -155,14 +160,25 @@ class BasicMaterialAdmin(admin.ModelAdmin):
 admin.site.register(BasicMaterial,BasicMaterialAdmin)
 
 class MaterialAdmin(admin.ModelAdmin):
-    inlines=(MaterialAttributeInline,MixtureCompositionInline)
+    inlines=(MixtureCompositionInline,MaterialWeightCompositionInline)
     exclude=('remark',)
-    list_display=('pk','__str__','input_method')
+    list_display=('pk','__str__','input_method','is_correct',)
     
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
             return ('nameEN','nameCH')
         return ()
+    
+    #check if satisfy the integrity constraint
+    def is_correct(self,obj):
+        pecentage_sum=obj.mixtures.all().aggregate(sum=Sum('percent'))
+        if pecentage_sum['sum']:
+            if abs(pecentage_sum['sum']-100)<=0.1:return True
+            else:return False
+        else:
+            return True
+    is_correct.short_description='Data Integrity?'
+    is_correct.boolean=True       
 admin.site.register(Material, MaterialAdmin)
 
 

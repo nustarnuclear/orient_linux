@@ -55,7 +55,7 @@ except:
     pass
 
 if input_file.endswith('.inp'):
-    input_file=input_file.strip('.inp')
+    input_file=input_file.rstrip('.inp')
     
 #if present -i or --input option
 if input_file:

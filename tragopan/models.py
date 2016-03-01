@@ -119,7 +119,7 @@ class WimsNuclideData(BaseModel):
     )
     element = models.ForeignKey(Element,blank=True,null=True)
     nuclide_name= models.CharField(max_length=30,) 
-    id_wims=models.PositiveIntegerField(unique=True)
+    id_wims=models.PositiveIntegerField(unique=True,blank=True,null=True)
     id_self_defined=models.PositiveIntegerField(unique=True,blank=True,null=True)
     amu= models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),])
     nf=models.PositiveSmallIntegerField(choices=NF_CHOICES)
@@ -128,7 +128,7 @@ class WimsNuclideData(BaseModel):
    
     @staticmethod
     def autocomplete_search_fields():
-        return ("element__symbol",'id_wims')
+        return ("element__symbol",'id_wims','id_self_defined')
     
     @property
     def res_trig(self):
@@ -142,9 +142,10 @@ class WimsNuclideData(BaseModel):
     
     @classmethod
     def generate_nuclide_lib(cls):
-        data=cls.objects.all()
+        data=cls.objects.exclude(material_type='D')
         for item in data:
-            yield (item.pk,item.id_wims,item.amu,item.res_trig,item.dep_trig)
+            id_wims=item.id_wims if item.id_wims else 0
+            yield (item.id_self_defined,id_wims,item.amu,item.res_trig,item.dep_trig)
     
     class Meta:
         db_table='wims_nuclide_data'
@@ -218,7 +219,7 @@ class BasicMaterial(BaseModel):
         general_descrip=['nuclides','elements','compounds','mixtures']
         f.write(format_line(general_descrip))
         
-        nuclide_num=WimsNuclideData.objects.count()
+        nuclide_num=WimsNuclideData.objects.exclude(material_type='D').count()
         element_num=WmisElementData.objects.count()
         compound_num=cls.objects.filter(type=1).count()
         mixture_num=cls.objects.filter(type=2).count()
@@ -236,7 +237,7 @@ class BasicMaterial(BaseModel):
             element_descrip=[element.element_name,element.get_nuclide_num()]
             f.write(format_line(element_descrip))
             for compo in element.nuclides.all():
-                nuclide_info=[' ',compo.wmis_nuclide.pk,compo.weight_percent/100] 
+                nuclide_info=[' ',compo.wmis_nuclide.id_self_defined,compo.weight_percent/100] 
                 f.write(format_line(nuclide_info))
         f.write('\n')        
         #write compounds info
@@ -289,19 +290,21 @@ class BasicElementComposition(BaseModel):
 class Material(BaseModel):
     INPUT_METHOD_CHOICES=(
                           (1,'fuel by enrichment'),
-                          (2,'blend materials with B10 linear density'),
-                          (3,'blend materials '),
-                          (4,'totally inherit from basic material'),
-                          (5,'inherit from basic material with B10 linear density'),
+                          (2,'blend basic materials by weight percent and B10 linear density'),
+                          (3,'blend materials by volume percent'),
+                          #(4,'totally inherit from basic material'),
+                          #(5,'inherit from basic material with B10 linear density'),
+                          (6,'blend basic materials by weight percent and density'), 
     )
     nameCH=models.CharField(max_length=40,blank=True)
     nameEN=models.CharField(max_length=40,blank=True)
-    mixture_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
+    volume_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
     bpr_B10=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"mg/cm",blank=True,null=True)
     enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"U235:%",blank=True,null=True)
     input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
-    basic_material=models.OneToOneField(BasicMaterial,blank=True,null=True)
-    
+    #basic_material=models.OneToOneField(BasicMaterial,related_name='materials',blank=True,null=True)
+    density=models.DecimalField(max_digits=15, decimal_places=8,help_text=r'unit:g/cm3',blank=True,null=True)
+    weight_composition=models.ManyToManyField(BasicMaterial,through='MaterialWeightComposition',)
     class Meta:
      
         db_table='material'
@@ -313,9 +316,6 @@ class Material(BaseModel):
             if not self.enrichment:
                 raise ValidationError({'enrichment':_('enrichment cannot be blank when you choose such input method'),                           
             }) 
-            if not self.nameEN:
-                raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
-            }) 
         elif self.input_method==2:
             if not self.bpr_B10:
                 raise ValidationError({'bpr_B10':_('bpr_B10 cannot be blank when you choose such input method'),                           
@@ -323,31 +323,20 @@ class Material(BaseModel):
             if not self.nameEN:
                 raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
             }) 
-        elif self.input_method==3:
+                  
+        elif self.input_method==6:
             if not self.nameEN:
                 raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
             }) 
-                
-        elif self.input_method==4:
-            if not self.basic_material:
-                raise ValidationError({'basic_material':_('basic_material cannot be blank when you choose such input method'),                           
+            if not self.density:
+                raise ValidationError({'density':_('nameEN cannot be blank when you choose such input method'),                           
             }) 
-        elif self.input_method==5:
-            if not self.bpr_B10:
-                raise ValidationError({'bpr_B10':_('bpr_B10 cannot be blank when you choose such input method'),                           
-            }) 
-            if not self.basic_material:
-                raise ValidationError({'basic_material':_('basic_material cannot be blank when you choose such input method'),                           
-            })  
             
     @property
     def prerobin_identifier(self):
-        if self.input_method==4:
-            return self.basic_material.name
-        elif self.input_method==1:
+       
+        if self.input_method==1:
             return 'FUEL_'+str(self.pk)
-        elif self.input_method==5:
-            return self.basic_material.name
         #grid homgenized with moderator
         elif self.input_method==3:
             return 'HOMG_'+str(self.pk)
@@ -361,8 +350,8 @@ class Material(BaseModel):
             result['composition_ID']='UO2_'+str(self.enrichment)
         elif self.input_method==2:
             result['bpr_B10']=self.bpr_B10
-            compo=self.mixtures.all()
-            composition_ID_lst=[item.material.prerobin_identifier for item in compo]
+            compo=self.weight_mixtures.all()
+            composition_ID_lst=[item.basic_material.name for item in compo]
             weight_percent_lst=[str(item.percent) for item in compo]
             result['composition_ID']=','.join(composition_ID_lst)
             result['weight_percent']=','.join(weight_percent_lst)
@@ -370,19 +359,22 @@ class Material(BaseModel):
             compo=self.mixtures.all()
             homgenized_mat_lst=[item.material.prerobin_identifier for item in compo]
             result['homgenized_mat']=','.join(homgenized_mat_lst)
-            input_method=compo.first().input_method
             percent_lst=[str(item.percent) for item in compo]
-            #by weight
-            if input_method==1:
-                result['weight_percent']=','.join(percent_lst)
-            else:
-                result['volume_percent']=','.join(percent_lst)
+            result['volume_percent']=','.join(percent_lst)
                 
-        elif self.input_method==4:
-            return {}
-        elif self.input_method==5:
-            result['bpr_B10']=self.bpr_B10
-            result['composition_ID']=self.basic_material.name
+        elif self.input_method==6:
+            result['density']=self.density
+            compo=self.weight_mixtures.all()
+            #totally inherit from basic material
+            if len(compo)==1:
+                #symbolic
+                if compo[0].basic_material.type==3:
+                    return {}
+                
+            composition_ID_lst=[item.basic_material.name for item in compo]
+            weight_percent_lst=[str(item.percent) for item in compo]
+            result['composition_ID']=','.join(composition_ID_lst)
+            result['weight_percent']=','.join(weight_percent_lst)
             
         return  result  
     
@@ -415,20 +407,28 @@ class Material(BaseModel):
             
     def __str__(self):
         return self.prerobin_identifier
+
+class MaterialWeightComposition(BaseModel):
+    mixture=models.ForeignKey(Material,related_name='weight_mixtures',)
+    basic_material=models.ForeignKey(BasicMaterial)
+    percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
+    class Meta:
+        db_table='material_weight_composition'
+        verbose_name='Weight Composition'
+        verbose_name_plural='Weight Composition'
+             
+    def __str__(self):
+        return "{} {}".format(self.mixture, self.basic_material)   
     
 class MixtureComposition(BaseModel):
-    INPUT_METHOD_CHOICES=(
-                          (1,'by weight'),
-                          (2,'by volume'),
-                        
-    )
     mixture=models.ForeignKey(Material,related_name='mixtures',)
     material=models.ForeignKey(Material)
     percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
-    input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
+    #input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
     class Meta:
         db_table='mixture_composition'
-    
+        verbose_name='Volume Composition'
+        verbose_name_plural='Volume Composition'
              
     def __str__(self):
         return "{} {}".format(self.mixture, self.material)
@@ -491,7 +491,16 @@ class Plant(BaseModel):
         plant_dir=self.plant_dir
         ibis_dir=os.path.join(plant_dir,'ibis_files')
         return ibis_dir
-    
+    @property
+    def reactor_model(self):
+        units=self.units.all()
+        reactor_model_set=set()
+        for unit in units:
+            reactor_model=unit.reactor_model
+            reactor_model_set.add(reactor_model)
+        if len(reactor_model_set)==1:
+            return list(reactor_model_set)[0]
+        
     def __str__(self):
         return self.abbrEN  
     
@@ -1461,7 +1470,7 @@ class Grid(BaseModel):
     spring_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     spring_material=models.ForeignKey(Material,related_name='grid_springs',related_query_name='grid_spring',blank=True,null=True)
     functionality=models.CharField(max_length=5,choices=FUCTIONALITY_CHOICS,default='fix')
-    
+    moderator_material=models.ForeignKey(Material,default=70,related_name='grid_moderator',)
     
     class Meta:
         db_table='grid'
@@ -1963,7 +1972,7 @@ class FuelElementPelletLoadingScheme(BaseModel):
 ####################################################################################################################################
 #the following five models describe all the component rod type
 class ControlRodType(BaseModel):
-    reactor_model=models.ForeignKey(ReactorModel,blank=True,null=True)
+    reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_types',blank=True,null=True)
     active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)  
     black=models.BooleanField(default=True)
     #absorb_material=models.ForeignKey(Material,related_name='control_rod_absorb')
@@ -1975,7 +1984,7 @@ class ControlRodType(BaseModel):
     #radial_map=models.ManyToManyField(Material,through='ControlRodRadialMap')
     class Meta:
         db_table='control_rod_type'
-        verbose_name='Control rod'
+        #verbose_name='Control rod'
         
     @property
     def height_lst(self):
@@ -2009,7 +2018,19 @@ class ControlRodType(BaseModel):
         else:
             section=self.sections.get(section_num=section_num)
             return section.material_transection.pk
-             
+        
+    def generate_base_pin_lst(self,guide_tube):
+        sections=self.sections.all()
+        material_transection_lst=[]
+        base_pin_lst=[]
+        for section in sections:
+            material_transection=section.material_transection
+            if material_transection not in material_transection_lst:
+                material_transection_lst.append(material_transection)
+                base_pin_xml=section.generate_base_pin_xml(guide_tube=guide_tube)
+                base_pin_lst.append(base_pin_xml)
+        
+        return base_pin_lst
     def __str__(self):
         if self.black:  
             return "{} black rod {}".format(self.reactor_model, self.active_length)
@@ -2057,8 +2078,8 @@ class ControlRodSection(BaseModel):
   
         #insert into guide tube
         radii_lst=list(radii_tup)
-        radii_lst.append(str(guide_tube.upper_inner_diameter))
-        radii_lst.append(str(guide_tube.upper_outer_diameter))
+        radii_lst.append(str(guide_tube.upper_inner_diameter/2))
+        radii_lst.append(str(guide_tube.upper_outer_diameter/2))
         mat_lst=list(mat_tup)
         mat_lst.append('MOD')
         mat_lst.append(guide_tube.material.prerobin_identifier)

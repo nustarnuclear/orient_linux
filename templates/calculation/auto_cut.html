@@ -1,0 +1,11 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools %}
+    <ul class="grp-object-tools">
+        {% block object-tools-items %}
+            <li><a href="auto_cut">Auto cut</a></li>
+            <li><a href="/admin/calculation/prerobintask/" target="_blank">View the task</a></li>
+        {% endblock %}
+    </ul>
+{% endblock %}

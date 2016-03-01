@@ -1,17 +1,89 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
-from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter,PRE_ROBIN_PATH
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter,PRE_ROBIN_PATH,BasicMaterial,Material
 from django.conf import settings
 import os
 from xml.dom import minidom 
 from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
-import shutil
+import shutil,re
 from celery import signature
 from datetime import datetime
-from decimal import Decimal
+from subprocess import Popen
+from django.core.files import File
+import time
 # Create your models here.
+TASK_STATUS_CHOICES=(
+                         (0,'waiting'),
+                         (1,'calculating'),
+                         (2,'suspended'),
+                         (3,'stopped'),
+                         (4,'finished'),
+                         (5,'canceled'),
+                         (6,'error'),
+    )
+
+def parse_xml_to_lst(src,dest):
+    f=open(src)
+    line_lst=f.readlines()
+    f.close()
+    title=re.compile('<\?.*\?>')
+    start=re.compile('<.*>')
+    end=re.compile('</.*>')
+    total=re.compile('<.*>.*</.*>',re.DOTALL)
+    result_lst=[]
+    for i in range(len(line_lst)):
+        line=line_lst[i]
+        
+        #this is a tile 
+        if title.search(line):
+            continue
+        #this is a end element
+        end_element=end.search(line)  
+        if end_element:
+            matched=end_element.group(0)
+            if re.search(matched.replace('/',''), result_lst[-1]):
+                result_lst[-1] +=line
+            else:
+                result_lst.append(line)
+                
+            continue    
+        #this is a start element
+        if start.search(line):
+            result_lst.append(line)
+            continue
+        #this is a context    
+        else:
+            result_lst[-1] +=line
+            
+    index=0
+    for i in range(len(result_lst)):
+        line=result_lst[i]
+        split_lst=re.split('[<>]', line)
+        if total.search(line):
+            assert(len(split_lst)==5)
+            #add "" when contains /
+            if split_lst[2].find("/")>=0:
+                result_lst[i]='  '*index+split_lst[1]+' = '+'"'+split_lst[2]+'"'+'\n'
+            else:
+                result_lst[i]='  '*index+split_lst[1]+' = '+split_lst[2]+'\n'
+        else:
+            if split_lst[1].startswith('/'):
+                index -=1
+                result_lst[i]='  '*index+split_lst[1]+'\n'
+            else:
+                result_lst[i]='  '*index+split_lst[1]+':'+'\n'
+                index +=1
+    
+
+    filename=os.path.basename(src)  
+    new_filename=filename.replace('.xml','.txt') 
+    new_path=os.path.join(dest,new_filename)         
+    sfile=open(new_path,'w')
+    sfile.writelines(result_lst)
+    sfile.close()
+    return new_path
 
 def get_ibis_upload_path(instance,filename):
     plant_name=instance.plant.abbrEN
@@ -128,10 +200,6 @@ class PreRobinModel(models.Model):
         polar_azimuth_xml.appendChild(doc.createTextNode(str(self.polar_azimuth)))
         accuracy_control_xml.appendChild(polar_azimuth_xml)
         
-        track_density_xml=doc.createElement('track_density')
-        track_density_xml.appendChild(doc.createTextNode(str(self.track_density)))
-        accuracy_control_xml.appendChild(track_density_xml)
-        
         iter_inner_xml=doc.createElement('iter_inner')
         iter_inner_xml.appendChild(doc.createTextNode(str(self.iter_inner)))
         accuracy_control_xml.appendChild(iter_inner_xml)
@@ -191,7 +259,7 @@ class PreRobinModel(models.Model):
         edit_control_xml.appendChild(num_group_edit_xml)
         
         micro_xs_output_xml=doc.createElement('micro_xs_output')
-        micro_xs_output_xml.appendChild(doc.createTextNode(str(self.num_group_2D)))
+        micro_xs_output_xml.appendChild(doc.createTextNode(str(self.micro_xs_output)))
         edit_control_xml.appendChild(micro_xs_output_xml)
         
         return edit_control_xml
@@ -242,6 +310,26 @@ class PreRobinBranch(models.Model):
     class Meta:
         db_table='pre_robin_branch'
         verbose_name_plural='branches'
+        
+    
+    @property
+    def rela_file_path(self):
+        pk=self.pk
+        return str(pk).zfill(3)
+        
+    @property
+    def abs_file_path(self):
+        unit=self.unit
+        plant=unit.plant
+        return os.path.join(PRE_ROBIN_PATH,plant.abbrEN,'unit'+str(unit.unit),'branch',self.rela_file_path)    
+    
+    def create_file_path(self):
+        abs_file_path=self.abs_file_path
+        if not os.path.exists(abs_file_path):
+            os.makedirs(abs_file_path)
+     
+        return abs_file_path
+    
         
        
     def generate_value_str(self,option):
@@ -308,6 +396,11 @@ class PreRobinBranch(models.Model):
         
         return branch_xml
     
+    @property
+    def base_branch_ID_lst(self):
+        return ['BRCH_BOR','BRCH_TFU','BRCH_TMO']
+    
+    
     def generate_TMO_BOR_xml(self):
         doc=minidom.Document()
         branch_xml=doc.createElement('base_branch')
@@ -332,28 +425,22 @@ class PreRobinBranch(models.Model):
         return branch_xml
         
     
-    def generate_his_branch_xml(self,option):
-        '''1->HCB
-           2->HTF
-           3->HTM
-        '''
+    def generate_his_branch_xml(self,option='HCB'):
+
         doc=minidom.Document()
         unit=self.unit
-        if option==1:
+        if option=='HCB':
             base=unit.boron_density
-            ID='HCB'
             name='BOR'
-        elif option==2:
+        elif option=='HTF':
             base=unit.fuel_temperature
-            ID='HTF'
             name='TFU'
-        elif option==3:
+        elif option=='HTM':
             base=unit.moderator_temperature
-            ID='HTM'
             name='TMO'
         branch_xml=doc.createElement('base_branch')
         ID_xml=doc.createElement('ID')
-        ID_xml.appendChild(doc.createTextNode(ID))
+        ID_xml.appendChild(doc.createTextNode(option))
         branch_xml.appendChild(ID_xml)
         
         name_xml=doc.createElement(name)
@@ -361,8 +448,30 @@ class PreRobinBranch(models.Model):
         branch_xml.appendChild(name_xml)  
         
         return branch_xml
+
+    def get_his_lst(self,option='HCB'):
+        '''
+        option: HCB,HTM,HTF
+        '''
+        unit=self.unit
+        if option=='HCB':
+            base=unit.boron_density
+            HCB_lst=[0,500,1000,1500,2000]
+            if base in HCB_lst:
+                HCB_lst.remove(base)
+            return HCB_lst
+
+        elif option=='HTM':
+            base=unit.moderator_temperature
+            interval=15
+        elif option=='HTF':
+            base=unit.fuel_temperature
+            interval=200
+            
+        return [base-2*interval,base-interval,base+interval,base+2*interval,]
     
-    def generate_databank_xml(self):
+    def generate_databank_xml(self,branch_file_path='branch_calc_databank.xml'):
+        #generate a branch file in current working directory
         doc=minidom.Document()
         
         databank_xml=doc.createElement('branch_calc_databank')
@@ -370,9 +479,9 @@ class PreRobinBranch(models.Model):
         TFU_branch_xml=self.generate_branch_xml(option=2)
         TMO_branch_xml=self.generate_branch_xml(option=3)
         
-        HCB_branch_xml=self.generate_his_branch_xml(option=1)
-        HTF_branch_xml=self.generate_his_branch_xml(option=2)
-        HTM_branch_xml=self.generate_his_branch_xml(option=3)
+        HCB_branch_xml=self.generate_his_branch_xml(option='HCB')
+        HTF_branch_xml=self.generate_his_branch_xml(option='HTF')
+        HTM_branch_xml=self.generate_his_branch_xml(option='HTM')
         
         TMO_BOR_xml=self.generate_TMO_BOR_xml()
         
@@ -387,14 +496,20 @@ class PreRobinBranch(models.Model):
         #control rod cluster
         cra_types=self.unit.reactor_model.cra_types.all()
         for crat in cra_types:
-            crat_branch_xml=crat.generate_base_branch_xml()
-            BOR=self.generate_value_str(option=1)
-            BOR_xml=doc.createElement('BOR')
-            BOR_xml.appendChild(doc.createTextNode(BOR))
-            crat_branch_xml.appendChild(BOR_xml)
-            databank_xml.appendChild(crat_branch_xml)
+            crat_branch_xml_lst=crat.generate_base_branch_xml_lst()
+            for crat_branch_xml in crat_branch_xml_lst:
+                BOR=self.generate_value_str(option=1)
+                BOR_xml=doc.createElement('BOR')
+                BOR_xml.appendChild(doc.createTextNode(BOR))
+                crat_branch_xml.appendChild(BOR_xml)
+                databank_xml.appendChild(crat_branch_xml)
         
         doc.appendChild(databank_xml)
+        
+        branch_file=open(branch_file_path,'w')
+        doc.writexml(branch_file,indent='  ',addindent='  ', newl='\n',)
+        branch_file.close()
+        return branch_file_path
         
     def __str__(self):
         return str(self.unit)
@@ -545,35 +660,6 @@ class PreRobinInput(BaseModel):
     def get_instrument_tube_xml(self):
         return self.fuel_assembly_type.model.instrument_tube.generate_base_pin_xml()
     
-    def get_base_bin(self):
-        transection_dic=self.auto_generate_transection(fuel=False)
-        base_bin_set=set()
-        for height, transection in transection_dic.items():
-            for pos,pk in transection.items():
-                base_bin_set.add(pk)
-                  
-        return base_bin_set
-    def generate_pin_databank_xml(self):
-        guide_tube_xml=self.get_guide_tube_xml()
-        instrument_tube_xml=self.get_instrument_tube_xml()
-        
-        doc=minidom.Document()
-        pin_databank_xml=doc.createElement('pin_databank')
-        pin_databank_xml.appendChild(guide_tube_xml)
-        pin_databank_xml.appendChild(instrument_tube_xml)
-        
-        #fuel pin xml
-        material_transections=self.get_base_bin()
-        for pk in material_transections:
-            mt=MaterialTransection.objects.get(pk=pk)
-            base_pin_xml=mt.generate_base_pin_xml()
-            pin_databank_xml.appendChild(base_pin_xml)
-            
-        dir_path=self.create_file_path()
-        file_path=os.path.join(dir_path,'pin_databank.xml')
-        f=open(file_path,'w')
-        pin_databank_xml.writexml(f, '  ','  ', '\n')
-        f.close()
         
     def create_depletion_state(self):
         unit=self.unit
@@ -589,6 +675,9 @@ class PreRobinInput(BaseModel):
         return PreRobinModel.objects.get(default=True)
     
     def create_task(self):
+        #
+        if self.task.exists():
+            return
         fuel_assembly_type=self.fuel_assembly_type
         plant=self.unit.plant
         total_height_lst=self.total_height_lst
@@ -627,7 +716,7 @@ class DepletionState(models.Model):
     )
     BURNUP_UNIT_CHOICES=(
                          ('GWd/tU','GWd/tU'),
-                         ('DGWd/tU','DGWd/tU'),
+                         ('DGWd/tU"','DGWd/tU'),
                          ('day','day'),
                          ('Dday','Dday'),
     )
@@ -635,7 +724,7 @@ class DepletionState(models.Model):
     #depletion state
     system_pressure=models.DecimalField(max_digits=7,decimal_places=5,default=15.51,validators=[MinValueValidator(0)],help_text='MPa')
     burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=60,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
-    burnup_unit=models.CharField(max_length=7,default='GWd/tU',choices=BURNUP_UNIT_CHOICES)
+    burnup_unit=models.CharField(max_length=9,default='"GWd/tU"',choices=BURNUP_UNIT_CHOICES)
     fuel_temperature=models.PositiveSmallIntegerField(help_text='K',)
     moderator_temperature=models.PositiveSmallIntegerField(help_text='K',)
     boron_density=models.PositiveSmallIntegerField(help_text='ppm')
@@ -695,7 +784,7 @@ class PreRobinTask(BaseModel):
     branch=models.ForeignKey(PreRobinBranch)
     depletion_state=models.ForeignKey(DepletionState)
     pre_robin_model=models.ForeignKey(PreRobinModel)
-    
+    task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     class Meta:
         db_table='pre_robin_task'
         
@@ -729,6 +818,14 @@ class PreRobinTask(BaseModel):
         lst=rod_map.split(sep=',')
         
         return lst
+    
+    #without fuel transection
+    @property
+    def material_transection_lst(self):
+        lst=self.get_lst(fuel=False)
+        material_transection_lst=list(set(lst))
+        material_transection_lst.remove('0')
+        return material_transection_lst
     
     def generate_depletion_state_xml(self):
         return self.depletion_state.generate_depletion_state_xml()
@@ -798,15 +895,24 @@ class PreRobinTask(BaseModel):
         assembly_model_xml.appendChild(pin_map_xml)
         return assembly_model_xml
     
-    def generate_calculation_segment_xml(self):
+    @property
+    def segment_file_path(self):
+        abs_file_path=self.abs_file_path
+        return os.path.join(abs_file_path,'calculation_segments.xml')
+    
+    def generate_base_segment_xml(self):
         assembly_model_xml=self.generate_assembly_model_xml()
         depletion_state_xml=self.generate_depletion_state_xml()
         
         doc=minidom.Document()
-        calculation_segment_xml=doc.createElement('calculation_segment')
+        base_segment_xml=doc.createElement('base_segment')
         segment_ID_xml=doc.createElement('segment_ID')
         segment_ID_xml.appendChild(doc.createTextNode(self.segment_ID))
         
+        branch_calc_ID_xml=doc.createElement('branch_calc_ID')
+        base_branch_ID_lst=self.branch.base_branch_ID_lst
+        branch_calc_ID_xml.appendChild(doc.createTextNode(','.join(base_branch_ID_lst)))
+        base_segment_xml.appendChild(branch_calc_ID_xml)
         #prerobin default
         pre_robin_model=self.pre_robin_model
         accuracy_control_xml=pre_robin_model.generate_accuracy_control_xml()
@@ -814,19 +920,358 @@ class PreRobinTask(BaseModel):
         energy_condensation_xml=pre_robin_model.generate_energy_condensation_xml()
         edit_control_xml=pre_robin_model.generate_edit_control_xml()
         
-        calculation_segment_xml.appendChild(segment_ID_xml)
-        calculation_segment_xml.appendChild(assembly_model_xml)
-        calculation_segment_xml.appendChild(depletion_state_xml)
+        base_segment_xml.appendChild(segment_ID_xml)
+        base_segment_xml.appendChild(assembly_model_xml)
+        base_segment_xml.appendChild(depletion_state_xml)
         
-        calculation_segment_xml.appendChild(accuracy_control_xml)
-        calculation_segment_xml.appendChild(fundamental_mode_xml)
-        calculation_segment_xml.appendChild(energy_condensation_xml)
-        calculation_segment_xml.appendChild(edit_control_xml)
-        return calculation_segment_xml
-    def __str__(self):
-        return "{} {}".format(self.fuel_assembly_type,self.pin_map)
+        base_segment_xml.appendChild(accuracy_control_xml)
+        base_segment_xml.appendChild(fundamental_mode_xml)
+        base_segment_xml.appendChild(energy_condensation_xml)
+        base_segment_xml.appendChild(edit_control_xml)
+        
+        return base_segment_xml
+        
+        
+    def generate_his_segment_lst(self,option='HCB'):
+        '''
+        option:HCB,HTF,HTM
+        '''
+        segment_lst=[]
+        his_lst=self.branch.get_his_lst(option=option)
+        for item in his_lst:
+            doc=minidom.Document()
+            base_segment_xml=doc.createElement('base_segment')
+            use_pre_segment_xml=doc.createElement('use_pre_segment')
+            base_segment_ID=self.segment_ID
+            use_pre_segment_xml.appendChild(doc.createTextNode(base_segment_ID))
+            base_segment_xml.appendChild(use_pre_segment_xml)
+            
+            segment_ID=base_segment_ID+'_'+option+'_'+str(item)
+            segment_ID_xml=doc.createElement('segment_ID')
+            segment_ID_xml.appendChild(doc.createTextNode(segment_ID))
+            base_segment_xml.appendChild(segment_ID_xml)
+                
+            branch_calc_ID_xml=doc.createElement('branch_calc_ID')
+            branch_calc_ID_xml.appendChild(doc.createTextNode(option))  
+            base_segment_xml.appendChild(branch_calc_ID_xml)  
+            
+            #depletion state
+            depletion_state_xml=doc.createElement('depletion_state')
+            if option=='HCB':
+                value='BOR'
+            elif option=='HTM':
+                value='TMO'
+            elif option=='HTF':
+                value='TFU'
+                
+            value_xml=doc.createElement(value)
+            value_xml.appendChild(doc.createTextNode(str(item)))
+            depletion_state_xml.appendChild(value_xml)
+            base_segment_xml.appendChild(depletion_state_xml)
+            
+            segment_lst.append(base_segment_xml)
+        return segment_lst
+    
+    def generate_grid_segment_lst(self):
+        segment_lst=[]
+        grids=self.fuel_assembly_type.model.grids.all()
+        material_lst=[]
+        for grid in grids:
+            moderator_material=grid.moderator_material.prerobin_identifier
+            if moderator_material not in material_lst:
+                material_lst.append(moderator_material)
+        
+        index=1
+        for material in  material_lst:
+            doc=minidom.Document()
+            base_segment_xml=doc.createElement('base_segment')
+            use_pre_segment_xml=doc.createElement('use_pre_segment')
+            base_segment_ID=self.segment_ID
+            use_pre_segment_xml.appendChild(doc.createTextNode(base_segment_ID))
+            base_segment_xml.appendChild(use_pre_segment_xml)
+            
+            segment_ID=base_segment_ID+'_GRID_'+str(index)
+            index +=1   
+            segment_ID_xml=doc.createElement('segment_ID')
+            segment_ID_xml.appendChild(doc.createTextNode(segment_ID))
+            base_segment_xml.appendChild(segment_ID_xml)  
+            
+            branch_calc_ID_xml=doc.createElement('branch_calc_ID')
+            branch_calc_ID_xml.appendChild(doc.createTextNode(''))
+            base_segment_xml.appendChild(branch_calc_ID_xml)  
+            
+            assembly_model_xml=doc.createElement('assembly_model')
+            moderator_mat_xml=doc.createElement('moderator_mat')
+            moderator_mat_xml.appendChild(doc.createTextNode(material))
+            assembly_model_xml.appendChild(moderator_mat_xml)
+            base_segment_xml.appendChild(assembly_model_xml) 
+            
+            segment_lst.append(base_segment_xml)
+            
+        return segment_lst
+    
+    def generate_calculation_segments_xml(self):
+        doc=minidom.Document()
+        calculation_segments_xml=doc.createElement('calculation_segments')
+        doc.appendChild(calculation_segments_xml)
+        #base
+        base_segment_xml=self.generate_base_segment_xml()
+        calculation_segments_xml.appendChild(base_segment_xml)
+        
+        #grid
+        grid_segment_lst=self.generate_grid_segment_lst()
+        for grid_segment in grid_segment_lst:
+            calculation_segments_xml.appendChild(grid_segment)
+        
+        #history
+        HCB_segment_lst=self.generate_his_segment_lst(option='HCB')
+        for HCB_segment in HCB_segment_lst:
+            calculation_segments_xml.appendChild(HCB_segment)
+            
+        HTF_segment_lst=self.generate_his_segment_lst(option='HTF')
+        for HTF_segment in HTF_segment_lst:
+            calculation_segments_xml.appendChild(HTF_segment)
+        
+        HTM_segment_lst=self.generate_his_segment_lst(option='HTM')
+        for HTM_segment in HTM_segment_lst:
+            calculation_segments_xml.appendChild(HTM_segment)
+            
+            
+        
+        segment_file_path=self.segment_file_path
+        segment_file=open(segment_file_path,'w')
+        doc.writexml(segment_file,indent='  ',addindent='  ', newl='\n',)
+        segment_file.close()
+        
+        return segment_file_path
+    
 
-  
+    
+    def generate_pin_databank_xml(self,pin_databank_path='pin_databank.xml'):
+        fuel_assembly_type=self.fuel_assembly_type
+        fuel_assembly_model=fuel_assembly_type.model
+        guide_tube=self.fuel_assembly_type.model.guide_tube
+        guide_tube_xml=guide_tube.generate_base_pin_xml()
+        instrument_tube_xml=fuel_assembly_model.instrument_tube.generate_base_pin_xml()
+        
+        doc=minidom.Document()
+        pin_databank_xml=doc.createElement('pin_databank')
+        pin_databank_xml.appendChild(guide_tube_xml)
+        pin_databank_xml.appendChild(instrument_tube_xml)
+        
+        #fuel pin xml
+        material_transections=self.material_transection_lst
+        for pk in material_transections:
+            mt=MaterialTransection.objects.get(pk=pk)
+            base_pin_xml=mt.generate_base_pin_xml()
+            pin_databank_xml.appendChild(base_pin_xml)
+            
+        #control rod pin 
+        reactor_model=self.plant.reactor_model
+        control_rod_types=reactor_model.control_rod_types.all()
+        for control_rod_type in control_rod_types:
+            base_pin_lst=control_rod_type.generate_base_pin_lst(guide_tube=guide_tube)
+            for base_pin in base_pin_lst:
+                pin_databank_xml.appendChild(base_pin)
+       
+        f=open(pin_databank_path,'w')
+        pin_databank_xml.writexml(f, '  ','  ', '\n')
+        f.close()
+        return pin_databank_path
+    
+    @property
+    def input_file_path(self):
+        abs_file_path=self.create_file_path()
+        input_file_path=os.path.join(abs_file_path,'input_file_info.inp')
+        return input_file_path
+    
+    def generate_prerobin_input(self):
+        abs_file_path=self.create_file_path()
+        os.chdir(abs_file_path)
+        input_file_path=self.input_file_path
+        f=open(input_file_path,'w')
+        f.write('& INPUT_FILE_INFO\n')
+        
+        #material_element.lib comes from table BasicMaterial 
+        material_element_lib_path=BasicMaterial.material_element_lib_path
+        if not os.path.exists(material_element_lib_path):
+            BasicMaterial.generate_material_lib()
+        f.write('    material_element_lib    = "%s"\n'%material_element_lib_path)
+        
+        #hydro_table is in the PRE_ROBIN_PATH
+        hydro_table_path=os.path.join(PRE_ROBIN_PATH,'hydro.table')
+        f.write('    hydro_table             = "%s"\n'%hydro_table_path)
+        
+        #material_databank comes from table Material
+        material_databank_path=Material.material_databank_path
+        if not os.path.exists(material_databank_path):
+            Material.generate_material_databank_xml()
+        #convert xml to sread format
+        material_databank=parse_xml_to_lst(material_databank_path,abs_file_path) 
+        f.write('    material_databank       = "%s"\n'%material_databank)
+        
+        #pin_databank comes from table PreRobinInput
+        pin_databank_path=self.generate_pin_databank_xml()
+        pin_databank=parse_xml_to_lst(pin_databank_path,abs_file_path) 
+        f.write('    pin_databank            = "%s"\n'%pin_databank)
+           
+        #branch_calculation_info
+        branch_file_path=self.branch.generate_databank_xml()
+        branch_file=parse_xml_to_lst(branch_file_path,abs_file_path) 
+        f.write('    branch_calculation_info = "%s"\n'%branch_file) 
+         
+        #calculation_segments
+        segment_file_path=self.generate_calculation_segments_xml()
+        segment_file=parse_xml_to_lst(segment_file_path,abs_file_path) 
+        f.write('    calculation_segments    = "%s"\n'%segment_file)
+        
+        f.write('/\n')
+        f.close()
+        
+    def generate_prerobin_output(self):
+        abs_file_path=self.create_file_path()
+        os.chdir(abs_file_path)
+        input_file_path=self.input_file_path
+        if not os.path.exists(input_file_path):
+            self.generate_prerobin_input()
+        process=Popen(['/opt/nustar/bin/myprerobin','-i',input_file_path])
+        return_code=process.wait()
+        return return_code
+    
+    def generate_robin_tasks(self,postfix=None):
+        abs_file_path=self.abs_file_path
+        os.chdir(abs_file_path)
+        inputfile_names=self.find_inputfile_names(postfix)
+        for inputfile_name in inputfile_names:
+            f=open(inputfile_name)
+            RobinTask.objects.create(name=inputfile_name.rstrip('.inp'),pre_robin_task=self,input_file=File(f))
+            f.close()
+            
+    def start_prerobin(self):
+        self.generate_prerobin_output()
+        #base
+        self.generate_robin_tasks()
+        #grid
+        self.generate_robin_tasks('GRID')
+        #HTM
+        self.generate_robin_tasks('HTM')
+        #HTF
+        self.generate_robin_tasks('HTF')
+        #HCB
+        self.generate_robin_tasks('HCB')
+        
+    def start_robin(self):
+        robin_tasks=self.robin_tasks.all()
+        for robin_task in robin_tasks:
+            #if waiting
+            if robin_task.task_status==0:
+                time.sleep(1)
+                robin_task.start_calculation()
+            
+    def find_inputfile_names(self,postfix=None):
+        base_segment_ID=self.segment_ID
+        abs_file_path=self.abs_file_path
+        filenames=os.listdir(abs_file_path)
+        inputfile_names=[]
+        if postfix:
+            name=base_segment_ID+'_'+postfix+'_.+\.inp'
+        else:
+            name=base_segment_ID+'\.inp'
+            
+        name_pattern=re.compile(name)
+        for filename in filenames:
+            if name_pattern.fullmatch(filename):
+                inputfile_names.append(filename) 
+        return inputfile_names
+    
+    def create_subdir(self):
+        abs_file_path=self.abs_file_path
+        sub_dir=os.path.join(abs_file_path,'IDYLL')
+        
+        if not os.path.exists(sub_dir):
+            os.makedirs(sub_dir) 
+        return sub_dir
+               
+    def cp_out_to_subdir(self,subdir):
+        robin_tasks=self.robin_tasks.all()
+        for robin_task in robin_tasks:
+            cwd=robin_task.get_cwd()
+            output_filename=robin_task.get_output_filename()
+            shutil.copy(os.path.join(cwd,output_filename),subdir)
+            
+    def get_idyll_input(self):
+        abs_file_path=self.abs_file_path
+        segment_ID=self.segment_ID
+        return os.path.join(abs_file_path,"IDYLL_"+segment_ID+".inp")
+    
+    def start_idyll(self): 
+        idyll_input=self.get_idyll_input()
+        subdir=self.create_subdir()
+        os.chdir(subdir)  
+        #create idyll dirs
+        try:
+            os.mkdir("CHECK_OUTPUT")
+            os.mkdir("CHECK_INPUT")
+            os.mkdir("CHECK_POW")
+            os.mkdir("CHECK_TABLE")
+            os.mkdir("TABLE_OUTPUT")
+        except:
+            pass
+        #cp idyll into subdir
+        shutil.copy(idyll_input,os.path.join(subdir,"IBIS.INP"))
+        #cp out1 into subdir
+        self.cp_out_to_subdir(subdir)
+        
+        process=Popen(['/opt/nustar/bin/myidyll',"IBIS.INP"])
+        return_code=process.wait()
+        return return_code
+        
+    def __str__(self):
+        return "{} {}".format(self.pk,self.fuel_assembly_type)
+    
+
+def get_robintask_upload_path(instance,filename):
+    name=instance.name
+    pre_robin_task=instance.pre_robin_task
+    plant=pre_robin_task.plant
+    fuel_assembly_type=pre_robin_task.fuel_assembly_type
+    model_name=fuel_assembly_type.model.name
+    enrichment=fuel_assembly_type.assembly_enrichment
+    return "robin_task/{}/{}/{}/{}/{}".format(plant.abbrEN,model_name,enrichment,name,filename)
+
+class RobinTask(models.Model):
+    name=models.CharField(max_length=64)
+    pre_robin_task=models.ForeignKey(PreRobinTask,related_name="robin_tasks")
+    input_file=models.FileField(upload_to=get_robintask_upload_path)
+    task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
+    start_time=models.DateTimeField(blank=True,null=True)
+    end_time=models.DateTimeField(blank=True,null=True)
+    #calculation_identity=models.CharField(max_length=128,blank=True)
+    class Meta:
+        db_table='robin_task'
+        
+    def get_cwd(self):
+        abs_file_path=self.input_file.path
+        dir_path=os.path.dirname(abs_file_path)
+        return dir_path
+    def get_input_filename(self):
+        abs_file_path=self.input_file.path
+        basename=os.path.basename(abs_file_path)
+        return basename
+    
+    def get_output_filename(self):
+        input_filename=self.get_input_filename()
+        return input_filename.rstrip(".inp")+".out1"
+    
+    def start_calculation(self):
+        s=signature('calculation.tasks.robin_calculation_task', args=(self.pk,))
+        s.freeze()
+        s.delay()
+      
+        
+    def __str__(self):
+        return self.name
+    
 class Ibis(BaseModel):
     plant=models.ForeignKey('tragopan.Plant')
     ibis_name=models.CharField(max_length=32)
@@ -982,15 +1427,6 @@ VISIBILITY_CHOICES=(
 
        
 class EgretTask(BaseModel):
-    TASK_STATUS_CHOICES=(
-                         (0,'waiting'),
-                         (1,'calculating'),
-                         (2,'suspended'),
-                         (3,'stopped'),
-                         (4,'finished'),
-                         (5,'cancled'),
-                         (6,'errored'),
-    )
     TASK_TYPE_CHOICES=(
                        ('FOLLOW','follow'),
                        ('SEQUENCE', 'auto sequence'),

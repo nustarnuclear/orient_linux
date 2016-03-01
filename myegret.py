@@ -6,21 +6,7 @@ import textwrap
 from datetime import datetime
 cwd=os.getcwd()
 DEFAULT_EGRET_VERSION=195
-'''
-try:
-    ld=os.getenv("LD_LIBRARY_PATH")
-    ld_lst=ld.split(":")
-    ld1='/opt/nustar/lib'
-    ld2='/opt/intel/composer_xe_2011_sp1.11.339/compiler/lib/intel64'
-    if os.path.exists(ld1) and (ld1 not in ld_lst):
-        ld_lst.append(ld1)
-    if os.path.exists(ld2) and (ld2 not in ld_lst):
-        ld_lst.append(ld2)
-        
-    os.environ['LD_LIBRARY_PATH']=":".join(ld_lst)
-except:       
-    os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib:/opt/intel/composer_xe_2011_sp1.11.339/compiler/lib/intel64'
-'''
+
 os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib'  
 logfile="myegret.log"
 workspace=".workspace"

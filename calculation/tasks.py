@@ -3,7 +3,7 @@ from datetime import datetime
 from celery import shared_task
 import os
 from subprocess import Popen
-from calculation.models import EgretTask
+from calculation.models import EgretTask,RobinTask
 #from calculation.models import EgretTask
 #from celery.contrib.abortable import AbortableTask
 from orient.celery import app
@@ -56,6 +56,29 @@ def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
         pre_egret_task.save()
     return return_code
 
+@shared_task
+def robin_calculation_task(pk):
+    robin_instance=RobinTask.objects.get(pk=pk)
+    cwd=robin_instance.get_cwd()
+    os.chdir(cwd)
+    input_filename=robin_instance.get_input_filename()
+    start_time=datetime.now()
+    robin_instance.start_time=start_time
+    robin_instance.task_status=1
+    robin_instance.save(update_fields=['start_time','task_status'])
+    process=Popen(['/opt/nustar/bin/myrobin','-i',input_filename,])
+    return_code=process.wait()
+    end_time=datetime.now()
+    robin_instance.end_time=end_time
+    
+    #if process went wrong
+    if return_code!=0:  
+        robin_instance.task_status=6  
+    else:
+        robin_instance.task_status=4
+        
+    robin_instance.save(update_fields=['end_time','task_status'])
+    return return_code
 
     
     
