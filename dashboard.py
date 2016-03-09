@@ -29,16 +29,14 @@ class CustomIndexDashboard(Dashboard):
             children = [
                 modules.AppList(
                     _('Administration'),
-                    column=1,
                     collapsible=True,
                     models=('django.contrib.*',),
                 ),
                 modules.AppList(
                     _('Applications'),
-                    column=2,
                     css_classes=('collapse closed',),
                     exclude=('django.contrib.*','rest_framework.authtoken.*',),
-                )
+                ),
             ]
         ))
         
@@ -51,18 +49,24 @@ class CustomIndexDashboard(Dashboard):
         #    exclude=('django.contrib.*',),
         #))
         
-        # append an app list module for "Administration"
-        #self.children.append(modules.ModelList(
-        #    _('ModelList: Administration'),
-        #    column=1,
-        #    collapsible=False,
-        #    models=('django.contrib.*',),
-        #))
+        self.children.append(modules.Group(
+            _('Group: ROBIN & EGRET'),
+            column=2,
+            collapsible=True,
+            children = [
+                modules.AppList(
+                    _('ROBIN'),
+                    css_classes=('collapse closed',),
+                    models=('calculation.models.*',),
+                ),
+                        
+            ]
+        ))
         
         # append another link list module for "support".
         self.children.append(modules.LinkList(
             _('Media Management'),
-            column=2,
+            column=3,
             children=[
                 {
                     'title': _('FileBrowser'),
@@ -75,7 +79,7 @@ class CustomIndexDashboard(Dashboard):
         # append another link list module for "support".
         self.children.append(modules.LinkList(
             _('Support'),
-            column=2,
+            column=3,
             children=[
                 {
                     'title': _('PreRobin Documentation'),

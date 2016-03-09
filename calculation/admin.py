@@ -1,10 +1,14 @@
 from django.contrib import admin
 from .models import *
-from django.utils.html import format_html
 from django.conf.urls import url
 from django.core.urlresolvers import reverse
 from django.shortcuts import redirect
+from django.contrib import messages
 # Register your models here.
+
+class ServerAdmin(admin.ModelAdmin):
+    pass
+admin.site.register(Server,ServerAdmin)
 
 class PreRobinModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
@@ -81,7 +85,7 @@ class AssemblyLaminationInline(admin.TabularInline):
     readonly_fields=('height','pre_robin_task')
     #show_change_link=True
 class PreRobinInputAdmin(admin.ModelAdmin):
-    #add_form_template="calculation/auto_cut.html"
+    
     change_form_template="calculation/auto_cut.html"
     exclude=('remark','user')
     inlines=[AssemblyLaminationInline,]
@@ -96,11 +100,16 @@ class PreRobinInputAdmin(admin.ModelAdmin):
         return my_urls + urls
     
     def auto_cut_view(self,request, *args, **kwargs):
-        pk=kwargs['pk']
-        obj = PreRobinInput.objects.get(pk=pk)
-        obj.create_task()
-        self.message_user(request, 'Assembly cut completed')
-        return redirect(reverse("admin:calculation_prerobininput_change",args=[pk]))
+        try:
+            pk=kwargs['pk']
+            obj = PreRobinInput.objects.get(pk=pk)
+            obj.create_task()
+            self.message_user(request, 'Assembly cut completed')
+            return redirect(reverse("admin:calculation_prerobininput_change",args=[pk]))
+        except:
+            self.message_user(request, 'You need to save this input first',messages.WARNING)
+            #return redirect()
+        
     
 admin.site.register(PreRobinInput, PreRobinInputAdmin)   
 
@@ -111,13 +120,18 @@ admin.site.register(DepletionState, DepletionStateAdmin)
 class RobinTaskInline(admin.TabularInline):
     model=RobinTask
     extra=0
+    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time')
+    def has_add_permission(self,request):
+        return False
     
 class PreRobinTaskAdmin(admin.ModelAdmin):
     #add_form_template="calculation/change_form_template.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status')
+    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
+    readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
+    
     def get_urls(self):
         urls = super(PreRobinTaskAdmin, self).get_urls()
         my_urls = [
@@ -135,10 +149,18 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
     def start_prerobin_view(self,request, *args, **kwargs):
         pk=kwargs['pk']
         obj = PreRobinTask.objects.get(pk=pk)
-        obj.start_prerobin()
-        obj.task_status=4
-        obj.save()
-        self.message_user(request, 'Calculation completed')
+        if obj.robin_tasks.exists():
+            self.message_user(request, 'Robin tasks already exist, you need to delete all robin tasks if you want to recalculate',messages.WARNING)
+        else:
+            return_code=obj.start_prerobin()
+            #PreROBIN went wrong
+            if return_code!=0:
+                obj.task_status=6
+                self.message_user(request, 'PreROBIN failed',messages.ERROR)
+            else:  
+                obj.task_status=4
+                self.message_user(request, 'Calculation completed',)
+            obj.save()
         return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
     
     def start_robin_view(self,request, *args, **kwargs):
@@ -151,8 +173,11 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
     def start_idyll_view(self,request, *args, **kwargs):
         pk=kwargs['pk']
         obj = PreRobinTask.objects.get(pk=pk)
-        obj.start_idyll()
-        self.message_user(request, 'table generated completed')
+        if obj.robin_tasks.exclude(task_status=4).exists():  
+            self.message_user(request, 'Your need to wait all robin tasks finished',messages.WARNING)
+        else:
+            obj.start_idyll()
+            self.message_user(request, 'table generated completed')
         return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
     
 admin.site.register(PreRobinTask, PreRobinTaskAdmin)
@@ -199,16 +224,6 @@ class EgretTaskAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('pk','user','task_name','task_type','start_time','end_time','time_cost','task_status','remark','if_recalculated','locked')
     list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
-    
-    def start_calculation_link(self,obj):
-        #dest = reverse('admin:calculation_pictures_mail_author', kwargs={'pk': obj.pk})
-        dest='http://www.baidu.com'
-        #use get_urls()
-        return format_html('<a href="{url}">{title}</a>',
-                           url=dest, title='send mail')
-    start_calculation_link.short_description = 'Start calculation'
-    start_calculation_link.allow_tags = True
-    
     
     def get_queryset(self, request):
         qs = super(EgretTaskAdmin, self).get_queryset(request)

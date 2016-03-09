@@ -97,6 +97,7 @@ class WmisElementDataAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[WmisElementCompositionInline,]
     list_display=('__str__','get_nuclide_num','is_correct',)
+    search_fields=('element_name',)
     #check if satisfy the integrity constraint
     def is_correct(self,obj):
         cps=obj.nuclides.all()
@@ -113,29 +114,13 @@ class WmisElementDataAdmin(admin.ModelAdmin):
 admin.site.register(WmisElementData, WmisElementDataAdmin) 
 
 
-#mixture information
-class MixtureCompositionInline(admin.TabularInline):
-    model=MixtureComposition
-    exclude=('remark',)
-    fk_name='mixture'
-    extra=0
-    
+
 class MaterialWeightCompositionInline(admin.TabularInline):
     model=MaterialWeightComposition
     exclude=('remark',)
     extra=0
 
 
-class MaterialAttributeInline(admin.TabularInline):
-    model=MaterialAttribute
-    extra=1
-    exclude=('remark',)
-    
-    def get_readonly_fields(self,request, obj=None):
-        if not request.user.is_superuser:
-            return ('density','heat_capacity','thermal_conductivity','expansion_coefficient','code')
-
-        return ()
     
 class BasicElementCompositionInline(admin.TabularInline):
     model=BasicElementComposition
@@ -160,7 +145,7 @@ class BasicMaterialAdmin(admin.ModelAdmin):
 admin.site.register(BasicMaterial,BasicMaterialAdmin)
 
 class MaterialAdmin(admin.ModelAdmin):
-    inlines=(MixtureCompositionInline,MaterialWeightCompositionInline)
+    inlines=(MaterialWeightCompositionInline,)
     exclude=('remark',)
     list_display=('pk','__str__','input_method','is_correct',)
     
@@ -171,7 +156,7 @@ class MaterialAdmin(admin.ModelAdmin):
     
     #check if satisfy the integrity constraint
     def is_correct(self,obj):
-        pecentage_sum=obj.mixtures.all().aggregate(sum=Sum('percent'))
+        pecentage_sum=obj.weight_mixtures.all().aggregate(sum=Sum('percent'))
         if pecentage_sum['sum']:
             if abs(pecentage_sum['sum']-100)<=0.1:return True
             else:return False
@@ -415,17 +400,7 @@ class BurnablePoisonAssemblyLoadingPatternInline(admin.TabularInline):
                 pass
         return super(BurnablePoisonAssemblyLoadingPatternInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 
-class SourceAssemblyLoadingPatternInline(admin.TabularInline):
-    exclude=('remark',)
-    extra=0
-    model=SourceAssemblyLoadingPattern
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "reactor_position":
-            try:
-                kwargs["queryset"] = ReactorPosition.objects.filter(reactor_model=Cycle.objects.get(pk=int(request.path.split(sep='/')[-2])).unit.reactor_model)
-            except Exception:
-                pass
-        return super(SourceAssemblyLoadingPatternInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
+
         
 class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
@@ -450,7 +425,7 @@ admin.site.register(Cycle, CycleAdmin)
 #fuel assembly model information
 class GridAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    
+    list_display=('__str__','grid_volume','water_volume','moderator_material_ID','type_num')
 admin.site.register(Grid, GridAdmin)
 
 
@@ -485,7 +460,7 @@ class FuelPelletInline(admin.TabularInline):
      
 class FuelAssemblyModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num',)
+    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num','get_wet_frac')
     inlines=[GridPositionInline,UpperNozzleInline,LowerNozzleInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline]
     
     def get_fuel_element_num(self,obj):
@@ -711,12 +686,8 @@ admin.site.register(MaterialTransection, MaterialTransectionAdmin)
 #fuel pellet type information    
 class FuelPelletAdmin(admin.ModelAdmin):
     exclude=('remark',) 
+    list_display=('fuel_assembly_model','real_density')
 admin.site.register(FuelPellet, FuelPelletAdmin)
-
-class FakeFuelElementTypeAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-admin.site.register(FakeFuelElementType, FakeFuelElementTypeAdmin)
-
 #########################################################################################
 #component assembly rod
     
@@ -730,19 +701,8 @@ class ControlRodTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
 admin.site.register(ControlRodType, ControlRodTypeAdmin)
 
-class SourceRodTypeAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-admin.site.register(SourceRodType, SourceRodTypeAdmin) 
-
-class NozzlePlugRodAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-admin.site.register(NozzlePlugRod, NozzlePlugRodAdmin)
 
 
-class BurnablePoisonSectionAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    list_display=("pk","__str__","bottom_height")
-admin.site.register(BurnablePoisonSection, BurnablePoisonSectionAdmin) 
  
 
 class BurnablePoisonSectionInline(admin.TabularInline):
@@ -752,14 +712,15 @@ class BurnablePoisonSectionInline(admin.TabularInline):
     
 class BurnablePoisonRodAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('pk','__str__','height_lst')
+    list_display=('pk','__str__','height_lst','max_section_num')
+    inlines=(BurnablePoisonSectionInline,)
 admin.site.register(BurnablePoisonRod, BurnablePoisonRodAdmin) 
 
 ############################################################################
 #burnable poison assembly
 class BurnablePoisonAssemblyMapAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=['pk','__str__',]
+    list_display=['pk','__str__',"row","column","reflect_4th_quandrant","generate_quadrant_symbol"]
 admin.site.register(BurnablePoisonAssemblyMap, BurnablePoisonAssemblyMapAdmin)
 
 class BurnablePoisonAssemblyMapInline(admin.TabularInline):
@@ -819,41 +780,6 @@ class ControlRodClusterAdmin(admin.ModelAdmin):
     list_filter=('control_rod_assembly_type__reactor_model',)
 admin.site.register(ControlRodCluster, ControlRodClusterAdmin)
 
-##############################################################################
-#source assembly 
-class SourceRodMapInline(admin.TabularInline):
-    exclude=('remark',)
-    extra=0
-    model=SourceRodMap
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "source_rod_position":
-            try:
-                kwargs["queryset"] = FuelAssemblyPosition.objects.filter(fuel_assembly_model=SourceAssembly.objects.get(pk=int(request.path.split(sep='/')[-2])).fuel_assembly_model)
-                
-            except Exception:
-                pass
-        return super(SourceRodMapInline, self).formfield_for_foreignkey(db_field, request, **kwargs)    
-    
-class SourceAssemblyAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    inlines=[SourceRodMapInline,]
-admin.site.register(SourceAssembly, SourceAssemblyAdmin)
-
-class SourceAssemblyLoadingPatternAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    list_filter=('cycle',)
-admin.site.register(SourceAssemblyLoadingPattern,SourceAssemblyLoadingPatternAdmin)   
-
-################################################################################ 
-#nozzle plug assembly
-class NozzlePlugRodMapInline(admin.TabularInline):
-    exclude=('remark',)
-    model=NozzlePlugRodMap
-
-class NozzlePlugAssemblyAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    inlines=[NozzlePlugRodMapInline,]
-admin.site.register(NozzlePlugAssembly, NozzlePlugAssemblyAdmin)
 
 #####################################################################################
 #operation parameter

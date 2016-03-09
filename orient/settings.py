@@ -95,7 +95,7 @@ DATABASES = {
         'NAME': 'oasis',
         'USER': 'root',
         'PASSWORD': 'NuStar_Orient123',
-        'HOST': 'localhost',
+        'HOST': '192.168.1.139',
         'PORT': '3306',
     },
     
@@ -189,6 +189,6 @@ FILEBROWSER_SELECT_FORMATS={
 }
 FILEBROWSER_MAX_UPLOAD_SIZE=10000000000
 
-#celery settings
+#celery setting
 CELERYD_PREFETCH_MULTIPLIER=1
-CELERYD_MAX_TASKS_PER_CHILD=1
+CELERYD_CONCURRENCY=5

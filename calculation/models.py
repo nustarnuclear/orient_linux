@@ -13,6 +13,8 @@ from datetime import datetime
 from subprocess import Popen
 from django.core.files import File
 import time
+from decimal import Decimal
+import socket
 # Create your models here.
 TASK_STATUS_CHOICES=(
                          (0,'waiting'),
@@ -24,6 +26,12 @@ TASK_STATUS_CHOICES=(
                          (6,'error'),
     )
 
+def get_ip():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.connect(('8.8.8.8', 0))  # connecting to a UDP address doesn't send packets
+    return s.getsockname()[0]
+                      
+    
 def parse_xml_to_lst(src,dest):
     f=open(src)
     line_lst=f.readlines()
@@ -125,6 +133,21 @@ class BaseModel(models.Model):
 media_root=settings.MEDIA_ROOT
 media_url=settings.MEDIA_URL
 #concrete model in DATABASE
+
+class Server(models.Model):
+    STATUS_CHOICES=(("A","available"),
+                    ("B","busy"),
+    )
+    name=models.CharField(max_length=32,unique=True)
+    IP=models.GenericIPAddressField(unique=True)
+    status=models.CharField(max_length=1,default="A",choices=STATUS_CHOICES)
+    
+    class Meta:
+        db_table="server"
+        
+    def __str__(self):
+        return "{} {}".format(self.name, self.IP)
+    
 
     
 class PreRobinModel(models.Model):
@@ -522,6 +545,7 @@ class PreRobinInput(BaseModel):
     task=models.ManyToManyField('PreRobinTask',through='AssemblyLamination')
     class Meta:
         db_table='pre_robin_input'
+        unique_together = ("unit","fuel_assembly_type", "burnable_poison_assembly")
         
     @property
     def rela_file_path(self):
@@ -565,6 +589,7 @@ class PreRobinInput(BaseModel):
         fuel_height_lst=fuel_assembly_type.get_height_lst(fuel=fuel)
         if fuel:
             return fuel_height_lst
+        
         burnable_poison_assembly=self.burnable_poison_assembly
         if burnable_poison_assembly:
             bp_height_lst=burnable_poison_assembly.height_lst
@@ -582,19 +607,18 @@ class PreRobinInput(BaseModel):
         height_lst=sorted(list(height_set))
         return height_lst
     def generate_transection(self,height,fuel=False):
-        if self.symmetry:
-            fuel_assembly_type=self.fuel_assembly_type
-            fuel_transection=fuel_assembly_type.generate_transection(height,fuel=fuel)
-            if fuel:
-                return fuel_transection
-            transection=fuel_transection
-            #bpa transection
-            burnable_poison_assembly=self.burnable_poison_assembly
-            if burnable_poison_assembly:
-                bp_transection=burnable_poison_assembly.generate_transection(height)
-                transection.update(bp_transection)
-                
-            return transection
+        fuel_assembly_type=self.fuel_assembly_type
+        fuel_transection=fuel_assembly_type.generate_transection(height,fuel=fuel)
+        if fuel:
+            return fuel_transection
+        transection=fuel_transection
+        #bpa transection
+        burnable_poison_assembly=self.burnable_poison_assembly
+        if burnable_poison_assembly:
+            bp_transection=burnable_poison_assembly.generate_transection(height)
+            transection.update(bp_transection)
+            
+        return transection
     
     def auto_generate_transection(self,fuel=False):
         height_lst=self.get_height_lst(fuel=fuel)
@@ -724,7 +748,7 @@ class DepletionState(models.Model):
     #depletion state
     system_pressure=models.DecimalField(max_digits=7,decimal_places=5,default=15.51,validators=[MinValueValidator(0)],help_text='MPa')
     burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=60,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
-    burnup_unit=models.CharField(max_length=9,default='"GWd/tU"',choices=BURNUP_UNIT_CHOICES)
+    burnup_unit=models.CharField(max_length=9,default='GWd/tU',choices=BURNUP_UNIT_CHOICES)
     fuel_temperature=models.PositiveSmallIntegerField(help_text='K',)
     moderator_temperature=models.PositiveSmallIntegerField(help_text='K',)
     boron_density=models.PositiveSmallIntegerField(help_text='ppm')
@@ -776,6 +800,13 @@ class DepletionState(models.Model):
     def __str__(self):
         return "{} {}".format(self.pk,self.system_pressure)
     
+def server_default():
+    available_servers=Server.objects.filter(status="A")
+    if available_servers.exists():
+        return available_servers.first().pk
+    else:
+        return None
+    
 class PreRobinTask(BaseModel):
     plant=models.ForeignKey('tragopan.Plant')
     fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
@@ -785,6 +816,7 @@ class PreRobinTask(BaseModel):
     depletion_state=models.ForeignKey(DepletionState)
     pre_robin_model=models.ForeignKey(PreRobinModel)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
+    server=models.ForeignKey(Server,default=server_default)
     class Meta:
         db_table='pre_robin_task'
         
@@ -821,11 +853,11 @@ class PreRobinTask(BaseModel):
     
     #without fuel transection
     @property
-    def material_transection_lst(self):
+    def material_transection_set(self):
         lst=self.get_lst(fuel=False)
-        material_transection_lst=list(set(lst))
-        material_transection_lst.remove('0')
-        return material_transection_lst
+        material_transection_set=set(lst)
+        material_transection_set.remove('0')
+        return material_transection_set
     
     def generate_depletion_state_xml(self):
         return self.depletion_state.generate_depletion_state_xml()
@@ -972,17 +1004,16 @@ class PreRobinTask(BaseModel):
             segment_lst.append(base_segment_xml)
         return segment_lst
     
+
+          
     def generate_grid_segment_lst(self):
+        fuel_assembly_model=self.fuel_assembly_type.model
+        total_grid_type_num=fuel_assembly_model.total_grid_type_num
         segment_lst=[]
-        grids=self.fuel_assembly_type.model.grids.all()
-        material_lst=[]
-        for grid in grids:
-            moderator_material=grid.moderator_material.prerobin_identifier
-            if moderator_material not in material_lst:
-                material_lst.append(moderator_material)
-        
-        index=1
-        for material in  material_lst:
+    
+        for type_num in range(1,total_grid_type_num):
+            grid=fuel_assembly_model.grids.filter(type_num=type_num).first()
+            moderator_material_ID=grid.moderator_material_ID
             doc=minidom.Document()
             base_segment_xml=doc.createElement('base_segment')
             use_pre_segment_xml=doc.createElement('use_pre_segment')
@@ -990,8 +1021,8 @@ class PreRobinTask(BaseModel):
             use_pre_segment_xml.appendChild(doc.createTextNode(base_segment_ID))
             base_segment_xml.appendChild(use_pre_segment_xml)
             
-            segment_ID=base_segment_ID+'_GRID_'+str(index)
-            index +=1   
+            segment_ID=base_segment_ID+'_GRID_'+str(type_num)
+         
             segment_ID_xml=doc.createElement('segment_ID')
             segment_ID_xml.appendChild(doc.createTextNode(segment_ID))
             base_segment_xml.appendChild(segment_ID_xml)  
@@ -1002,7 +1033,7 @@ class PreRobinTask(BaseModel):
             
             assembly_model_xml=doc.createElement('assembly_model')
             moderator_mat_xml=doc.createElement('moderator_mat')
-            moderator_mat_xml.appendChild(doc.createTextNode(material))
+            moderator_mat_xml.appendChild(doc.createTextNode(moderator_material_ID))
             assembly_model_xml.appendChild(moderator_mat_xml)
             base_segment_xml.appendChild(assembly_model_xml) 
             
@@ -1044,9 +1075,7 @@ class PreRobinTask(BaseModel):
         segment_file.close()
         
         return segment_file_path
-    
-
-    
+      
     def generate_pin_databank_xml(self,pin_databank_path='pin_databank.xml'):
         fuel_assembly_type=self.fuel_assembly_type
         fuel_assembly_model=fuel_assembly_type.model
@@ -1060,19 +1089,18 @@ class PreRobinTask(BaseModel):
         pin_databank_xml.appendChild(instrument_tube_xml)
         
         #fuel pin xml
-        material_transections=self.material_transection_lst
-        for pk in material_transections:
-            mt=MaterialTransection.objects.get(pk=pk)
-            base_pin_xml=mt.generate_base_pin_xml()
-            pin_databank_xml.appendChild(base_pin_xml)
-            
+        material_transection_set=self.material_transection_set
+           
         #control rod pin 
         reactor_model=self.plant.reactor_model
         control_rod_types=reactor_model.control_rod_types.all()
         for control_rod_type in control_rod_types:
-            base_pin_lst=control_rod_type.generate_base_pin_lst(guide_tube=guide_tube)
-            for base_pin in base_pin_lst:
-                pin_databank_xml.appendChild(base_pin)
+            material_transection_set.update(control_rod_type.generate_material_transection_set())
+        
+        for pk in material_transection_set:
+            mt=MaterialTransection.objects.get(pk=pk)
+            base_pin_xml=mt.generate_base_pin_xml(guide_tube)
+            pin_databank_xml.appendChild(base_pin_xml) 
        
         f=open(pin_databank_path,'w')
         pin_databank_xml.writexml(f, '  ','  ', '\n')
@@ -1148,7 +1176,7 @@ class PreRobinTask(BaseModel):
             f.close()
             
     def start_prerobin(self):
-        self.generate_prerobin_output()
+        return_code=self.generate_prerobin_output()
         #base
         self.generate_robin_tasks()
         #grid
@@ -1159,6 +1187,7 @@ class PreRobinTask(BaseModel):
         self.generate_robin_tasks('HTF')
         #HCB
         self.generate_robin_tasks('HCB')
+        return return_code
         
     def start_robin(self):
         robin_tasks=self.robin_tasks.all()
@@ -1204,19 +1233,57 @@ class PreRobinTask(BaseModel):
         segment_ID=self.segment_ID
         return os.path.join(abs_file_path,"IDYLL_"+segment_ID+".inp")
     
+    def generate_ptc_wet(self):
+        fuel_assembly_type=self.fuel_assembly_type
+        fuel_assembly_model=fuel_assembly_type.model
+        f=open("PTC_WET.INP",'w')
+        f.write("N_PTC_BU\n")
+        f.write("3\n")
+        f.write("ptc_bu(1:N_PTC_BU)\n")
+        f.write("10 80 150\n")
+        f.write("ptc_deltaT(0:N_PTC_BU)\n")
+        enrichment=fuel_assembly_type.assembly_enrichment
+        if enrichment>=Decimal(3.1):
+            f.write("292 292 260 260\n")
+        else:
+            f.write("292 292 292 292\n")
+            
+        total_grid_type_num=fuel_assembly_model.total_grid_type_num
+        f.write("N_SPA\n")
+        f.write("{}\n".format(total_grid_type_num))
+        f.write("spa_fraction\n")
+        volume_fraction_lst=[]
+        for type_num in range(1,total_grid_type_num+1):
+            grid=fuel_assembly_model.grids.filter(type_num=type_num).first()
+            volume_fraction=grid.volume_fraction
+            volume_fraction_lst.append(str(volume_fraction))
+        f.write(' '.join(volume_fraction_lst)+"\n")
+        
+        f.write("wet_fraction\n")
+        
+        reactor_model=self.plant.reactor_model
+        control_rod_type=reactor_model.control_rod_types.first()
+        
+        wet_frac=fuel_assembly_model.get_wet_frac()
+        wet_frac_rodin=fuel_assembly_model.get_wet_frac_rodin(control_rod_type)
+        f.write("{} {} \n".format(wet_frac, wet_frac_rodin))
+        
+        f.close()
+        
     def start_idyll(self): 
         idyll_input=self.get_idyll_input()
         subdir=self.create_subdir()
         os.chdir(subdir)  
         #create idyll dirs
         try:
-            os.mkdir("CHECK_OUTPUT")
             os.mkdir("CHECK_INPUT")
             os.mkdir("CHECK_POW")
             os.mkdir("CHECK_TABLE")
             os.mkdir("TABLE_OUTPUT")
         except:
             pass
+        #generate ptc_wet file
+        self.generate_ptc_wet()
         #cp idyll into subdir
         shutil.copy(idyll_input,os.path.join(subdir,"IBIS.INP"))
         #cp out1 into subdir

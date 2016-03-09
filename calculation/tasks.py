@@ -3,25 +3,8 @@ from datetime import datetime
 from celery import shared_task
 import os
 from subprocess import Popen
-from calculation.models import EgretTask,RobinTask
-#from calculation.models import EgretTask
-#from celery.contrib.abortable import AbortableTask
-from orient.celery import app
-@app.task(bind=True)
-def add(self,x, y):
-    print(self.AsyncResult)
-    print(self.request.id)
-    return x + y
-
-
-@shared_task
-def mul(x, y):
-    return x * y
-
-
-@shared_task
-def xsum(numbers):
-    return sum(numbers)
+from calculation.models import EgretTask,RobinTask,Server,get_ip
+from ftplib import FTP
 
 @shared_task
 def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
@@ -31,11 +14,9 @@ def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
     os.chdir(cwd)
     process=Popen(['/opt/nustar/bin/myegret','-i',input_filename,'-s',version,'-u',user])
     return_code=process.wait()
-    print('return code is {}'.format(return_code))
     
     #if process went wrong
     if return_code!=0:
-        
         egret_instance.task_status=6
         wrong_time=datetime.now()
         egret_instance.end_time=wrong_time
@@ -58,10 +39,24 @@ def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
 
 @shared_task
 def robin_calculation_task(pk):
+    mainhost=Server.objects.get(name="localhost")
+    myip=get_ip()
+    myhost=Server.objects.get(IP=myip)
+    
     robin_instance=RobinTask.objects.get(pk=pk)
+    
     cwd=robin_instance.get_cwd()
+    os.makedirs(cwd, exist_ok=True)
     os.chdir(cwd)
+    #transfer input file by ftp if needed
     input_filename=robin_instance.get_input_filename()
+    if mainhost!=myhost:
+        ftp=FTP(mainhost.ip)
+        ftp.login(user="django",passwd="django")
+        ftp.cwd(cwd)
+        ftp.retrbinary("RETR %s"%input_filename, open(input_filename,"wb").write)
+        ftp.quit()    
+    
     start_time=datetime.now()
     robin_instance.start_time=start_time
     robin_instance.task_status=1

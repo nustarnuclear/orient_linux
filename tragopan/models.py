@@ -10,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.utils.translation import ugettext_lazy as _
 import os
 import tempfile
+import math
 from xml.dom import minidom
 from decimal import Decimal
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
@@ -43,6 +44,56 @@ def format_line(lst,width=16):
     result_lst.append('\n')
     return ''.join(result_lst) 
 
+def in_triangle(row,column,side_num):
+    '''to check if this position is in the 1/8 part to be calculated
+    1|2
+    ---
+    3|4
+    the lower triangle of quadrant 4
+    '''
+    half=int(side_num/2)+1
+    if row>=half and column>=half and column<=row:
+        return True
+    else:
+        return False
+        
+def generate_quadrant_symbol(row,column,side_num):
+    '''
+    1|2
+    ---
+    3|4
+    '''
+    
+    half=int(side_num/2)+1
+    if row<=half:
+        if column<=half:
+            return 1
+        else:
+            return 2
+    else:
+        if column<=half:
+            return 3
+        else:
+            return 4
+
+def reflect_4th_quandrant(row,column,side_num):
+        half=int(side_num/2)+1
+        quadrant=generate_quadrant_symbol(row,column,side_num)
+        if quadrant==1:
+            row_4th=2*half-row
+            col_4th=2*half-column
+        elif quadrant==2:
+            row_4th=column
+            col_4th=half+half-row
+            
+        elif quadrant==3:
+            row_4th=half+half-column
+            col_4th=row
+        else:
+            row_4th=row
+            col_4th=column
+        return (row_4th,col_4th)
+    
 #some common constant
 MEDIA_ROOT=settings.MEDIA_ROOT
 PRE_ROBIN_PATH=os.path.join(MEDIA_ROOT,'pre_robin')
@@ -236,7 +287,7 @@ class BasicMaterial(BaseModel):
         for element in WmisElementData.objects.all():
             element_descrip=[element.element_name,element.get_nuclide_num()]
             f.write(format_line(element_descrip))
-            for compo in element.nuclides.all():
+            for compo in element.nuclides.order_by('wmis_nuclide__amu'):
                 nuclide_info=[' ',compo.wmis_nuclide.id_self_defined,compo.weight_percent/100] 
                 f.write(format_line(nuclide_info))
         f.write('\n')        
@@ -291,18 +342,17 @@ class Material(BaseModel):
     INPUT_METHOD_CHOICES=(
                           (1,'fuel by enrichment'),
                           (2,'blend basic materials by weight percent and B10 linear density'),
-                          (3,'blend materials by volume percent'),
+                          #(3,'blend materials by volume percent'),
                           #(4,'totally inherit from basic material'),
                           #(5,'inherit from basic material with B10 linear density'),
                           (6,'blend basic materials by weight percent and density'), 
     )
     nameCH=models.CharField(max_length=40,blank=True)
     nameEN=models.CharField(max_length=40,blank=True)
-    volume_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
+    #volume_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
     bpr_B10=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"mg/cm",blank=True,null=True)
     enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"U235:%",blank=True,null=True)
     input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
-    #basic_material=models.OneToOneField(BasicMaterial,related_name='materials',blank=True,null=True)
     density=models.DecimalField(max_digits=15, decimal_places=8,help_text=r'unit:g/cm3',blank=True,null=True)
     weight_composition=models.ManyToManyField(BasicMaterial,through='MaterialWeightComposition',)
     class Meta:
@@ -337,16 +387,13 @@ class Material(BaseModel):
        
         if self.input_method==1:
             return 'FUEL_'+str(self.pk)
-        #grid homgenized with moderator
-        elif self.input_method==3:
-            return 'HOMG_'+str(self.pk)
         else:
             return self.nameEN
     
-    def generate_base_mat(self):
+    def generate_base_mat(self,real_density=None):
         result={'ID':self.prerobin_identifier}
         if self.input_method==1:
-            result['density']=self.attribute.density
+            result['density']=real_density
             result['composition_ID']='UO2_'+str(self.enrichment)
         elif self.input_method==2:
             result['bpr_B10']=self.bpr_B10
@@ -355,13 +402,7 @@ class Material(BaseModel):
             weight_percent_lst=[str(item.percent) for item in compo]
             result['composition_ID']=','.join(composition_ID_lst)
             result['weight_percent']=','.join(weight_percent_lst)
-        elif self.input_method==3:
-            compo=self.mixtures.all()
-            homgenized_mat_lst=[item.material.prerobin_identifier for item in compo]
-            result['homgenized_mat']=','.join(homgenized_mat_lst)
-            percent_lst=[str(item.percent) for item in compo]
-            result['volume_percent']=','.join(percent_lst)
-                
+        
         elif self.input_method==6:
             result['density']=self.density
             compo=self.weight_mixtures.all()
@@ -377,32 +418,40 @@ class Material(BaseModel):
             result['weight_percent']=','.join(weight_percent_lst)
             
         return  result  
-    
-    #class attribute
-    material_databank_path=os.path.join(PRE_ROBIN_PATH,'material_databank.xml')
     @classmethod
-    def generate_material_databank_xml(cls):
-        if not os.path.exists(PRE_ROBIN_PATH):
-            os.makedirs(PRE_ROBIN_PATH)
-        f=open(cls.material_databank_path,'w')
-        
-        doc = minidom.Document()
-        material_databank_xml=doc.createElement('material_databank')
-        materials=cls.objects.all()
+    def generate_base_mat_lst(cls):
+        #grid moderator material
+        base_mat_lst=Grid.generate_base_mat_lst()
+        #without considering fuel
+        materials=cls.objects.exclude(input_method=1)
         for material in  materials:
             base_mat=material.generate_base_mat()
             if base_mat:
-                base_mat_xml=doc.createElement('base_mat')
-                for key,value in base_mat.items():
-                    key_xml=doc.createElement(str(key))
-                    key_xml.appendChild(doc.createTextNode(str(value)))
-                    base_mat_xml.appendChild(key_xml)
-                material_databank_xml.appendChild(base_mat_xml)
-                
-        doc.appendChild(material_databank_xml)          
-        doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        f.close()
-                    
+                base_mat_lst.append(base_mat) 
+        
+        #consider fuel
+        fuel_base_mat_lst=FuelPelletType.generate_base_mat_lst()
+        base_mat_lst.extend(fuel_base_mat_lst)
+        return base_mat_lst
+            
+    material_databank_path=os.path.join(PRE_ROBIN_PATH,"material_databank.xml")
+    @classmethod
+    def generate_material_databank_xml(cls):
+        f=open(cls.material_databank_path,'w')
+        doc = minidom.Document()
+        material_databank_xml=doc.createElement('material_databank')
+        base_mat_lst=cls.generate_base_mat_lst()
+        for base_mat in  base_mat_lst:
+            base_mat_xml=doc.createElement('base_mat')
+            for key,value in base_mat.items():
+                key_xml=doc.createElement(str(key))
+                key_xml.appendChild(doc.createTextNode(str(value)))
+                base_mat_xml.appendChild(key_xml)
+            material_databank_xml.appendChild(base_mat_xml)
+        doc.appendChild(material_databank_xml) 
+        doc.writexml(f, indent="  ", addindent="  ", newl="\n") 
+        f.close()     
+        return material_databank_xml  
         
             
     def __str__(self):
@@ -411,7 +460,7 @@ class Material(BaseModel):
 class MaterialWeightComposition(BaseModel):
     mixture=models.ForeignKey(Material,related_name='weight_mixtures',)
     basic_material=models.ForeignKey(BasicMaterial)
-    percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
+    percent=models.DecimalField(max_digits=8, decimal_places=5,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
     class Meta:
         db_table='material_weight_composition'
         verbose_name='Weight Composition'
@@ -420,11 +469,11 @@ class MaterialWeightComposition(BaseModel):
     def __str__(self):
         return "{} {}".format(self.mixture, self.basic_material)   
     
+''' 
 class MixtureComposition(BaseModel):
     mixture=models.ForeignKey(Material,related_name='mixtures',)
     material=models.ForeignKey(Material)
-    percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
-    #input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
+    percent=models.DecimalField(max_digits=8, decimal_places=5,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
     class Meta:
         db_table='mixture_composition'
         verbose_name='Volume Composition'
@@ -433,7 +482,7 @@ class MixtureComposition(BaseModel):
     def __str__(self):
         return "{} {}".format(self.mixture, self.material)
                 
-      
+   
 class MaterialAttribute(BaseModel):
     material=models.OneToOneField(Material,related_name='attribute')
     density=models.DecimalField(max_digits=15, decimal_places=5,help_text=r'unit:g/cm3')
@@ -447,7 +496,7 @@ class MaterialAttribute(BaseModel):
     def __str__(self):
         return str(self.material)+"'s attribute"
     
-
+'''
     
 class Vendor(BaseModel):
     TYPE_CHOICES=(
@@ -544,8 +593,8 @@ class ReactorModel(BaseModel):
     fuel_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     core_equivalent_diameter = models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     active_height= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    cold_state_assembly_pitch= models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    hot_state_assembly_pitch = models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #cold_state_assembly_pitch= models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #hot_state_assembly_pitch = models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     vendor = models.ForeignKey(Vendor)  
     thermal_couple_position=models.ManyToManyField('ReactorPosition',related_name='thermal_couple_position',db_table='thermal_couple_map',blank=True,)
     incore_instrument_position=models.ManyToManyField('ReactorPosition',related_name='incore_instrument_position',db_table='incore_instrument_map',blank=True,)
@@ -1146,10 +1195,11 @@ class FuelAssemblyLoadingPattern(BaseModel):
 
 class FuelAssemblyModel(BaseModel):
     name=models.CharField(max_length=20)
-    overall_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    active_length=models.DecimalField(max_digits=10, decimal_places=5,default=365.8,validators=[MinValueValidator(0)],help_text='unit:cm')
     side_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     assembly_pitch=models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm')
     pin_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    #bottom_height=models.DecimalField(max_digits=7, decimal_places=5,default=0,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of fuel active part')
     lower_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     upper_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     side_pin_num=models.PositiveSmallIntegerField(default=17)
@@ -1159,6 +1209,40 @@ class FuelAssemblyModel(BaseModel):
     
     class Meta:
         db_table='fuel_assembly_model'
+    
+    def get_water_volume(self,active_height):
+       
+        total_volume=self.get_active_volume(active_height)
+
+        gt_volume=self.guide_tube.get_active_volume(active_height)
+        it_volume=self.guide_tube.get_active_volume(active_height)
+        fe_volume=self.fuel_elements.first().get_active_volume(active_height)
+        
+        positions=self.positions.all()
+        gt_num=positions.filter(type="guide").count()
+        it_num=positions.filter(type="instrument").count()
+        fe_num=positions.filter(type="fuel").count()
+        return total_volume-gt_volume*gt_num-it_volume*it_num-fe_volume*fe_num
+    
+    def get_wet_frac(self):
+        active_height=self.active_length
+        water_volume=self.get_water_volume(active_height)
+        active_volume=self.get_active_volume(active_height)
+        return round(water_volume/active_volume,5)
+    
+    def get_wet_frac_rodin(self,control_rod_type):
+        active_height=self.active_length
+        water_volume=self.get_water_volume(active_height)
+        
+        gt_num=self.positions.filter(type="guide").count()
+        cr_volume=control_rod_type.get_active_volume(active_height)
+        
+        active_volume=self.get_active_volume(active_height)
+        return round((water_volume-gt_num*cr_volume)/active_volume,5)
+    
+    def get_active_volume(self,active_height):
+        assembly_pitch=self.assembly_pitch
+        return assembly_pitch*assembly_pitch*active_height
         
     def generate_assembly_model_xml(self,symmetry=8):
         doc = minidom.Document()
@@ -1192,6 +1276,10 @@ class FuelAssemblyModel(BaseModel):
         assembly_model_xml.appendChild(pitch_cell_xml)
         
         return assembly_model_xml
+    
+    @property
+    def total_grid_type_num(self):
+        return self.grids.aggregate(Max('type_num'))['type_num__max']
         
            
     def __str__(self):
@@ -1385,19 +1473,8 @@ class FuelAssemblyPosition(BaseModel):
     def generate_quadrant_symbol(self):
         row=self.row
         column=self.column
-        mid_pos=FuelAssemblyPosition.objects.get(type='instrument',fuel_assembly_model=self.fuel_assembly_model)
-        mid_row=mid_pos.row
-        mid_column=mid_pos.column
-        if row<=mid_row:
-            if column<=mid_column:
-                return 1
-            else:
-                return 2
-        else:
-            if column<=mid_column:
-                return 3
-            else:
-                return 4
+        side_num=self.fuel_assembly_model.side_pin_num
+        return generate_quadrant_symbol(row,column,side_num)
         
     def __str__(self):
         return '{} R{}C{}'.format(self.fuel_assembly_model, self.row,self.column)
@@ -1423,19 +1500,15 @@ class FuelElementTypePosition(BaseModel):
     @property
     def in_triangle(self):
         '''to check if this position is in the 1/8 part to be calculated
-        2|1
+        1|2
         ---
         3|4
         the lower triangle of quadrant 4
         '''
         side_num=self.fuel_assembly_type.side_pin_num 
-        half=int(side_num/2)+1
         row=self.row
         column=self.column
-        if row>=half and column>=half and column<=row:
-            return True
-        else:
-            return False
+        return in_triangle(row,column,side_num)
         
     def __str__(self):
         return '{} {}'.format(self.fuel_element_type,self.fuel_assembly_position)
@@ -1462,19 +1535,85 @@ class Grid(BaseModel):
     )
     name=models.CharField(max_length=50)
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grids')
+    sleeve_volume=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm3')
+    spring_volume=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm3')
     side_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_height=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
-    inner_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
-    outer_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
+    #inner_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
+    #outer_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_material=models.ForeignKey(Material,related_name='grid_sleeves',related_query_name='grid_sleeve',blank=True,null=True)
-    spring_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
+    #spring_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     spring_material=models.ForeignKey(Material,related_name='grid_springs',related_query_name='grid_spring',blank=True,null=True)
     functionality=models.CharField(max_length=5,choices=FUCTIONALITY_CHOICS,default='fix')
-    moderator_material=models.ForeignKey(Material,default=70,related_name='grid_moderator',)
-    
+    #moderator_material=models.ForeignKey(Material,default=70,related_name='grid_moderator',)
+    type_num = models.PositiveSmallIntegerField(default=1)
     class Meta:
         db_table='grid'
         verbose_name='Fuel grid'
+        
+    @property
+    def grid_volume(self):
+        return self.sleeve_volume+self.spring_volume
+    
+    @property   
+    def volume_fraction(self):
+        grid_volume=self.grid_volume
+        assembly_pitch=self.fuel_assembly_model.assembly_pitch
+        assembly_volume=assembly_pitch**2*self.sleeve_height
+        return round(grid_volume/assembly_volume,5)
+    
+    @property
+    def water_volume(self):
+        active_height=self.sleeve_height
+        water_volume= self.fuel_assembly_model.get_water_volume(active_height)
+        return round(water_volume,5)
+   
+   
+    def generate_moderator_material(self):
+        grid_volume=self.grid_volume
+        water_volume=self.water_volume
+        volume_percent=round(100*grid_volume/(grid_volume+water_volume),5)
+        sleeve_material=self.sleeve_material
+        mod_material=Material.objects.get(nameEN='MOD')
+        return {sleeve_material.prerobin_identifier:volume_percent,mod_material.prerobin_identifier:100-volume_percent}
+    
+    @classmethod
+    def get_moderator_material_lst(cls):
+        moderator_material_lst=[]
+        for grid in cls.objects.all():
+            moderator_material=grid.generate_moderator_material()
+            if moderator_material not in moderator_material_lst:
+                
+                moderator_material_lst.append(moderator_material)
+        
+        return moderator_material_lst
+    
+    @property
+    def moderator_material_ID(self):
+        moderator_material_lst=Grid.get_moderator_material_lst()
+        moderator_material=self.generate_moderator_material()
+        
+        return "HOMO_"+ str(moderator_material_lst.index(moderator_material)+1)
+    
+    
+    @classmethod
+    def generate_base_mat_lst(cls):
+        moderator_material_lst=cls.get_moderator_material_lst()
+        base_mat_lst=[]
+        index=1
+        for moderator_material in moderator_material_lst:
+            moderator_material_ID="HOMO_"+str(index)
+            index+=1
+            
+            base_mat={'ID':moderator_material_ID}
+            homgenized_mat_lst=list(moderator_material.keys())
+            percent_lst=[str(moderator_material[key]) for key in homgenized_mat_lst]
+            base_mat['homgenized_mat']=','.join(homgenized_mat_lst)
+            base_mat['volume_percent']=','.join(percent_lst)
+            base_mat_lst.append(base_mat)
+        return base_mat_lst
+            
+        
     
     def __str__(self):
         return '{} {}'.format(self.fuel_assembly_model,self.name)
@@ -1498,7 +1637,12 @@ class GuideTube(BaseModel):
                                    'upper_inner_diameter':_('the outer_diameter must be bigger'),
                                    
             })
-        
+    
+    def get_active_volume(self,active_height):
+        outer_radius=self.upper_outer_diameter/2
+        inner_radius=self.upper_inner_diameter/2
+        return Decimal(math.pi)*(outer_radius**2-inner_radius**2)*active_height
+    
     def generate_base_pin_xml(self):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
@@ -1539,6 +1683,10 @@ class InstrumentTube(BaseModel):
                                    'inner_diameter':_('the outer_diameter must be bigger'),
                                    
             })
+            
+    def get_active_volume(self,active_height):
+        outer_radius=self.outer_diameter/2
+        return math.pi*outer_radius**2*active_height
         
     def generate_base_pin_xml(self):
         doc=minidom.Document()
@@ -1605,19 +1753,12 @@ class FuelElement(BaseModel):
     overall_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #plenum_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    #filling_gas_pressure=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MPa',blank=True,null=True)
-    #filling_gas_material=models.ForeignKey(Material,related_name='filling_fuel_elements',default=46)
-    #radial_map=models.ManyToManyField(Material,through='FuelElementRadialMap')
-    #handle the coating material like IFBA
-    #coated=models.BooleanField(default=False,help_text="whether coated with some materials")
-    #coating_thickness=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    #coating_material=models.ForeignKey(Material,related_name='coating_fuel_elements',blank=True,null=True)
-    #coating_bottom=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of the active part',blank=True,null=True)
-    #coating_top=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of the active part',blank=True,null=True)
-    
     class Meta:
         db_table='fuel_element'
+        
+    def get_active_volume(self,active_height):
+        radius=self.radius
+        return Decimal(math.pi)*radius**2*active_height
   
     @property
     def height_lst(self):
@@ -1726,16 +1867,23 @@ class MaterialTransection(BaseModel):
         else:
             return True
         
-    def generate_base_pin_xml(self):
+    def generate_base_pin_xml(self,guide_tube=None):
         doc=minidom.Document()
         base_pin_xml=doc.createElement('base_pin')
         ID=self.pin_id
         radial_map=self.radial_materials.order_by('radius')
         radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
-  
+        
         radii_lst=list(radii_tup)
         mat_lst=list(mat_tup)
-        
+        #if not fuel,should consider guide tube
+        if not self.if_fuel:
+            #insert into guide tube
+            radii_lst.append(str(guide_tube.upper_inner_diameter/2))
+            radii_lst.append(str(guide_tube.upper_outer_diameter/2))
+            mat_lst.append('MOD')
+            mat_lst.append(guide_tube.material.prerobin_identifier)
+  
         radii=','.join(radii_lst)
         mat=','.join(mat_lst)
         
@@ -1899,11 +2047,11 @@ class FakeFuelElementType(BaseModel):
 #Fuel Pellet 
 class FuelPellet(BaseModel):
     fuel_assembly_model=models.OneToOneField(FuelAssemblyModel)
-    outer_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
+    outer_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     inner_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm can be none when hollow')
-    length=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    dish_volume_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",blank=True,null=True)
-    chamfer_volume_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",blank=True,null=True)
+    length=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    dish_volume_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
+    chamfer_volume_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
     dish_depth=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     dish_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     roughness=models.DecimalField(max_digits=7, decimal_places=6,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
@@ -1914,7 +2062,12 @@ class FuelPellet(BaseModel):
     
     class Meta:
         db_table='fuel_pellet'
-        
+    @property    
+    def real_density(self):
+        return (100-self.dish_volume_percentage-self.chamfer_volume_percentage)/100*self.nominal_density
+    
+    
+    
     def __str__(self):
         return '{} pellet'.format(self.fuel_assembly_model)
 
@@ -1928,6 +2081,24 @@ class FuelPelletType(BaseModel):
     @property
     def enrichment(self):
         return self.material.enrichment
+    
+    @property
+    def real_density(self):
+        return self.model.real_density
+    
+    def generate_base_mat(self):
+        base_mat=self.material.generate_base_mat(self.real_density)
+        return base_mat
+    
+    @classmethod
+    def generate_base_mat_lst(cls):
+        objs=cls.objects.all()
+        base_mat_lst=[]
+        for obj in objs:
+            base_mat=obj.generate_base_mat()
+            base_mat_lst.append(base_mat)
+            
+        return base_mat_lst
         
     def __str__(self):
         return '{} {} {}'.format(self.pk,self.model,self.material)
@@ -1975,16 +2146,15 @@ class ControlRodType(BaseModel):
     reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_types',blank=True,null=True)
     active_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)  
     black=models.BooleanField(default=True)
-    #absorb_material=models.ForeignKey(Material,related_name='control_rod_absorb')
-    #absorb_length=models.DecimalField(max_digits=9, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #absorb_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #cladding_material=models.ForeignKey(Material,related_name='control_rod_cladding')
-    #cladding_inner_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #cladding_outer_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #radial_map=models.ManyToManyField(Material,through='ControlRodRadialMap')
+    radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     class Meta:
         db_table='control_rod_type'
         #verbose_name='Control rod'
+    
+    
+    def get_active_volume(self,active_height):
+        radius=self.radius
+        return Decimal(math.pi)*radius**2*active_height
         
     @property
     def height_lst(self):
@@ -2019,18 +2189,14 @@ class ControlRodType(BaseModel):
             section=self.sections.get(section_num=section_num)
             return section.material_transection.pk
         
-    def generate_base_pin_lst(self,guide_tube):
+    def generate_material_transection_set(self):
         sections=self.sections.all()
-        material_transection_lst=[]
-        base_pin_lst=[]
+        material_transection_set=set()
         for section in sections:
-            material_transection=section.material_transection
-            if material_transection not in material_transection_lst:
-                material_transection_lst.append(material_transection)
-                base_pin_xml=section.generate_base_pin_xml(guide_tube=guide_tube)
-                base_pin_lst.append(base_pin_xml)
-        
-        return base_pin_lst
+            material_transection=section.material_transection.pk
+            material_transection_set.add(material_transection)
+        return material_transection_set
+    
     def __str__(self):
         if self.black:  
             return "{} black rod {}".format(self.reactor_model, self.active_length)
@@ -2069,37 +2235,6 @@ class ControlRodSection(BaseModel):
     def pin_id(self):
         return self.material_transection.pin_id
     
-    def generate_base_pin_xml(self,guide_tube):
-        doc=minidom.Document()
-        base_pin_xml=doc.createElement('base_pin')
-        ID=self.pin_id
-        radial_map=self.material_transection.radial_materials.order_by('radius')
-        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
-  
-        #insert into guide tube
-        radii_lst=list(radii_tup)
-        radii_lst.append(str(guide_tube.upper_inner_diameter/2))
-        radii_lst.append(str(guide_tube.upper_outer_diameter/2))
-        mat_lst=list(mat_tup)
-        mat_lst.append('MOD')
-        mat_lst.append(guide_tube.material.prerobin_identifier)
-        
-        radii=','.join(radii_lst)
-        mat=','.join(mat_lst)
-        
-        ID_xml=doc.createElement('ID')
-        ID_xml.appendChild(doc.createTextNode(ID))
-        base_pin_xml.appendChild(ID_xml)
-        
-        radii_xml=doc.createElement('radii')
-        radii_xml.appendChild(doc.createTextNode(radii))
-        base_pin_xml.appendChild(radii_xml)
-        
-        mat_xml=doc.createElement('mat')
-        mat_xml.appendChild(doc.createTextNode(mat))
-        base_pin_xml.appendChild(mat_xml)
-        
-        return base_pin_xml
     
     def __str__(self):
         return '{} {}'.format(self.control_rod_type,self.section_num)
@@ -2138,7 +2273,7 @@ class NozzlePlugRod(BaseModel):
     
 class BurnablePoisonRod(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='bp_rod')
-    length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm')
+    #length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm')
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm') 
     bottom_height=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of fuel active part')                 
     class Meta:
@@ -2148,7 +2283,17 @@ class BurnablePoisonRod(BaseModel):
     def height_lst(self):
         sections=self.sections.all()
         height_lst=[section.bottom_height for section in sections]
+        #append the top part
+        top_height=self.bottom_height+self.active_length
+        fuel_active_height=self.fuel_assembly_model.active_length
+        #bp is not long enough
+        if top_height<fuel_active_height:
+            height_lst.append(top_height)
         return height_lst
+    
+    @property
+    def max_section_num(self):
+        return self.sections.aggregate(Max('section_num'))['section_num__max']
     
     def which_section(self,height):
         '''
@@ -2175,7 +2320,7 @@ class BurnablePoisonRod(BaseModel):
         0 represents no bpa
         '''
         section_num=self.which_section(height)
-        if section_num==0:
+        if section_num==0 or section_num>self.max_section_num:
             return 0
         else:
             section=self.sections.get(section_num=section_num)
@@ -2279,9 +2424,10 @@ class BurnablePoisonAssembly(BaseModel):
     
     
     def generate_transection(self,height):
+        side_num=self.side_pin_num
+        rod_positions=self.rod_positions.all()
+        transection={}
         if self.symmetry:
-            rod_positions=self.rod_positions.all()
-            transection={}
             for rod_position in rod_positions:
                 if rod_position.in_triangle:
                     row=rod_position.row
@@ -2291,10 +2437,18 @@ class BurnablePoisonAssembly(BaseModel):
                     #has bpa at this height
                     if rod_transection_pk!=0:
                         transection[(row,column)]=rod_transection_pk
-            return transection
+            
         else:
-            return None
-    
+            for rod_position in rod_positions:
+                position_4th=rod_position.reflect_4th_quandrant()
+                if in_triangle(position_4th[0],position_4th[1],side_num):
+                    bpr=rod_position.burnable_poison_rod
+                    rod_transection_pk=bpr.which_transection(height)
+                    #has bpa at this height
+                    if rod_transection_pk!=0:
+                        transection[position_4th]=rod_transection_pk
+        
+        return transection
     def get_poison_rod_num(self):
         num=self.rod_positions.count()
         return num  
@@ -2334,39 +2488,47 @@ class BurnablePoisonAssemblyMap(BaseModel):
     
     class Meta:
         db_table='burnable_poison_assembly_map'
-            
+        
+    @property
+    def side_num(self):
+        return self.burnable_poison_assembly.side_pin_num 
     @property    
     def position(self):
         return self.burnable_poison_assembly.fuel_assembly_model.positions.get(row=self.row,column=self.column)
     
+    def get_position(self):
+        side_num=self.side_num 
+        row=self.row
+        column=self.column 
+        return (row,column,side_num)
+    
     @property
     def in_triangle(self):
         '''to check if this position is in the 1/8 part to be calculated
-        2|1
+        1|2
         ---
         3|4
         the lower triangle of quadrant 4
         '''
-        side_num=self.burnable_poison_assembly.side_pin_num 
-        half=int(side_num/2)+1
-        row=self.row
-        column=self.column
-        if row>=half and column>=half and column<=row:
-            return True
-        else:
-            return False
+        position=self.get_position()
+        return in_triangle(position[0], position[1], position[2])
+    
+    def generate_quadrant_symbol(self):
+        position=self.get_position()
+        return generate_quadrant_symbol(position[0], position[1], position[2])
+    
+    def reflect_4th_quandrant(self):
+        position=self.get_position()
+        return reflect_4th_quandrant(position[0], position[1], position[2])
     
     def __str__(self):
         return "{} R{}C{}".format(self.burnable_poison_assembly,self.row,self.column)
     
 
 class BurnablePoisonAssemblyLoadingPattern(BaseModel):
-    
     cycle=models.ForeignKey(Cycle,related_name='bpa_loading_patterns')
     reactor_position=models.ForeignKey(ReactorPosition)
     burnable_poison_assembly=models.ForeignKey(BurnablePoisonAssembly)
-    
-    
 
     class Meta:
         db_table='burnable_poison_assembly_loading_pattern'
@@ -2545,19 +2707,17 @@ class ControlRodAssemblyMap(BaseModel):
     @property
     def in_triangle(self):
         '''to check if this position is in the 1/8 part to be calculated
-        2|1
+        1|2
         ---
         3|4
         the lower triangle of quadrant 4
         '''
         side_num=self.control_rod_assembly_type.side_pin_num 
-        half=int(side_num/2)+1
         row=self.row
         column=self.column
-        if row>=half and column>=half and column<=row:
-            return True
-        else:
-            return False
+        return in_triangle(row, column, side_num)
+        
+
         
     def __str__(self):
         return '{} {}'.format(self.control_rod_assembly_type,self.control_rod_type)

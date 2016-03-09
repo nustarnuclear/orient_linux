@@ -1,4 +1,16 @@
 eclipse.preferences.version=1
 encoding//calculation/migrations/0001_initial.py=utf-8
 encoding//calculation/migrations/0012_auto_20151113_1403.py=utf-8
+encoding//calculation/migrations/0019_auto_20151215_1053.py=utf-8
+encoding//calculation/migrations/0030_auto_20160129_1414.py=utf-8
+encoding//calculation/migrations/0032_prerobinmodel_default.py=utf-8
+encoding//calculation/migrations/0035_prerobintask_fuel_assembly_type.py=utf-8
+encoding//calculation/migrations/0042_auto_20160307_1638.py=utf-8
 encoding//tragopan/migrations/0022_auto_20151130_1455.py=utf-8
+encoding//tragopan/migrations/0031_remove_material_material_composition.py=utf-8
+encoding//tragopan/migrations/0032_auto_20151229_1220.py=utf-8
+encoding//tragopan/migrations/0042_auto_20160111_1423.py=utf-8
+encoding//tragopan/migrations/0054_auto_20160114_1049.py=utf-8
+encoding//tragopan/migrations/0078_auto_20160127_1542.py=utf-8
+encoding//tragopan/migrations/0079_auto_20160127_1557.py=utf-8
+encoding//tragopan/migrations/0080_auto_20160127_1618.py=utf-8

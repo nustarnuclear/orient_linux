@@ -1,8 +1,10 @@
 #!/usr/local/bin/python3.4
 import os
-from subprocess import Popen
+from subprocess import Popen,PIPE
 from argparse import ArgumentParser,RawDescriptionHelpFormatter
 import textwrap
+from datetime import datetime
+logfile="myprerobin.log"
 os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib'
 DEFAULT_PreROBIN_VERSION=120
 parser = ArgumentParser(prog='PreROBIN',description='Begin PreROBIN calculation',
@@ -25,9 +27,29 @@ input_file=args_dic['input_file']
 
     
 if input_file:
+    log_file=open(logfile,mode='a',buffering=1) 
     if input_file.endswith('.inp'):
         input_file=input_file.rstrip('.inp')
-    print(input_file)   
-    process=Popen(['/opt/nustar/bin/PreROBIN%d'%DEFAULT_PreROBIN_VERSION,'-i',input_file])
-    process.wait()
+        
+    cwd=os.getcwd()
+    log_file.write('PreROBIN version is %s\n'%DEFAULT_PreROBIN_VERSION)
+    log_file.write('Current working directory is %s\n'%cwd)
+    start_time=datetime.now()
+    log_file.write('PreROBIN starts at %s\n'%start_time)
+ 
+    with Popen(['/opt/nustar/bin/PreROBIN%d'%DEFAULT_PreROBIN_VERSION,'-i',input_file],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
+        outs,errs=proc.communicate()
+        
+        if errs:
+            wrong_time=datetime.now() 
+            log_file.write('PreROBIN went wrong at %s\n'%wrong_time)
+            log_file.write('ERROR code is %s\n'%errs)
+            log_file.close()
+            raise AssertionError('A PreROBIN error happened,code is %s'%errs)
+            
+            
+    end_time=datetime.now()   
+    log_file.write('PreROBIN ends at %s\n'%end_time)
+    log_file.write('Time costs  %s\n'%(end_time-start_time))
+    log_file.close()
     

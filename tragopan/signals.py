@@ -1,8 +1,7 @@
 from django.db.models.signals import post_save,pre_delete
 from django.dispatch import receiver
-from tragopan.models import OperationMonthlyParameter,OperationBankPosition,OperationDistributionData
+from tragopan.models import OperationMonthlyParameter,OperationBankPosition,OperationDistributionData,Material,BasicMaterial
 from tragopan.functions import OperationDataHandler
-
 @receiver(post_save,sender=OperationMonthlyParameter)
 def parse_raw_file(sender, instance, created=False, **kwargs):
     if created:
@@ -73,3 +72,14 @@ def del_raw_file(sender, instance, **kwargs):
         print("%s has been deleted successfully"%instance.cycle)
     except:
         pass
+    
+    
+@receiver(post_save,sender=BasicMaterial)
+def generate_material_lib(sender, instance, **kwargs): 
+    BasicMaterial.generate_material_lib()
+    
+@receiver(post_save,sender=Material)
+def generate_material_databank_xml(sender, instance, **kwargs): 
+    Material.generate_material_databank_xml()
+   
+    
