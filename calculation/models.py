@@ -15,6 +15,7 @@ from django.core.files import File
 import time
 from decimal import Decimal
 import socket
+
 # Create your models here.
 TASK_STATUS_CHOICES=(
                          (0,'waiting'),
@@ -141,7 +142,7 @@ class Server(models.Model):
     name=models.CharField(max_length=32,unique=True)
     IP=models.GenericIPAddressField(unique=True)
     status=models.CharField(max_length=1,default="A",choices=STATUS_CHOICES)
-    
+    queue=models.CharField(max_length=32,unique=True)
     class Meta:
         db_table="server"
         
@@ -1331,9 +1332,12 @@ class RobinTask(models.Model):
         return input_filename.rstrip(".inp")+".out1"
     
     def start_calculation(self):
+        queue=self.pre_robin_task.server.queue
         s=signature('calculation.tasks.robin_calculation_task', args=(self.pk,))
         s.freeze()
-        s.delay()
+        s.apply_async(queue=queue)
+       
+        
       
         
     def __str__(self):

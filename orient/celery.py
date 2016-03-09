@@ -9,7 +9,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'orient.settings')
 
 from django.conf import settings  # noqa
 
-app = Celery('orient')
+app = Celery('orient',broker = 'amqp://django:django@192.168.1.139:5672/')
 
 # Using a string here means the worker will not have to
 # pickle the object when using Windows.
