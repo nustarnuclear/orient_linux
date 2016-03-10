@@ -73,6 +73,7 @@ def robin_calculation_task(pk):
     else:
         robin_instance.task_status=4
         
+    robin_instance.save()    
     #upload log and output file
     if mainhost!=myhost:
         log_filename=robin_instance.get_log_filename()
@@ -80,8 +81,8 @@ def robin_calculation_task(pk):
         ftp=FTP(mainhost.IP)
         ftp.login(user="django",passwd="django")
         ftp.cwd(cwd)
-        ftp.storbinary("STOR %s"%log_filename, open(log_filename,"wb").write)
-        ftp.storbinary("STOR %s"%output_filename, open(output_filename,"wb").write)
+        ftp.storbinary("STOR %s"%log_filename, open(log_filename,"rb").read)
+        ftp.storbinary("STOR %s"%output_filename, open(output_filename,"rb").read)
         ftp.quit() 
         
         #remove files if not at localhost

@@ -121,10 +121,20 @@ admin.site.register(DepletionState, DepletionStateAdmin)
 class RobinTaskInline(admin.TabularInline):
     model=RobinTask
     extra=0
-    fields = ('name', 'input_file', 'task_status','start_time','end_time',)
-    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time',)
+    fields = ('name', 'input_file', 'task_status','start_time','end_time','logfile_link','outfile_link')
+    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time','logfile_link','outfile_link')
     def has_add_permission(self,request):
         return False
+    
+    def logfile_link(self, item):
+        url = item.get_logfile_url()
+        return format_html(u'<a href="{url}">Get log file</a>', url=url)
+    logfile_link.short_description = 'Get log file'
+    
+    def outfile_link(self, item):
+        url = item.get_outfile_url()
+        return format_html(u'<a href="{url}">Get out file</a>', url=url)
+    outfile_link.short_description = 'Get out file'
     
 class PreRobinTaskAdmin(admin.ModelAdmin):
     #add_form_template="calculation/change_form_template.html"
