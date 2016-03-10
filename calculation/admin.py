@@ -4,10 +4,12 @@ from django.conf.urls import url
 from django.core.urlresolvers import reverse
 from django.shortcuts import redirect
 from django.contrib import messages
+from django.utils.html import format_html_join
+from django.utils.safestring import mark_safe
 # Register your models here.
 
 class ServerAdmin(admin.ModelAdmin):
-    pass
+    list_display=("name","IP","queue","available")
 admin.site.register(Server,ServerAdmin)
 
 class PreRobinModelAdmin(admin.ModelAdmin):
@@ -85,7 +87,6 @@ class AssemblyLaminationInline(admin.TabularInline):
     readonly_fields=('height','pre_robin_task')
     #show_change_link=True
 class PreRobinInputAdmin(admin.ModelAdmin):
-    
     change_form_template="calculation/auto_cut.html"
     exclude=('remark','user')
     inlines=[AssemblyLaminationInline,]
@@ -120,14 +121,15 @@ admin.site.register(DepletionState, DepletionStateAdmin)
 class RobinTaskInline(admin.TabularInline):
     model=RobinTask
     extra=0
-    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time')
+    fields = ('name', 'input_file', 'task_status','start_time','end_time',)
+    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time',)
     def has_add_permission(self,request):
         return False
     
 class PreRobinTaskAdmin(admin.ModelAdmin):
     #add_form_template="calculation/change_form_template.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status')
+    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
@@ -173,7 +175,7 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
     def start_idyll_view(self,request, *args, **kwargs):
         pk=kwargs['pk']
         obj = PreRobinTask.objects.get(pk=pk)
-        if obj.robin_tasks.exclude(task_status=4).exists():  
+        if not obj.robin_finished:  
             self.message_user(request, 'Your need to wait all robin tasks finished',messages.WARNING)
         else:
             obj.start_idyll()
@@ -183,7 +185,18 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
 admin.site.register(PreRobinTask, PreRobinTaskAdmin)
 
 class RobinTaskAdmin(admin.ModelAdmin):
-    list_display=('pk','__str__')
+    list_display=('pk','__str__',"logfile_link","outfile_link")
+    
+    def logfile_link(self, item):
+        url = item.get_logfile_url()
+        return format_html(u'<a href="{url}">Get log file</a>', url=url)
+    logfile_link.short_description = 'Get log file'
+    
+    def outfile_link(self, item):
+        url = item.get_outfile_url()
+        return format_html(u'<a href="{url}">Get out file</a>', url=url)
+    logfile_link.short_description = 'Get out file'
+    
 admin.site.register(RobinTask, RobinTaskAdmin)
 
 class IbisAdmin(admin.ModelAdmin):

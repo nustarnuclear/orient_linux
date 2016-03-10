@@ -15,6 +15,7 @@ from django.core.files import File
 import time
 from decimal import Decimal
 import socket
+from django.utils.html import format_html,mark_safe
 
 # Create your models here.
 TASK_STATUS_CHOICES=(
@@ -136,15 +137,24 @@ media_url=settings.MEDIA_URL
 #concrete model in DATABASE
 
 class Server(models.Model):
-    STATUS_CHOICES=(("A","available"),
-                    ("B","busy"),
-    )
+#     STATUS_CHOICES=(("A","available"),
+#                     ("B","busy"),
+#     )
     name=models.CharField(max_length=32,unique=True)
     IP=models.GenericIPAddressField(unique=True)
-    status=models.CharField(max_length=1,default="A",choices=STATUS_CHOICES)
+    #status=models.CharField(max_length=1,default="A",choices=STATUS_CHOICES)
     queue=models.CharField(max_length=32,unique=True)
     class Meta:
         db_table="server"
+        
+    @property
+    def available(self):
+        pre_robin_tasks=self.pre_robin_tasks.all()
+        for task in pre_robin_tasks:
+            if not task.robin_finished:
+                return False
+        
+        return True
         
     def __str__(self):
         return "{} {}".format(self.name, self.IP)
@@ -802,7 +812,7 @@ class DepletionState(models.Model):
         return "{} {}".format(self.pk,self.system_pressure)
     
 def server_default():
-    available_servers=Server.objects.filter(status="A")
+    available_servers=Server.objects.exclude(name="localhost")
     if available_servers.exists():
         return available_servers.first().pk
     else:
@@ -817,7 +827,7 @@ class PreRobinTask(BaseModel):
     depletion_state=models.ForeignKey(DepletionState)
     pre_robin_model=models.ForeignKey(PreRobinModel)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
-    server=models.ForeignKey(Server,default=server_default)
+    server=models.ForeignKey(Server,related_name="pre_robin_tasks",default=server_default)
     class Meta:
         db_table='pre_robin_task'
         
@@ -1191,6 +1201,9 @@ class PreRobinTask(BaseModel):
         return return_code
         
     def start_robin(self):
+        #server=self.server
+        #server.status="B"
+        #server.save(update_fields=['status'])
         robin_tasks=self.robin_tasks.all()
         for robin_task in robin_tasks:
             #if waiting
@@ -1293,6 +1306,13 @@ class PreRobinTask(BaseModel):
         process=Popen(['/opt/nustar/bin/myidyll',"IBIS.INP"])
         return_code=process.wait()
         return return_code
+    
+    @property    
+    def robin_finished(self):
+        if self.robin_tasks.exclude(task_status=4).exists():
+            return False
+        else:
+            return True
         
     def __str__(self):
         return "{} {}".format(self.pk,self.fuel_assembly_type)
@@ -1314,6 +1334,8 @@ class RobinTask(models.Model):
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
+    #output_file=models.FileField(upload_to=get_robintask_upload_path,blank=True,null=True)
+    #log_file=models.FileField(upload_to=get_robintask_upload_path,blank=True,null=True)
     #calculation_identity=models.CharField(max_length=128,blank=True)
     class Meta:
         db_table='robin_task'
@@ -1331,14 +1353,26 @@ class RobinTask(models.Model):
         input_filename=self.get_input_filename()
         return input_filename.rstrip(".inp")+".out1"
     
+    def get_log_filename(self):
+        input_filename=self.get_input_filename()
+        return input_filename.rstrip(".inp")+".log"
+
+    def get_logfile_url(self):
+        input_fileurl=self.input_file.url
+        url=input_fileurl.rstrip(".inp")+".log"
+        return url
+    
+    def get_outfile_url(self):
+        input_fileurl=self.input_file.url
+        url=input_fileurl.rstrip(".inp")+".out1"
+        return url
+    
     def start_calculation(self):
-        queue=self.pre_robin_task.server.queue
+        server=self.pre_robin_task.server
+        queue=server.queue
         s=signature('calculation.tasks.robin_calculation_task', args=(self.pk,))
         s.freeze()
-        s.apply_async(queue=queue)
-       
-        
-      
+        s.apply_async(queue=queue)     
         
     def __str__(self):
         return self.name
