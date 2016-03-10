@@ -5,7 +5,6 @@ import os
 from subprocess import Popen
 from calculation.models import EgretTask,RobinTask,Server,get_ip
 from ftplib import FTP
-from django.core.files import File
 import shutil
 @shared_task
 def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
@@ -81,8 +80,8 @@ def robin_calculation_task(pk):
         ftp=FTP(mainhost.IP)
         ftp.login(user="django",passwd="django")
         ftp.cwd(cwd)
-        ftp.storbinary("STOR %s"%log_filename, open(log_filename,"rb").read)
-        ftp.storbinary("STOR %s"%output_filename, open(output_filename,"rb").read)
+        ftp.storbinary("STOR %s"%log_filename, open(log_filename,"rb"))
+        ftp.storbinary("STOR %s"%output_filename, open(output_filename,"rb"))
         ftp.quit() 
         
         #remove files if not at localhost
