@@ -1,0 +1,14 @@
+{% extends "admin/change_list.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools %}
+    <ul class="grp-object-tools">
+        {% block object-tools-items %}
+        	{{ block.super }} 
+        	<li><a href="{% url "admin:caculation_prerobininput_auto_add_link" %}" target="_blank">Auto add link</a></li>
+            <li><a href="{% url "admin:caculation_prerobininput_auto_cut_all" %}" class="grp-state-focus">Auto cut all</a></li>
+            <li><a href="{% url "admin:caculation_prerobininput_refresh_base_component" %}" class="grp-state-focus">Refresh base component</a></li>
+            <li><a href="{% url "admin:caculation_prerobininput_refresh_loading_pattern" %}" class="grp-state-focus">Refresh loading pattern</a></li>
+        {% endblock %}
+    </ul>
+{% endblock %}

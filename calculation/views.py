@@ -47,7 +47,6 @@ def egret_task(request,format=None):
                     return Response(data=error_message,status=550)
     
             except Exception as e:
-                print(e)
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
             while True:
@@ -59,7 +58,6 @@ def egret_task(request,format=None):
                     time.sleep(1)
                     task.refresh_from_db()
                     
-            print('stop operation finished')
             return Response(data={'sucess_message':'stop operation finished'},status=200)
             
             
@@ -76,7 +74,6 @@ def egret_task(request,format=None):
                 task.delete()     
                 return Response(data={'sucess_message':'delete operation finished'},status=200)
             except Exception as e:
-                print(e)
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
         # cancel operation
@@ -87,17 +84,14 @@ def egret_task(request,format=None):
                 task.task_status=5
                 task.end_time=datetime.now()
                 task.save()
-                print('cancel operation finished')
                 return Response(data={'sucess_message':'cancel operation finished'},status=200)
             
             except Exception as e:
-                print(e)
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
             
         else:
             error_message={'error_message':'the operation type is not supported yet'}
-            print(error_message)
             return Response(data=error_message,status=404)
         
         
@@ -105,8 +99,7 @@ def egret_task(request,format=None):
     if request.method == 'GET':
         try:
             query_params=request.query_params
-            pk=query_params['pk']
-            
+            pk=query_params['pk'] 
             loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
             user=request.user
             same_group_users=get_same_group_users(user)  
@@ -118,7 +111,6 @@ def egret_task(request,format=None):
             serializer = EgretTaskSerializer(task_list,many=True)
             return Response(data=serializer.data)
         except Exception as e:
-            print(e)
             error_message={'error_message':e}
             return Response(data=error_message,status=404)
         
@@ -143,14 +135,12 @@ def egret_task(request,format=None):
                     pre_task.locked=True
                     pre_task.save()
                 
-                
             #get loading pattern pk
             loading_pattern=MultipleLoadingPattern.objects.get(pk=query_params['pk']) if 'pk' in query_params else None 
             
             
         except Exception as e:
             error_message={'error_message':e}
-            print(e)
             return Response(data=error_message,status=404)      
             
         #start creating egret task
@@ -159,9 +149,6 @@ def egret_task(request,format=None):
             task_instance.full_clean()
             task_instance.save()
             current_workdirectory=task_instance.get_cwd()
-            #workspace_dir=os.path.join(current_workdirectory,'.workspace')
-            #xml_path=os.path.join(workspace_dir,task_instance.get_lp_res_filename()+'.xml')
-            #task_instance.result_path=xml_path
             task_instance.save()
             
             #change directory to current task directory
@@ -181,7 +168,6 @@ def egret_task(request,format=None):
         
         except Exception as e:
             error_message={'error_message':e}
-            print(e)
             return Response(data=error_message,status=404)
         
         
@@ -219,7 +205,6 @@ def egret_task(request,format=None):
                 task_name=query_params['task_name']
                 if not request.user.is_superuser:
                     error_message={'error_message':"you have no permission"}
-                    print(error_message)
                     return Response(data=error_message,status=550)
                     
                 task_instance.authorized=int(authorized)
@@ -269,7 +254,6 @@ def egret_task(request,format=None):
                 
                 #copy the files
                 new_cwd=os.path.join(os.path.dirname(cwd),new_name)
-                print(new_cwd)
                 shutil.copytree(cwd, new_cwd, symlinks=True,)
                 
                 success_message={'success_message':'your request has been handled successfully',}
@@ -277,13 +261,11 @@ def egret_task(request,format=None):
             
             else:
                 error_message={'error_message':'the updated type is not supported yet'}
-                print(error_message)
                 return Response(data=error_message,status=404)
             
                 
         except Exception as e:
             error_message={'error_message':e}
-            print(e)
             return Response(data=error_message,status=404)
             
         
@@ -500,5 +482,7 @@ def extra_updating(request,format=None):
             error_message={'error_message':e}
             print(e)
             return Response(data=error_message,status=404)
+        
+
         
 

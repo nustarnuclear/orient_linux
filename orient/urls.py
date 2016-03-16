@@ -9,6 +9,7 @@ from rest_framework import permissions, routers, serializers, viewsets
 from rest_framework.authentication import SessionAuthentication, BasicAuthentication
 from rest_framework.authtoken import views as authtokenviews
 from . import views
+from django.views.generic import RedirectView
 
 # first we define the serializers
 class UserSerializer(serializers.HyperlinkedModelSerializer):
@@ -49,6 +50,7 @@ router.register(r'groups', GroupViewSet)
 
 urlpatterns = [
     url(r'^', include(router.urls)),
+    url(r'^favicon.ico$', RedirectView.as_view(url='/static/admin/img/favicon.ico', permanent=True)),    
     url(r'^admin/filebrowser/', include(site.urls)),
     url(r'^grappelli/', include('grappelli.urls')), # grappelli URLS
     url(r'^admin/', include(admin.site.urls)),

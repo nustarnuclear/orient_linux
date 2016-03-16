@@ -13,6 +13,7 @@ import tempfile
 import math
 from xml.dom import minidom
 from decimal import Decimal
+import calculation
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
@@ -469,34 +470,7 @@ class MaterialWeightComposition(BaseModel):
     def __str__(self):
         return "{} {}".format(self.mixture, self.basic_material)   
     
-''' 
-class MixtureComposition(BaseModel):
-    mixture=models.ForeignKey(Material,related_name='mixtures',)
-    material=models.ForeignKey(Material)
-    percent=models.DecimalField(max_digits=8, decimal_places=5,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
-    class Meta:
-        db_table='mixture_composition'
-        verbose_name='Volume Composition'
-        verbose_name_plural='Volume Composition'
-             
-    def __str__(self):
-        return "{} {}".format(self.mixture, self.material)
-                
-   
-class MaterialAttribute(BaseModel):
-    material=models.OneToOneField(Material,related_name='attribute')
-    density=models.DecimalField(max_digits=15, decimal_places=5,help_text=r'unit:g/cm3')
-    heat_capacity=models.DecimalField(max_digits=15, decimal_places=5,help_text=r'J/kg*K',blank=True,null=True)
-    thermal_conductivity=models.DecimalField(max_digits=15, decimal_places=5,help_text=r'W/m*K',blank=True,null=True)
-    expansion_coefficient=models.DecimalField(max_digits=15, decimal_places=5,help_text=r'm/K',blank=True,null=True)
-    code = models.CharField(max_length=10, blank=True)
-    class Meta:
-        db_table='material_attribute'
-        
-    def __str__(self):
-        return str(self.material)+"'s attribute"
-    
-'''
+
     
 class Vendor(BaseModel):
     TYPE_CHOICES=(
@@ -593,12 +567,12 @@ class ReactorModel(BaseModel):
     fuel_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     core_equivalent_diameter = models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     active_height= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #cold_state_assembly_pitch= models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    #hot_state_assembly_pitch = models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     vendor = models.ForeignKey(Vendor)  
     thermal_couple_position=models.ManyToManyField('ReactorPosition',related_name='thermal_couple_position',db_table='thermal_couple_map',blank=True,)
     incore_instrument_position=models.ManyToManyField('ReactorPosition',related_name='incore_instrument_position',db_table='incore_instrument_map',blank=True,)
-   
+    boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
+    fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
+    moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
     class Meta:
         db_table = 'reactor_model'
         
@@ -606,9 +580,7 @@ class ReactorModel(BaseModel):
         positions=self.positions.all()
         max_row=positions.aggregate(Max('row'))['row__max']
         max_column=positions.aggregate(Max('column'))['column__max']
-        return [max_row,max_column]
-    
-
+        return [max_row,max_column]    
     
     def __str__(self):
         return '{}'.format(self.name)  
@@ -820,9 +792,9 @@ class UnitParameter(BaseModel):
     HFP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
     HFP_core_ave_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
     mid_power_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
-    boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
-    fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
-    moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
+#     boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
+#     fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
+#     moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
     class Meta:
         db_table = 'unit_parameter'
         unique_together = ('plant', 'unit')
@@ -831,6 +803,19 @@ class UnitParameter(BaseModel):
     def unit_dir(self):
         plant=self.plant
         return os.path.join(plant.plant_dir,'unit'+str(self.unit))
+    
+    @property
+    def boron_density(self):
+        return self.reactor_model.boron_density
+    
+    @property
+    def fuel_temperature(self):
+        return self.reactor_model.fuel_temperature
+    
+    @property
+    def moderator_temperature(self):
+        return self.reactor_model.moderator_temperature
+    
     
     @property     
     def depletion_state_lst(self):
@@ -882,7 +867,14 @@ class UnitParameter(BaseModel):
             if result_cycle.fuel_assembly_loading_patterns.all():
                 return result_cycle
             result_cycle=result_cycle.get_pre_cycle()
-    get_current_cycle.short_description='current cycle'   
+    get_current_cycle.short_description='current cycle' 
+    
+    def generate_base_fuel_set(self):
+        cycles=self.cycles.all()  
+        base_fuel_set=set()
+        for cycle in cycles:
+            base_fuel_set.update(cycle.generate_base_fuel_set())
+        return base_fuel_set
     
     def __str__(self):
         return '{} U{}'.format(self.plant, self.unit)
@@ -1091,7 +1083,22 @@ class Cycle(BaseModel):
         doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
         
         return f
-            
+    
+    def generate_base_fuel_set(self):
+        base_fuel_set=set()
+        fuel_assembly_loading_patterns=self.fuel_assembly_loading_patterns.all()
+        bpa_loading_patterns=self.bpa_loading_patterns.all()
+        for fuel_assembly_loading_pattern in fuel_assembly_loading_patterns:
+            reactor_position=fuel_assembly_loading_pattern.reactor_position
+            fuel_assembly_type=fuel_assembly_loading_pattern.fuel_assembly.type
+            try:
+                bpa_loading_pattern=bpa_loading_patterns.get(reactor_position=reactor_position)
+                burnable_poison_assembly=bpa_loading_pattern.burnable_poison_assembly.get_symmetry_bpa()
+            except:
+                burnable_poison_assembly=None
+                
+            base_fuel_set.add((fuel_assembly_type,burnable_poison_assembly))
+        return base_fuel_set
             
         
     def __str__(self):
@@ -1176,7 +1183,7 @@ class FuelAssemblyLoadingPattern(BaseModel):
         
     def get_grid(self):
         fuel_assembly=self.fuel_assembly
-        grids=fuel_assembly.type.model.grid_pos.all()
+        grids=fuel_assembly.type.model.grid_positions.all()
         tmp_lst=[]
         for grid in grids:
             tmp=grid.grid.functionality+"("+str(grid.height)+")"
@@ -1287,7 +1294,7 @@ class FuelAssemblyModel(BaseModel):
 
 class FuelAssemblyType(BaseModel):
     model=models.ForeignKey(FuelAssemblyModel)
-    assembly_enrichment=models.DecimalField(max_digits=4, decimal_places=3,validators=[MinValueValidator(0)],help_text='meaningful only if using the one unique enrichment fuel',blank=True,null=True)
+    assembly_enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0)],help_text='meaningful only if using the one unique enrichment fuel',blank=True,null=True)
     map=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
     symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
     class Meta:
@@ -1369,8 +1376,26 @@ class FuelAssemblyType(BaseModel):
         fuel_map_xml=doc.createElement('fuel_map')
         fuel_map_xml.appendChild(doc.createTextNode(fuel_map))
         return fuel_map_xml
-                
-        
+    
+    def get_fuel_element_type(self):
+        enrichment=self.assembly_enrichment
+        fuel_element_types=FuelElementType.objects.filter(model__fuel_assembly_model=self.model)
+        for fuel_element_type in fuel_element_types:
+            if fuel_element_type.enrichment==enrichment:
+                return fuel_element_type
+    def insert_fuel(self):
+        '''only available if all fuel element is the same 
+        '''
+        fuel_element_type=self.get_fuel_element_type()
+        positions=self.model.positions.filter(type="fuel")
+        num=0
+        for position in positions:
+            try:
+                FuelElementTypePosition.objects.create(fuel_assembly_type=self,fuel_assembly_position=position,fuel_element_type=fuel_element_type)
+                num+=1
+            except:
+                pass
+        return num
         
     def __str__(self):
         return "{} {} {}".format(self.pk,self.model,self.assembly_enrichment)  
@@ -1517,7 +1542,7 @@ class FuelElementTypePosition(BaseModel):
 
 
 class GridPosition(BaseModel):
-    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grid_pos')
+    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grid_positions')
     grid=models.ForeignKey('Grid')
     height= models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm Base on bottom of fuel') 
     
@@ -1958,16 +1983,8 @@ class FuelElementType(BaseModel):
             return None
         
     def __str__(self):
-        obj=FuelElementType.objects.get(pk=self.pk)
-        ctr=obj.fuel_pellet_map.all().first()
-        if  ctr:
-            fp=ctr.fuel_pellet_type
-            mt=fp.material
-            
-        else:
-            mt=''
         
-        return "{} {} {}".format(self.pk,self.model,mt)
+        return "{} {}".format(self.model,self.enrichment)
     
     
 class UpperCap(BaseModel):
@@ -2408,6 +2425,7 @@ class BurnablePoisonAssembly(BaseModel):
         db_table='burnable_poison_assembly'
         #verbose_name='Burnable absorber rod pattern'
         verbose_name_plural='burnable poison assemblies'
+        order_with_respect_to="fuel_assembly_model"
     @property
     def height_lst(self):
         rods=self.map.all()
@@ -2462,7 +2480,7 @@ class BurnablePoisonAssembly(BaseModel):
             if symbol not in symbol_lst:
                 symbol_lst.append(symbol)
         
-        return symbol_lst
+        return sorted(symbol_lst)
     
     def get_substitute_bpa(self):
         quadrant_symbol=self.get_quadrant_symbol()
@@ -2475,6 +2493,23 @@ class BurnablePoisonAssembly(BaseModel):
             for sub_bpa in sub_bpas:
                 if sub_bpa.get_poison_rod_num()==sub_num:
                         return sub_bpa
+            
+    def get_symmetry_bpa(self):
+        if self.symmetry:
+            return self
+        else:
+            poison_rod_num=self.get_poison_rod_num()
+            quadrant_symbol_lst=self.get_quadrant_symbol()
+            if quadrant_symbol_lst in [[1],[2],[3],[4]]:
+                index=[1]
+            elif quadrant_symbol_lst in [[1,2],[1,3],[3,4],[2,4]]:
+                index=[1,2]
+            elif quadrant_symbol_lst in [[1,2,3],[2,3,4],[1,2,4],[1,3,4]]:
+                index=[1,2,3]
+            
+            for item in BurnablePoisonAssembly.objects.filter(fuel_assembly_model=self.fuel_assembly_model):
+                if item.get_poison_rod_num()==poison_rod_num and item.get_quadrant_symbol()==index:
+                    return item
             
     def __str__(self):
         num=self.rod_positions.count()
@@ -2575,8 +2610,10 @@ class ControlRodAssemblyType(BaseModel):
     side_pin_num=models.PositiveSmallIntegerField(default=17)
     map=models.ManyToManyField(ControlRodType,through='ControlRodAssemblyMap')
     symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
+    overall_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',default=400)
     class Meta:
         db_table='control_rod_assembly_type'
+        order_with_respect_to = 'reactor_model'
         
     @property
     def type(self):
@@ -2587,6 +2624,45 @@ class ControlRodAssemblyType(BaseModel):
             if not control_rod.black:
                 return 2
         return 1
+    @property
+    def cr_id(self):
+        return "CR"+str(self.pk)
+    
+    @property
+    def start_index(self):
+        order=self.reactor_model.get_controlrodassemblytype_order()
+        self_order=order.index(self.pk)
+        #first one
+        if self_order==0:
+            return 1
+        else:
+            return self.get_previous_in_order().end_index+1
+        
+    @property
+    def end_index(self):
+        return self.start_index+self.layers_num-1
+    
+    @property
+    def layers_num(self):
+        return len(self.height_lst)
+    
+    def generate_base_control_rod_xml(self):
+        spider=0
+        doc=minidom.Document()
+        base_control_rod_xml=doc.createElement("base_control_rod")
+        base_control_rod_xml.setAttribute("cr_id", self.cr_id)
+        base_control_rod_xml.setAttribute("spider", str(spider))
+        
+        axial_length_xml=doc.createElement("axial_length")
+        length_lst=map(str,self.length_lst)
+        axial_length_xml.appendChild(doc.createTextNode(" ".join(length_lst)))
+        base_control_rod_xml.appendChild(axial_length_xml)
+        
+        axial_type_xml=doc.createElement("axial_type")
+        type_lst=map(str,self.type_lst)
+        axial_type_xml.appendChild(doc.createTextNode(" ".join(type_lst)))
+        base_control_rod_xml.appendChild(axial_type_xml)
+        return base_control_rod_xml
     
     def black_grey_rod_num(self):
         control_rods=self.map.all()
@@ -2598,6 +2674,21 @@ class ControlRodAssemblyType(BaseModel):
             else:
                 gnum+=1
         return (bnum,gnum)
+    
+    @property
+    def length_lst(self):
+        overall_length=self.overall_length
+        height_lst=self.height_lst
+        height_lst.append(overall_length)
+        
+        length_lst=[height_lst[i+1]-height_lst[i] for i in range(len(height_lst)-1)]
+        return length_lst
+    
+    @property    
+    def type_lst(self):
+        return list(range(self.start_index,self.end_index+1))
+            
+            
     
     
     @property
@@ -2620,7 +2711,7 @@ class ControlRodAssemblyType(BaseModel):
                     result_lst.append(height)
                     transection_lst.append(transection)
         
-        return result_lst
+        return sorted(result_lst)
     
     def generate_transection(self,height):
         if self.symmetry:

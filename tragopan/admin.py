@@ -4,6 +4,9 @@ from django.db.models import F,Count
 from django.utils.translation import ugettext_lazy as _
 from import_export import resources
 from import_export.admin import ImportExportModelAdmin
+from django.conf.urls import url
+from django.core.urlresolvers import reverse
+from django.shortcuts import redirect
 # Register your models here.
 
 #################################################
@@ -406,7 +409,7 @@ class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
     #inlines=[BurnablePoisonAssemblyLoadingPatternInline,ControlRodAssemblyLoadingPatternInline]
-    list_display=('pk','__str__','get_pre_cycle','get_cra_cycle')
+    list_display=('pk','__str__','get_pre_cycle','get_cra_cycle','generate_base_fuel_set')
    
     
     def get_burnable_poison_assembly_num(self,obj):
@@ -599,20 +602,42 @@ admin.site.register(FuelAssemblyRepository, FuelAssemblyRepositoryAdmin)
 #fuel assembly type information
 class FuelElementTypePositionInline(admin.TabularInline):
     exclude=('remark',)
-    
     model=FuelElementTypePosition
+    raw_id_fields=("fuel_assembly_position","fuel_element_type")
+    def has_add_permission(self,request):
+        return False
+    
+    def has_delete_permission(self,request,obj):
+        return False
 
 class FuelElementTypePositionAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_filter=['fuel_assembly_type','fuel_element_type']
 admin.site.register(FuelElementTypePosition, FuelElementTypePositionAdmin)    
 
-    
+ 
     
 class FuelAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('pk','assembly_enrichment','model',)
-    #list_editable=('assembly_enrichment',)
+    inlines=[FuelElementTypePositionInline]
+    add_form_template="no_action.html"
+    change_form_template="tragopan/insert_fuel.html"
+    def get_urls(self):
+        urls = super(FuelAssemblyTypeAdmin, self).get_urls()
+        my_urls = [
+            url(r'^(?P<pk>\d+)/insert_fuel/$', self.admin_site.admin_view(self.insert_fuel_view),
+                name='tragopan_fuel_assembly_type_insert_fuel'),
+        ]
+        return my_urls + urls
+    
+    def insert_fuel_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj=FuelAssemblyType.objects.get(pk=pk)
+        num=obj.insert_fuel()
+        self.message_user(request, '%d fuel elements have been inserted successfully'%num)
+        return redirect(reverse("admin:tragopan_fuelassemblytype_change",args=[pk]))
+     
 admin.site.register(FuelAssemblyType, FuelAssemblyTypeAdmin)
 
 class FuelElementPelletLoadingSchemeInline(admin.TabularInline):
@@ -731,7 +756,7 @@ class BurnablePoisonAssemblyMapInline(admin.TabularInline):
 class BurnablePoisonAssemblyAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[BurnablePoisonAssemblyMapInline,]
-    list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','get_substitute_bpa','height_lst','symmetry']
+    list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','get_substitute_bpa','height_lst','symmetry','get_symmetry_bpa']
     #list_editable=('symmetry',)
     
     def get_rod_num(self,obj):
@@ -755,7 +780,7 @@ class ControlRodAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[ControlRodAssemblyMapInline,]
     model=ControlRodAssemblyType
-    list_display=('pk','reactor_model','type','black_grey_rod_num','height_lst')
+    list_display=('pk','reactor_model','type','black_grey_rod_num','height_lst','start_index','end_index','length_lst','type_lst')
 admin.site.register(ControlRodAssemblyType, ControlRodAssemblyTypeAdmin)
    
 class ControlRodAssemblyAdmin(admin.ModelAdmin):

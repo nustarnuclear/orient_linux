@@ -99,7 +99,7 @@ class FuelAssemblyModelSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = FuelAssemblyModel
-        fields = ( 'name','overall_length',)     
+        fields = ( 'name','active_length',)     
         
         
 class BaseFuelAssemblySerializer(serializers.ModelSerializer):

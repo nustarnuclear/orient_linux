@@ -1,0 +1,16 @@
+{% extends "admin/base_site.html" %}
+
+{% block stylesheets %}
+    {{ block.super }}
+    {{ media.css }}
+{% endblock %}
+
+{% block content %}
+<h1>Automatically add PreROBOIN inputs by unit:</h1>
+<form action="{% url "admin:caculation_prerobininput_auto_add" %}" method="post">
+	{{ block.super }} 
+    {% csrf_token %}
+    {{ unit_form }}
+    <input type="submit" value="Submit" />
+</form>
+{% endblock %}

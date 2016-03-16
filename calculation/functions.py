@@ -316,7 +316,6 @@ def generate_loading_pattern(plant_name,unit_num):
     f = open(file_path,"w")
     doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
     f.close()
-    print('finished') 
     
 def generate_base_core(plant_name,unit_num):
     plant=Plant.objects.get(abbrEN=plant_name)

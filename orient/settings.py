@@ -126,9 +126,9 @@ ATOMIC_REQUESTS=True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/1.8/howto/static-files/
-STATIC_ROOT = os.path.join(BASE_DIR, 'static')
+# STATIC_ROOT = os.path.join(BASE_DIR, 'static')
 STATIC_URL = '/static/'
-#STATICFILES_DIRS=(os.path.join(BASE_DIR, 'static'),)
+STATICFILES_DIRS=(os.path.join(BASE_DIR, 'static'),)
 
 #media root
 #MEDIA_ROOT=os.path.join(os.path.dirname(BASE_DIR), 'media')
@@ -191,4 +191,4 @@ FILEBROWSER_MAX_UPLOAD_SIZE=10000000000
 
 #celery setting
 CELERYD_PREFETCH_MULTIPLIER=1
-# CELERYD_CONCURRENCY=5
+CELERYD_CONCURRENCY=4

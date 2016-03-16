@@ -3,7 +3,7 @@ from datetime import datetime
 from celery import shared_task
 import os
 from subprocess import Popen
-from calculation.models import EgretTask,RobinTask,Server,get_ip
+from calculation.models import EgretTask,RobinTask,Server,get_ip, PreRobinTask
 from ftplib import FTP
 import shutil
 @shared_task
@@ -39,7 +39,7 @@ def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
 
 @shared_task
 def robin_calculation_task(pk):
-    mainhost=Server.objects.get(name="localhost")
+    mainhost=Server.objects.get(name="Controller")
     myip=get_ip()
     myhost=Server.objects.get(IP=myip)
     
@@ -61,7 +61,7 @@ def robin_calculation_task(pk):
     robin_instance.start_time=start_time
     robin_instance.task_status=1
     robin_instance.save(update_fields=['start_time','task_status'])
-    process=Popen(['/opt/nustar/bin/myrobin','-i',input_filename,])
+    process=Popen(['/opt/nustar/bin/myrobin','-i',input_filename]) 
     return_code=process.wait()
     end_time=datetime.now()
     robin_instance.end_time=end_time
@@ -94,7 +94,17 @@ def robin_calculation_task(pk):
 
     
     
-    
+@shared_task
+def stop_robin_task(pk):
+    pre_robin_task=PreRobinTask.objects.get(pk=pk)
+    robin_tasks=pre_robin_task.robin_tasks.all()
+    cal_tasks=robin_tasks.filter(task_status=1)
+    wait_tasks=robin_tasks.filter(task_status=0)
+    for task in wait_tasks:
+        task.cancel_calculation()
+              
+    for task in cal_tasks:  
+        task.stop_calculation() 
 
         
     

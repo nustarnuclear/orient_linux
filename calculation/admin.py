@@ -1,11 +1,12 @@
 from django.contrib import admin
 from .models import *
+from .forms import UnitForm
 from django.conf.urls import url
 from django.core.urlresolvers import reverse
 from django.shortcuts import redirect
 from django.contrib import messages
-from django.utils.html import format_html_join
-from django.utils.safestring import mark_safe
+from django.utils.html import format_html
+from django.template.response import TemplateResponse
 # Register your models here.
 
 class ServerAdmin(admin.ModelAdmin):
@@ -51,7 +52,7 @@ admin.site.register(PreRobinModel, PreRobinModelAdmin)
 class PreRobinBranchAdmin(admin.ModelAdmin):
     fieldsets =(
                 (None,{
-                       'fields':('unit','default','max_burnup_point')
+                       'fields':('reactor_model','max_burnup_point')
                 }),
                 
                 ('boron density branch',{
@@ -78,25 +79,47 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
                                      
                 }),
     )
-    list_display=('pk',"__str__",'default')
+    list_display=('pk',"__str__",)
 admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
  
 class AssemblyLaminationInline(admin.TabularInline):
     model=AssemblyLamination
     extra=0
-    readonly_fields=('height','pre_robin_task')
+    fields=('height','pre_robin_task',"length")
+    readonly_fields=('height','pre_robin_task',"length")
+    def has_add_permission(self,request):
+        return False
+    
+    def has_delete_permission(self,request,obj):
+        return False
     #show_change_link=True
 class PreRobinInputAdmin(admin.ModelAdmin):
+    add_form_template="no_action.html"
     change_form_template="calculation/auto_cut.html"
+    change_list_template="calculation/prerobin_changlist.html"
     exclude=('remark','user')
     inlines=[AssemblyLaminationInline,]
-    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry',)
-    
+    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already')
+    list_filter=("unit",'fuel_assembly_type','burnable_poison_assembly',)
     def get_urls(self):
         urls = super(PreRobinInputAdmin, self).get_urls()
         my_urls = [
             url(r'^(?P<pk>\d+)/auto_cut/$', self.admin_site.admin_view(self.auto_cut_view),
                 name='caculation_prerobininput_auto_cut'),
+                   
+            url(r'^refresh_base_component/$', self.admin_site.admin_view(self.refresh_base_component_view),
+                name='caculation_prerobininput_refresh_base_component'),
+            
+            url(r'^refresh_loading_pattern/$', self.admin_site.admin_view(self.refresh_loading_pattern_view),
+                name='caculation_prerobininput_refresh_loading_pattern'),
+            
+            url(r'^auto_add_link/$', self.admin_site.admin_view(self.auto_add_link_view),
+                name='caculation_prerobininput_auto_add_link'),
+            
+            url(r'^auto_add/$', self.admin_site.admin_view(self.auto_add_view),
+                name='caculation_prerobininput_auto_add'),
+            url(r'^auto_cut_all/$', self.admin_site.admin_view(self.auto_cut_all_view),
+                name='caculation_prerobininput_auto_cut_all'),
         ]
         return my_urls + urls
     
@@ -109,8 +132,41 @@ class PreRobinInputAdmin(admin.ModelAdmin):
             return redirect(reverse("admin:calculation_prerobininput_change",args=[pk]))
         except:
             self.message_user(request, 'You need to save this input first',messages.WARNING)
-            #return redirect()
-        
+    
+    def auto_cut_all_view(self,request, *args, **kwargs):
+        for pre_robin_input in PreRobinInput.objects.all():
+            num=0
+            if not pre_robin_input.cut_already():
+                pre_robin_input.create_task()
+                num+=1
+        self.message_user(request, '%s base fuels(s) auto cut successfully'%num)
+        return redirect(reverse("admin:calculation_prerobininput_changelist"))
+       
+    def refresh_base_component_view(self,request, *args, **kwargs):
+        PreRobinInput.write_base_component_xml()
+        self.message_user(request, 'Refresh succeed')
+        return redirect(reverse("admin:calculation_prerobininput_changelist"))
+    
+    def refresh_loading_pattern_view(self,request, *args, **kwargs):
+        PreRobinInput.write_loading_pattern_xml()
+        self.message_user(request, 'Refresh succeed')
+        return redirect(reverse("admin:calculation_prerobininput_changelist"))
+    
+    def auto_add_link_view(self,request, *args, **kwargs):
+        context={"unit_form":UnitForm}
+        return TemplateResponse(request, "calculation/auto_add_pre_robin.html", context)
+    
+    def auto_add_view(self,request, *args, **kwargs):
+        if request.method == 'POST':
+            form = UnitForm(request.POST)
+            if form.is_valid():
+                unit=form.cleaned_data['unit']
+                num=PreRobinInput.auto_add(unit)
+                
+            self.message_user(request, '{} base fuel(s) concerning {} have been added into database'.format(num, unit))
+        else:
+            self.message_user(request, 'You have no such permission',messages.WARNING)
+        return redirect(reverse("admin:calculation_prerobininput_changelist"))
     
 admin.site.register(PreRobinInput, PreRobinInputAdmin)   
 
@@ -126,6 +182,9 @@ class RobinTaskInline(admin.TabularInline):
     def has_add_permission(self,request):
         return False
     
+    def has_delete_permission(self,request,obj):
+        return False
+    
     def logfile_link(self, item):
         url = item.get_logfile_url()
         return format_html(u'<a href="{url}">Get log file</a>', url=url)
@@ -137,7 +196,7 @@ class RobinTaskInline(admin.TabularInline):
     outfile_link.short_description = 'Get out file'
     
 class PreRobinTaskAdmin(admin.ModelAdmin):
-    #add_form_template="calculation/change_form_template.html"
+    add_form_template="calculation/no_action.html"
     change_form_template="calculation/change_form_template.html"
     list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished')
     exclude=('remark','user')
@@ -152,6 +211,12 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
                    
             url(r'^(?P<pk>\d+)/start_robin/$', self.admin_site.admin_view(self.start_robin_view),
                 name='caculation_prerobininput_start_robin'),
+            
+            url(r'^(?P<pk>\d+)/stop_robin/$', self.admin_site.admin_view(self.stop_robin_view),
+                name='caculation_prerobininput_stop_robin'),
+            
+            url(r'^(?P<pk>\d+)/delete_robin/$', self.admin_site.admin_view(self.delete_robin_view),
+                name='caculation_prerobininput_delete_robin'),
             
             url(r'^(?P<pk>\d+)/start_idyll/$', self.admin_site.admin_view(self.start_idyll_view),
                 name='caculation_prerobininput_start_idyll'),
@@ -180,6 +245,24 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
         obj = PreRobinTask.objects.get(pk=pk)
         obj.start_robin()
         self.message_user(request, 'all robin tasks are under calculation')
+        return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
+    
+    def stop_robin_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj = PreRobinTask.objects.get(pk=pk)
+        obj.stop_robin()
+        self.message_user(request, 'all robin tasks are stopped')
+        return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
+    
+    def delete_robin_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj = PreRobinTask.objects.get(pk=pk)
+        robin_tasks=obj.robin_tasks.all()
+        if robin_tasks.filter(task_status=1).exists():
+            self.message_user(request, 'You need to stop ROBIN first',messages.WARNING)
+        else:
+            robin_tasks.delete()
+            self.message_user(request, 'all robin tasks are deleted')
         return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
     
     def start_idyll_view(self,request, *args, **kwargs):
@@ -215,11 +298,6 @@ class IbisAdmin(admin.ModelAdmin):
     list_editable=('burnable_poison_assembly',)
     list_filter=('plant',)
 admin.site.register(Ibis, IbisAdmin)    
-
-class RobinFileAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    list_display=('__str__','input_file','out1_file','log_file')
-admin.site.register(RobinFile, RobinFileAdmin)     
 
 class BaseFuelCompositionInline(admin.TabularInline):
     model=BaseFuelComposition

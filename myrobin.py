@@ -1,6 +1,6 @@
 #!/usr/local/bin/python3.4
 import os
-from  subprocess import Popen,PIPE
+from subprocess import Popen,PIPE
 from argparse import ArgumentParser,RawDescriptionHelpFormatter
 import textwrap
 from datetime import datetime
@@ -9,6 +9,7 @@ DEFAULT_ROBIN_VERSION=190
 
 
 logfile="myrobin.log"
+pidfile="myrobin.pid"
 #workspace=".workspace"
 sys_user=os.getenv('USER')
 
@@ -70,8 +71,10 @@ if input_file:
     #Begin ROBIN calculation
     
     with Popen(['/opt/nustar/bin/ROBIN%d'%DEFAULT_ROBIN_VERSION,'-i',input_file,'-lib',lib,'-omp',omp],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
+        pidfile=open(pidfile,'w')
+        pidfile.write(str(proc.pid))
+        pidfile.close()
         outs,errs=proc.communicate()
-        
         if errs:
             wrong_time=datetime.now() 
             log_file.write('ROBIN went wrong at %s\n'%wrong_time)
