@@ -150,7 +150,7 @@ class Server(models.Model):
     queue=models.CharField(max_length=32,unique=True)
     class Meta:
         db_table="server"
-        
+        ordering=['IP']
     @property
     def available(self):
         pre_robin_tasks=self.pre_robin_tasks.all()
@@ -159,6 +159,21 @@ class Server(models.Model):
                 return False
         
         return True
+   
+    @classmethod
+    def first(cls):
+        available_servers=cls.objects.exclude(name="Controller")
+        if available_servers.exists():
+            return available_servers.first()
+        else:
+            return cls.objects.first()
+        
+    def next(self):
+        next_servers=Server.objects.exclude(name="Controller").filter(IP__gt=self.IP)
+        if next_servers.exists():
+            return next_servers.first()
+        else:
+            return Server.first()
         
     def __str__(self):
         return "{} {}".format(self.name, self.IP)
@@ -1068,11 +1083,11 @@ class DepletionState(models.Model):
         return "{} {}".format(self.pk,self.system_pressure)
     
 def server_default():
-    available_servers=Server.objects.exclude(name="localhost")
-    if available_servers.exists():
-        return available_servers.first().pk
+    last_task=PreRobinTask.objects.last()
+    if last_task:
+        return last_task.server.next()
     else:
-        return None
+        return Server.first()
     
 class PreRobinTask(BaseModel):
     plant=models.ForeignKey('tragopan.Plant')
@@ -1455,6 +1470,11 @@ class PreRobinTask(BaseModel):
         self.generate_robin_tasks('HTF')
         #HCB
         self.generate_robin_tasks('HCB')
+        if return_code!=0:
+            self.task_status=6
+        else:  
+            self.task_status=4
+        self.save()
         return return_code
         
     def start_robin(self):

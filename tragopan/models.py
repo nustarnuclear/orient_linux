@@ -499,7 +499,7 @@ class Plant(BaseModel):
     abbrCH=models.CharField(max_length=40)
     nameEN=models.CharField(max_length=40)
     abbrEN=models.CharField(max_length=40)
-    
+    reactor_model = models.ForeignKey('ReactorModel')
     class Meta:
         db_table='plant'
         
@@ -514,15 +514,6 @@ class Plant(BaseModel):
         plant_dir=self.plant_dir
         ibis_dir=os.path.join(plant_dir,'ibis_files')
         return ibis_dir
-    @property
-    def reactor_model(self):
-        units=self.units.all()
-        reactor_model_set=set()
-        for unit in units:
-            reactor_model=unit.reactor_model
-            reactor_model_set.add(reactor_model)
-        if len(reactor_model_set)==1:
-            return list(reactor_model_set)[0]
         
     def __str__(self):
         return self.abbrEN  
@@ -775,7 +766,7 @@ class RipPlate(BaseModel):
 class UnitParameter(BaseModel):
     plant = models.ForeignKey(Plant,related_name='units')
     unit = models.PositiveSmallIntegerField()
-    reactor_model = models.ForeignKey(ReactorModel)
+    #reactor_model = models.ForeignKey(ReactorModel)
     electric_power = models.DecimalField(max_digits=10, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:MW')
     thermal_power = models.DecimalField(max_digits=10, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:MW')
     heat_fraction_in_fuel = models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
@@ -798,6 +789,10 @@ class UnitParameter(BaseModel):
     class Meta:
         db_table = 'unit_parameter'
         unique_together = ('plant', 'unit')
+        
+    @property    
+    def reactor_model(self):
+        return self.plant.reactor_model
     
     @property
     def unit_dir(self):

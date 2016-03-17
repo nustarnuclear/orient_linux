@@ -10,7 +10,7 @@ from django.template.response import TemplateResponse
 # Register your models here.
 
 class ServerAdmin(admin.ModelAdmin):
-    list_display=("name","IP","queue","available")
+    list_display=("name","IP","queue","available",'next')
 admin.site.register(Server,ServerAdmin)
 
 class PreRobinModelAdmin(admin.ModelAdmin):
@@ -198,11 +198,41 @@ class RobinTaskInline(admin.TabularInline):
 class PreRobinTaskAdmin(admin.ModelAdmin):
     add_form_template="calculation/no_action.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished')
+    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','server','robin_finished')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
+    actions = ['auto_start_prerobin','del_all_robin_tasks','auto_start_robin','auto_start_idyll']
     
+    def auto_start_prerobin(self, request, queryset):
+        index=0
+        for obj in queryset.exclude(task_status=4):
+            return_code=obj.start_prerobin()
+            if return_code!=0:
+                index +=1
+        self.message_user(request, 'All selected tasks have been handled with %d error(s) left'%index)
+        
+    def del_all_robin_tasks(self, request, queryset):
+        for obj in queryset:
+            robin_tasks=obj.robin_tasks.all()
+            if not robin_tasks.filter(task_status=1).exists():
+                robin_tasks.delete()
+        self.message_user(request, 'all robin tasks are deleted')
+        
+    def auto_start_robin(self,request, queryset):
+        for obj in queryset:
+            obj.start_robin()
+        self.message_user(request, '%d robin tasks are under calculation'%(queryset.count()*13))
+        
+    def auto_start_idyll(self,request,queryset):
+        index=0
+        for obj in queryset:
+            if obj.robin_finished:  
+                index +=1
+                obj.start_idyll()
+        left=queryset.count()-index
+        self.message_user(request, '{} idyll tasks completed while {} idyll tasks left'.format(index,left))      
+            
     def get_urls(self):
         urls = super(PreRobinTaskAdmin, self).get_urls()
         my_urls = [
@@ -232,10 +262,8 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
             return_code=obj.start_prerobin()
             #PreROBIN went wrong
             if return_code!=0:
-                obj.task_status=6
                 self.message_user(request, 'PreROBIN failed',messages.ERROR)
-            else:  
-                obj.task_status=4
+            else:
                 self.message_user(request, 'Calculation completed',)
             obj.save()
         return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
