@@ -150,7 +150,7 @@ admin.site.register(BasicMaterial,BasicMaterialAdmin)
 class MaterialAdmin(admin.ModelAdmin):
     inlines=(MaterialWeightCompositionInline,)
     exclude=('remark',)
-    list_display=('pk','__str__','input_method','is_correct',)
+    list_display=('pk','__str__','input_method','is_correct','get_density')
     
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
@@ -711,7 +711,7 @@ admin.site.register(MaterialTransection, MaterialTransectionAdmin)
 #fuel pellet type information    
 class FuelPelletAdmin(admin.ModelAdmin):
     exclude=('remark',) 
-    list_display=('fuel_assembly_model','real_density')
+    list_display=('fuel_assembly_model','factor')
 admin.site.register(FuelPellet, FuelPelletAdmin)
 #########################################################################################
 #component assembly rod

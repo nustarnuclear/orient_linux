@@ -85,27 +85,34 @@ admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
 class AssemblyLaminationInline(admin.TabularInline):
     model=AssemblyLamination
     extra=0
-    fields=('height','pre_robin_task',"length")
-    readonly_fields=('height','pre_robin_task',"length")
+    fields=('height','pre_robin_task',"length","status",'View_task_link')
+    readonly_fields=('height','pre_robin_task',"length",'status','View_task_link')
     def has_add_permission(self,request):
         return False
     
     def has_delete_permission(self,request,obj):
         return False
-    #show_change_link=True
+    
+    def View_task_link(self, item):
+        pk=item.pre_robin_task.pk
+        url=reverse("admin:calculation_prerobintask_change",args=[pk])
+        return format_html(u'<a href="{url}" target="_blank">View task</a>', url=url)
+    View_task_link.short_description = 'View the task'
+        
 class PreRobinInputAdmin(admin.ModelAdmin):
     add_form_template="no_action.html"
     change_form_template="calculation/auto_cut.html"
     change_list_template="calculation/prerobin_changlist.html"
     exclude=('remark','user')
     inlines=[AssemblyLaminationInline,]
-    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already')
+    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already',)
     list_filter=("unit",'fuel_assembly_type','burnable_poison_assembly',)
     def get_urls(self):
         urls = super(PreRobinInputAdmin, self).get_urls()
         my_urls = [
             url(r'^(?P<pk>\d+)/auto_cut/$', self.admin_site.admin_view(self.auto_cut_view),
                 name='caculation_prerobininput_auto_cut'),
+            
                    
             url(r'^refresh_base_component/$', self.admin_site.admin_view(self.refresh_base_component_view),
                 name='caculation_prerobininput_refresh_base_component'),
@@ -132,10 +139,11 @@ class PreRobinInputAdmin(admin.ModelAdmin):
             return redirect(reverse("admin:calculation_prerobininput_change",args=[pk]))
         except:
             self.message_user(request, 'You need to save this input first',messages.WARNING)
+            
     
     def auto_cut_all_view(self,request, *args, **kwargs):
-        for pre_robin_input in PreRobinInput.objects.all():
-            num=0
+        num=0
+        for pre_robin_input in PreRobinInput.objects.all(): 
             if not pre_robin_input.cut_already():
                 pre_robin_input.create_task()
                 num+=1
@@ -198,7 +206,7 @@ class RobinTaskInline(admin.TabularInline):
 class PreRobinTaskAdmin(admin.ModelAdmin):
     add_form_template="calculation/no_action.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','server','robin_finished')
+    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','server','robin_finished','table_generated')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)

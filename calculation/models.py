@@ -575,30 +575,6 @@ class PreRobinInput(BaseModel):
         db_table='pre_robin_input'
         unique_together = ("unit","fuel_assembly_type", "burnable_poison_assembly")
         
-    @property
-    def rela_file_path(self):
-        fat_str=str(self.fuel_assembly_type.pk).zfill(3)
-        bpa_pk=self.burnable_poison_assembly.pk
-        if bpa_pk:
-            bpa_str=str(bpa_pk).zfill(3)
-        else:
-            bpa_str="000"
-        return fat_str+bpa_str
-        
-        
-    @property
-    def abs_file_path(self):
-        unit=self.unit
-        plant=unit.plant
-        return os.path.join(PRE_ROBIN_PATH,plant.abbrEN,'unit'+str(unit.unit),self.fuel_assembly_type.assembly_name,self.rela_file_path)    
-    
-    def create_file_path(self):
-        abs_file_path=self.abs_file_path
-        if not os.path.exists(abs_file_path):
-            os.makedirs(abs_file_path)
-     
-        return abs_file_path
-    
     @property    
     def symmetry(self):
         return get_symmetry(self.fuel_assembly_type, self.burnable_poison_assembly)
@@ -853,7 +829,8 @@ class PreRobinInput(BaseModel):
     
     def cut_already(self):
         return True  if self.layers.exists() else False 
-    cut_already.boolean=True  
+    cut_already.boolean=True 
+    
      
     @classmethod
     def auto_add(cls,unit):
@@ -1008,7 +985,13 @@ class AssemblyLamination(models.Model):
             return post_layers.first()
         else:
             return None
-        
+    
+   
+    def status(self):
+        return self.pre_robin_task.robin_finished
+    
+    status.short_description="All ROBIN tasks finished?"  
+    status.boolean=True 
         
     def __str__(self):
         return "{} {} {}".format(self.pre_robon_input, self.height,self.pre_robin_task)
@@ -1110,7 +1093,7 @@ class PreRobinTask(BaseModel):
         
     @property    
     def rela_file_path(self):
-        return str(self.pk).zfill(5)
+        return str(self.pk).zfill(6)
     
     @property
     def abs_file_path(self):
@@ -1587,16 +1570,33 @@ class PreRobinTask(BaseModel):
         
         process=Popen(['/opt/nustar/bin/myidyll',"IBIS.INP"])
         return_code=process.wait()
+        self.link_table()
         return return_code
     
     @property    
     def robin_finished(self):
-        if self.robin_tasks.exclude(task_status=4).exists():
+        if (not self.robin_tasks.exists()) or self.robin_tasks.exclude(task_status=4).exists():
             return False
         else:
             return True
       
- 
+    @property
+    def table_path(self):
+        abs_file_path=self.abs_file_path
+        return os.path.join(abs_file_path,"IDYLL","TABLE_OUTPUT","ASSEMBLY.TAB")
+    
+    def table_generated(self):
+        return True  if os.path.isfile(self.table_path) else False 
+    table_generated.boolean=True 
+    
+    def link_table(self):
+        table_path=self.table_path
+        idyll_dir=self.plant.reactor_model.idyll_dir
+        if not os.path.exists(idyll_dir):
+            os.makedirs(idyll_dir)
+        dest=os.path.join(idyll_dir,self.segment_ID+".TAB")
+        os.symlink(table_path,dest)
+        
     def __str__(self):
         #return "{} {}".format(self.pk,self.fuel_assembly_type)
         return self.segment_ID

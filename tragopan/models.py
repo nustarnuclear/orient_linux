@@ -237,7 +237,7 @@ class BasicMaterial(BaseModel):
     TYPE_CHOICES=(
                            (1,'Compound or elementary substance'),
                            (2,'mixture'),
-                           (3,'symbolic'),
+                           #(3,'symbolic'),
     )
     name=models.CharField(max_length=16,unique=True)
     type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
@@ -258,6 +258,18 @@ class BasicMaterial(BaseModel):
         return True
     data_integrity.boolean=True
     
+    def get_density(self,factor=None):
+        density=self.density
+        if factor and self.name=="UO2":
+            return density*factor
+        else:
+            return density
+        
+    def get_name(self,enrichment=None):
+        if self.name=="UO2":
+            return self.name+"_"+str(enrichment)
+        else:
+            return self.name
     #class attribute
     material_element_lib_path=os.path.join(PRE_ROBIN_PATH,'material_element.lib')
     
@@ -343,7 +355,7 @@ class Material(BaseModel):
     INPUT_METHOD_CHOICES=(
                           (1,'fuel by enrichment'),
                           (2,'blend basic materials by weight percent and B10 linear density'),
-                          #(3,'blend materials by volume percent'),
+                          (3,'symbolic'),
                           #(4,'totally inherit from basic material'),
                           #(5,'inherit from basic material with B10 linear density'),
                           (6,'blend basic materials by weight percent and density'), 
@@ -354,7 +366,8 @@ class Material(BaseModel):
     bpr_B10=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"mg/cm",blank=True,null=True)
     enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"U235:%",blank=True,null=True)
     input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
-    density=models.DecimalField(max_digits=15, decimal_places=8,help_text=r'unit:g/cm3',blank=True,null=True)
+    #density=models.DecimalField(max_digits=15, decimal_places=8,help_text=r'unit:g/cm3',blank=True,null=True)
+    density_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",default=100)
     weight_composition=models.ManyToManyField(BasicMaterial,through='MaterialWeightComposition',)
     class Meta:
      
@@ -379,9 +392,6 @@ class Material(BaseModel):
             if not self.nameEN:
                 raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
             }) 
-            if not self.density:
-                raise ValidationError({'density':_('nameEN cannot be blank when you choose such input method'),                           
-            }) 
             
     @property
     def prerobin_identifier(self):
@@ -390,12 +400,25 @@ class Material(BaseModel):
             return 'FUEL_'+str(self.pk)
         else:
             return self.nameEN
-    
-    def generate_base_mat(self,real_density=None):
+        
+    def get_density(self,fuel_pellet=None):
+        if self.input_method!=3:
+            factor=fuel_pellet.factor if fuel_pellet else None
+            compo=self.weight_mixtures.all()
+            result=100/sum(item.percent/item.basic_material.get_density(factor) for item in compo)*(self.density_percent/100)
+            return round(result,5)
+        else:
+            return None
+        
+    def generate_base_mat(self,fuel_pellet=None):
         result={'ID':self.prerobin_identifier}
-        if self.input_method==1:
-            result['density']=real_density
-            result['composition_ID']='UO2_'+str(self.enrichment)
+        if self.input_method in [1,6]:
+            result['density']=self.get_density(fuel_pellet)
+            compo=self.weight_mixtures.all()
+            composition_ID_lst=[item.basic_material.get_name(self.enrichment) for item in compo]
+            weight_percent_lst=[str(item.percent) for item in compo]
+            result['composition_ID']=','.join(composition_ID_lst)
+            result['weight_percent']=','.join(weight_percent_lst)
         elif self.input_method==2:
             result['bpr_B10']=self.bpr_B10
             compo=self.weight_mixtures.all()
@@ -404,19 +427,19 @@ class Material(BaseModel):
             result['composition_ID']=','.join(composition_ID_lst)
             result['weight_percent']=','.join(weight_percent_lst)
         
-        elif self.input_method==6:
-            result['density']=self.density
-            compo=self.weight_mixtures.all()
-            #totally inherit from basic material
-            if len(compo)==1:
-                #symbolic
-                if compo[0].basic_material.type==3:
-                    return {}
-                
-            composition_ID_lst=[item.basic_material.name for item in compo]
-            weight_percent_lst=[str(item.percent) for item in compo]
-            result['composition_ID']=','.join(composition_ID_lst)
-            result['weight_percent']=','.join(weight_percent_lst)
+#         elif self.input_method==6:
+#             result['density']=self.density
+#             compo=self.weight_mixtures.all()
+#             #totally inherit from basic material
+#             if len(compo)==1:
+#                 #symbolic
+#                 if compo[0].basic_material.type==3:
+#                     return {}
+#                 
+#             composition_ID_lst=[item.basic_material.name for item in compo]
+#             weight_percent_lst=[str(item.percent) for item in compo]
+#             result['composition_ID']=','.join(composition_ID_lst)
+#             result['weight_percent']=','.join(weight_percent_lst)
             
         return  result  
     @classmethod
@@ -424,7 +447,7 @@ class Material(BaseModel):
         #grid moderator material
         base_mat_lst=Grid.generate_base_mat_lst()
         #without considering fuel
-        materials=cls.objects.exclude(input_method=1)
+        materials=cls.objects.exclude(input_method__in=[1,3])
         for material in  materials:
             base_mat=material.generate_base_mat()
             if base_mat:
@@ -573,6 +596,10 @@ class ReactorModel(BaseModel):
         max_column=positions.aggregate(Max('column'))['column__max']
         return [max_row,max_column]    
     
+    @property
+    def idyll_dir(self):
+        return os.path.join(PRE_ROBIN_PATH,self.name,'IDYLL')
+        
     def __str__(self):
         return '{}'.format(self.name)  
     
@@ -2064,19 +2091,21 @@ class FuelPellet(BaseModel):
     length=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     dish_volume_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
     chamfer_volume_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
-    dish_depth=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    dish_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    roughness=models.DecimalField(max_digits=7, decimal_places=6,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    nominal_density=models.DecimalField(max_digits=8, decimal_places=5,validators=[MinValueValidator(0)],help_text=r"unit:g/cm3")
-    uncertainty_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",blank=True,null=True)  
+    #dish_depth=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #dish_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #roughness=models.DecimalField(max_digits=7, decimal_places=6,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #nominal_density=models.DecimalField(max_digits=8, decimal_places=5,validators=[MinValueValidator(0)],help_text=r"unit:g/cm3")
+    nominal_density_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",default=95) 
+    #uncertainty_percentage=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",blank=True,null=True)  
     coating_thickness=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     coating_material=models.ForeignKey(Material,related_name='fuel_pellet_coating',blank=True,null=True)
     
     class Meta:
         db_table='fuel_pellet'
+        
     @property    
-    def real_density(self):
-        return (100-self.dish_volume_percentage-self.chamfer_volume_percentage)/100*self.nominal_density
+    def factor(self):
+        return (100-self.dish_volume_percentage-self.chamfer_volume_percentage)/100*(self.nominal_density_percent/100)
     
     
     
@@ -2094,12 +2123,8 @@ class FuelPelletType(BaseModel):
     def enrichment(self):
         return self.material.enrichment
     
-    @property
-    def real_density(self):
-        return self.model.real_density
-    
     def generate_base_mat(self):
-        base_mat=self.material.generate_base_mat(self.real_density)
+        base_mat=self.material.generate_base_mat(self.model)
         return base_mat
     
     @classmethod
@@ -2683,9 +2708,6 @@ class ControlRodAssemblyType(BaseModel):
     def type_lst(self):
         return list(range(self.start_index,self.end_index+1))
             
-            
-    
-    
     @property
     def height_lst(self):
         rods=self.map.all()
