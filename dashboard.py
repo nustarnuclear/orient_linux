@@ -49,19 +49,19 @@ class CustomIndexDashboard(Dashboard):
         #    exclude=('django.contrib.*',),
         #))
         
-        self.children.append(modules.Group(
-            _('Group: ROBIN & EGRET'),
-            column=2,
-            collapsible=True,
-            children = [
-                modules.AppList(
-                    _('ROBIN'),
-                    css_classes=('collapse closed',),
-                    models=('calculation.models.*',),
-                ),
-                        
-            ]
-        ))
+#         self.children.append(modules.Group(
+#             _('Group: ROBIN & EGRET'),
+#             column=2,
+#             collapsible=True,
+#             children = [
+#                 modules.AppList(
+#                     _('ROBIN'),
+#                         css_classes=('collapse closed',),
+#                     models=('calculation.models.*',),
+#                 ),
+#                         
+#             ]
+#         ))
         
         # append another link list module for "support".
         self.children.append(modules.LinkList(

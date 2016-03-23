@@ -16,6 +16,8 @@ import time
 from decimal import Decimal
 import socket
 from orient.celery import app
+from math import floor
+from django.db.models import Q
 # Create your models here.
 TASK_STATUS_CHOICES=(
                          (0,'waiting'),
@@ -38,7 +40,9 @@ def get_symmetry(fuel_assembly_type,burnable_poison_assembly=None):
     bpa_symmetry=burnable_poison_assembly.symmetry if burnable_poison_assembly else True
     return fuel_symmetry and bpa_symmetry
     
-def parse_xml_to_lst(src,dest):
+def parse_xml_to_lst(src):
+    '''src must be a absolute path
+    '''
     f=open(src)
     line_lst=f.readlines()
     f.close()
@@ -92,12 +96,20 @@ def parse_xml_to_lst(src,dest):
     
 
     filename=os.path.basename(src)  
-    new_filename=filename.replace('.xml','.txt') 
-    new_path=os.path.join(dest,new_filename)         
-    sfile=open(new_path,'w')
+    new_filename=filename.replace('.xml','.txt')        
+    sfile=open(new_filename,'w')
     sfile.writelines(result_lst)
     sfile.close()
-    return new_path
+    return new_filename
+
+def get_boron_density(assembly_enrichment):
+    crt=Decimal(3.7)
+    if assembly_enrichment>crt:
+        boron_density=Decimal(800)
+    else:
+        boron_density=Decimal(500)
+        
+    return boron_density
 
 def get_ibis_upload_path(instance,filename):
     plant_name=instance.plant.abbrEN
@@ -339,7 +351,7 @@ class PreRobinBranch(models.Model):
     #unit=models.ForeignKey(UnitParameter,related_name='branches')
     #default=models.BooleanField(default=False,help_text="set it as default",)
     reactor_model=models.OneToOneField(ReactorModel)
-    max_burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=60,help_text='GWd/tU')
+    max_burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=65,help_text='GWd/tU')
     #identity=models.CharField(max_length=32)
     #the default burnup point for BOR TMO TFU CRD
     #boron density branch
@@ -354,58 +366,37 @@ class PreRobinBranch(models.Model):
     max_moderator_temperature=models.PositiveSmallIntegerField(help_text='K',default=615)
     min_moderator_temperature=models.PositiveSmallIntegerField(help_text='K',default=561)
     moderator_temperature_interval=models.PositiveSmallIntegerField(help_text='K',default=4)
-    #shutdown cooling branch(the even integer of default burnup) 
-    shutdown_cooling_days=models.PositiveSmallIntegerField(default=3000,help_text='day')
-    #xenon branch(the even integer of default burnup) 
-    xenon=models.BooleanField(default=False,verbose_name='set xenon density to 0?',)
     class Meta:
         db_table='pre_robin_branch'
         verbose_name_plural='branches'
         
-    
-#     @property
-#     def rela_file_path(self):
-#         pk=self.pk
-#         return str(pk).zfill(3)
-#         
-#     @property
-#     def abs_file_path(self):
-#         unit=self.unit
-#         plant=unit.plant
-#         return os.path.join(PRE_ROBIN_PATH,plant.abbrEN,'unit'+str(unit.unit),'branch',self.rela_file_path)    
-#     
-#     def create_file_path(self):
-#         abs_file_path=self.abs_file_path
-#         if not os.path.exists(abs_file_path):
-#             os.makedirs(abs_file_path)
-#      
-#         return abs_file_path
-    
         
-       
-    def generate_value_str(self,option):
+    def get_base_lst(self,boron_density):
+        reactor_model=self.reactor_model
+        return [boron_density,reactor_model.fuel_temperature,reactor_model.moderator_temperature]
+        
+    def generate_value_str(self,boron_density,option):
         '''1->BOR
            2->TFU
            3->TMO
         '''
-        reactor_model=self.reactor_model
+        base_lst=self.get_base_lst(boron_density)
         if option==1:
-            base=reactor_model.boron_density
+            base=base_lst[0]
             min_val=self.min_boron_density
             max_val=self.max_boron_density
             interval=self.boron_density_interval
         elif option==2:
-            base=reactor_model.fuel_temperature
+            base=base_lst[1]
             min_val=self.min_fuel_temperature
             max_val=self.max_fuel_temperature
             interval=self.fuel_temperature_interval
         elif option==3:
-            base=reactor_model.moderator_temperature
+            base=base_lst[2]
             min_val=self.min_moderator_temperature
             max_val=self.max_moderator_temperature
             interval=self.moderator_temperature_interval
-           
-            
+                 
         lst=list(range(min_val,max_val,interval))
         if base in lst:
             lst.remove(base)
@@ -415,7 +406,7 @@ class PreRobinBranch(models.Model):
         return lst_str
         
         
-    def generate_branch_xml(self,option):
+    def generate_branch_xml(self,boron_density,option):
         '''1->BOR
            2->TFU
            3->TMO
@@ -425,15 +416,15 @@ class PreRobinBranch(models.Model):
         if option==1:
             ID='BRCH_BOR'
             name='BOR'
-            value_str=self.generate_value_str(option=1)
+            value_str=self.generate_value_str(boron_density,option=1)
         elif option==2:
             ID='BRCH_TFU'
             name='TFU'
-            value_str=self.generate_value_str(option=2)
+            value_str=self.generate_value_str(boron_density,option=2)
         elif option==3:
             ID='BRCH_TMO'
             name='TMO'
-            value_str=self.generate_value_str(option=3)
+            value_str=self.generate_value_str(boron_density,option=3)
             
         branch_xml=doc.createElement('base_branch')
     
@@ -447,12 +438,21 @@ class PreRobinBranch(models.Model):
         
         return branch_xml
     
-    @property
-    def base_branch_ID_lst(self):
-        return ['BRCH_BOR','BRCH_TFU','BRCH_TMO']
     
+    def get_base_branch_ID_lst(self,bp_in=True):
+        cra_types=self.reactor_model.cra_types.all()
+        base_branch_ID_lst=['BRCH_TFU','BRCH_TMO','BRCH_BOR']
+        if not bp_in:
+            cra_branch_set=set()
+            for cra_type in cra_types:
+                cra_branch_set.update(cra_type.get_branch_ID_set())
+                
+            for cra_branch in cra_branch_set:
+                base_branch_ID_lst.append(cra_branch)
+            base_branch_ID_lst.extend(["SET_XEN_ZERO","SHUT_DOWN_COOLING"])
+        return base_branch_ID_lst
     
-    def generate_TMO_BOR_xml(self):
+    def generate_TMO_BOR_xml(self,boron_density):
         doc=minidom.Document()
         branch_xml=doc.createElement('base_branch')
         ID='BRCH_TMO_BOR'
@@ -461,12 +461,12 @@ class PreRobinBranch(models.Model):
         branch_xml.appendChild(ID_xml)
         
         name1='TMO'
-        lst_str1=self.generate_value_str(option=3)
+        lst_str1=self.generate_value_str(boron_density,option=3)
         name1_xml=doc.createElement(name1)
         name1_xml.appendChild(doc.createTextNode(lst_str1))
         
         name2='BOR'
-        lst_str2=self.generate_value_str(option=1)
+        lst_str2=self.generate_value_str(boron_density,option=1)
         name2_xml=doc.createElement(name2)
         name2_xml.appendChild(doc.createTextNode(lst_str2))
         
@@ -474,20 +474,64 @@ class PreRobinBranch(models.Model):
         branch_xml.appendChild(name2_xml)
         
         return branch_xml
+    
+    def get_burnup_lst(self):
+        max_burnup_point=self.max_burnup_point
+        max_point=floor(max_burnup_point)
+        return list(range(0,max_point,2))
+        
+    def generate_XEN_xml(self):
+        doc=minidom.Document()
+        branch_xml=doc.createElement('base_branch')
+        ID='SET_XEN_ZERO'
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        branch_xml.appendChild(ID_xml)
+        
+        XEN_xml=doc.createElement('XEN')
+        XEN_xml.appendChild(doc.createTextNode("1"))
+        branch_xml.appendChild(XEN_xml)
+        
+        burnup_xml=doc.createElement('burnup')
+        burnup_lst=map(str,self.get_burnup_lst())
+        burnup_xml.appendChild(doc.createTextNode(",".join(burnup_lst)))
+        branch_xml.appendChild(burnup_xml)
+        return branch_xml
+    
+    
+        
+    def generate_SDC_xml(self):
+        doc=minidom.Document()
+        branch_xml=doc.createElement('base_branch')
+        ID='SHUT_DOWN_COOLING'
+        ID_xml=doc.createElement('ID')
+        ID_xml.appendChild(doc.createTextNode(ID))
+        branch_xml.appendChild(ID_xml)
+        
+        SDC_xml=doc.createElement('SDC')
+        SDC=['10','20','30','50','100','200','300','500','1000','2000','3000']
+        SDC_xml.appendChild(doc.createTextNode(",".join(SDC)))
+        branch_xml.appendChild(SDC_xml)
+        
+        burnup_xml=doc.createElement('burnup')
+        burnup_lst=map(str,self.get_burnup_lst())
+        burnup_xml.appendChild(doc.createTextNode(",".join(burnup_lst)))
+        branch_xml.appendChild(burnup_xml)
+        return branch_xml
+    
         
     
-    def generate_his_branch_xml(self,option='HCB'):
-
+    def generate_his_branch_xml(self,boron_density,option='HCB'):
         doc=minidom.Document()
-        reactor_model=self.reactor_model
+        base_lst=self.get_base_lst(boron_density)
         if option=='HCB':
-            base=reactor_model.boron_density
+            base=base_lst[0]
             name='BOR'
         elif option=='HTF':
-            base=reactor_model.fuel_temperature
+            base=base_lst[1]
             name='TFU'
         elif option=='HTM':
-            base=reactor_model.moderator_temperature
+            base=base_lst[2]
             name='TMO'
         branch_xml=doc.createElement('base_branch')
         ID_xml=doc.createElement('ID')
@@ -500,41 +544,47 @@ class PreRobinBranch(models.Model):
         
         return branch_xml
 
-    def get_his_lst(self,option='HCB'):
+    def get_his_lst(self,boron_density,option='HCB'):
         '''
         option: HCB,HTM,HTF
         '''
-        reactor_model=self.reactor_model
+        base_lst=self.get_base_lst(boron_density)
         if option=='HCB':
-            base=reactor_model.boron_density
+            base=base_lst[0]
             HCB_lst=[0,500,1000,1500,2000]
             if base in HCB_lst:
                 HCB_lst.remove(base)
             return HCB_lst
-
-        elif option=='HTM':
-            base=reactor_model.moderator_temperature
-            interval=15
+        
         elif option=='HTF':
-            base=reactor_model.fuel_temperature
+            base=base_lst[1]
             interval=200
             
+        elif option=='HTM':
+            base=base_lst[2]
+            interval=15
+          
         return [base-2*interval,base-interval,base+interval,base+2*interval,]
     
-    def generate_databank_xml(self,branch_file_path='branch_calc_databank.xml'):
+    def generate_databank_xml(self,boron_density):
+        branch_file_path='branch_calc_databank.xml'
         #generate a branch file in current working directory
         doc=minidom.Document()
         
         databank_xml=doc.createElement('branch_calc_databank')
-        BOR_branch_xml=self.generate_branch_xml(option=1)
-        TFU_branch_xml=self.generate_branch_xml(option=2)
-        TMO_branch_xml=self.generate_branch_xml(option=3)
+        BOR_branch_xml=self.generate_branch_xml(boron_density,option=1)
+        TFU_branch_xml=self.generate_branch_xml(boron_density,option=2)
+        TMO_branch_xml=self.generate_branch_xml(boron_density,option=3)
         
-        HCB_branch_xml=self.generate_his_branch_xml(option='HCB')
-        HTF_branch_xml=self.generate_his_branch_xml(option='HTF')
-        HTM_branch_xml=self.generate_his_branch_xml(option='HTM')
+        HCB_branch_xml=self.generate_his_branch_xml(boron_density,option='HCB')
+        HTF_branch_xml=self.generate_his_branch_xml(boron_density,option='HTF')
+        HTM_branch_xml=self.generate_his_branch_xml(boron_density,option='HTM')
         
-        TMO_BOR_xml=self.generate_TMO_BOR_xml()
+        TMO_BOR_xml=self.generate_TMO_BOR_xml(boron_density)
+        
+        #SDC XEN
+        XEN_xml=self.generate_XEN_xml()
+        SDC_xml=self.generate_SDC_xml()
         
         databank_xml.appendChild(BOR_branch_xml)
         databank_xml.appendChild(TFU_branch_xml)
@@ -543,20 +593,21 @@ class PreRobinBranch(models.Model):
         databank_xml.appendChild(HTF_branch_xml)
         databank_xml.appendChild(HTM_branch_xml)
         databank_xml.appendChild(TMO_BOR_xml)
-        
+        databank_xml.appendChild(XEN_xml)
+        databank_xml.appendChild(SDC_xml)
         #control rod cluster
         cra_types=self.reactor_model.cra_types.all()
         for crat in cra_types:
             crat_branch_xml_lst=crat.generate_base_branch_xml_lst()
             for crat_branch_xml in crat_branch_xml_lst:
-                BOR=self.generate_value_str(option=1)
+                BOR=self.generate_value_str(boron_density,option=1)
                 BOR_xml=doc.createElement('BOR')
                 BOR_xml.appendChild(doc.createTextNode(BOR))
                 crat_branch_xml.appendChild(BOR_xml)
                 databank_xml.appendChild(crat_branch_xml)
         
-        doc.appendChild(databank_xml)
         
+        doc.appendChild(databank_xml)
         branch_file=open(branch_file_path,'w')
         doc.writexml(branch_file,indent='  ',addindent='  ', newl='\n',)
         branch_file.close()
@@ -689,11 +740,12 @@ class PreRobinInput(BaseModel):
     def get_instrument_tube_xml(self):
         return self.fuel_assembly_type.model.instrument_tube.generate_base_pin_xml()
     
-        
     def create_depletion_state(self):
         unit=self.unit
         lst=unit.depletion_state_lst
-        obj,created=DepletionState.objects.get_or_create(system_pressure=lst[0],fuel_temperature=lst[1],moderator_temperature=lst[2],boron_density=lst[3],power_density=lst[4])
+        assembly_enrichment=self.fuel_assembly_type.assembly_enrichment
+        boron_density=get_boron_density(assembly_enrichment)
+        obj,created=DepletionState.objects.get_or_create(system_pressure=lst[0],fuel_temperature=lst[1],moderator_temperature=lst[2],power_density=lst[3],boron_density=boron_density)
         return obj
 
     @property
@@ -705,7 +757,6 @@ class PreRobinInput(BaseModel):
         obj,created=PreRobinBranch.objects.get_or_create(reactor_model=reactor_model)
         return obj
     def create_task(self):
-        #
         if self.task.exists():
             return
         fuel_assembly_type=self.fuel_assembly_type
@@ -719,7 +770,7 @@ class PreRobinInput(BaseModel):
             pin_lst=[str(item) for item in self.get_lst(height, fuel=False)]
             fuel_map=",".join(fuel_lst)
             pin_map=",".join(pin_lst)
-            obj,created=PreRobinTask.objects.get_or_create(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,pre_robin_model=model,depletion_state=depletion_state,)
+            obj,created=PreRobinTask.objects.get_or_create(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,pre_robin_model=model,depletion_state=depletion_state)
             AssemblyLamination.objects.create(pre_robon_input=self,height=height,pre_robin_task=obj)
             
     def generate_base_fuel_xml(self):
@@ -737,7 +788,7 @@ class PreRobinInput(BaseModel):
         
         #assembly laminations
         layers=self.layers.all()
-        length_lst,segment_ID_lst=zip(*[(layer.length,layer.pre_robin_task.segment_ID) for layer in layers])
+        length_lst,segment_ID_lst=zip(*[(layer.length,layer.pre_robin_task.get_segment_ID()) for layer in layers])
         length_lst=[str(length) for length in length_lst]
         axial_ratio_xml=doc.createElement("axial_ratio")
         axial_ratio_xml.appendChild(doc.createTextNode(" ".join(length_lst)))
@@ -1012,7 +1063,7 @@ class DepletionState(models.Model):
     
     #depletion state
     system_pressure=models.DecimalField(max_digits=7,decimal_places=5,default=15.51,validators=[MinValueValidator(0)],help_text='MPa')
-    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=60,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
+    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=65,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
     burnup_unit=models.CharField(max_length=9,default='GWd/tU',choices=BURNUP_UNIT_CHOICES)
     fuel_temperature=models.PositiveSmallIntegerField(help_text='K',)
     moderator_temperature=models.PositiveSmallIntegerField(help_text='K',)
@@ -1066,11 +1117,7 @@ class DepletionState(models.Model):
         return "{} {}".format(self.pk,self.system_pressure)
     
 def server_default():
-    last_task=PreRobinTask.objects.last()
-    if last_task:
-        return last_task.server.next()
-    else:
-        return Server.first()
+    return Server.first().pk
     
 class PreRobinTask(BaseModel):
     plant=models.ForeignKey('tragopan.Plant')
@@ -1081,15 +1128,18 @@ class PreRobinTask(BaseModel):
     depletion_state=models.ForeignKey(DepletionState)
     pre_robin_model=models.ForeignKey(PreRobinModel)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
-    server=models.ForeignKey(Server,related_name="pre_robin_tasks",default=server_default)
-    #symmetry=models.BooleanField(default=True)
+    #server=models.ForeignKey(Server,related_name="pre_robin_tasks",default=server_default)
+    #bp_in=models.BooleanField(default=False)
     class Meta:
         db_table='pre_robin_task'
         
-    @property
-    def segment_ID(self):
+    def get_segment_ID(self,burnup=0):
         fuel_assembly_type=self.fuel_assembly_type
-        return fuel_assembly_type.assembly_name+'_'+self.rela_file_path
+        segment_ID= fuel_assembly_type.assembly_name+'_'+self.rela_file_path
+        if burnup:
+            segment_ID +="_BP_OUT_"+str(burnup)
+        return segment_ID
+    
         
     @property    
     def rela_file_path(self):
@@ -1107,6 +1157,24 @@ class PreRobinTask(BaseModel):
             os.makedirs(abs_file_path)
         return abs_file_path
     
+    BP_OUT_POINTS=list(range(2,20,2))
+    
+    #bp out info
+    def create_bp_out_dir(self,burnup):
+        abs_file_path=self.create_file_path()
+        bp_out_dir=os.path.join(abs_file_path,'BP_OUT',str(burnup))
+        if not os.path.exists(bp_out_dir):
+            os.makedirs(bp_out_dir)
+        return bp_out_dir
+    
+    def get_cwd(self,burnup=0):
+        if burnup:
+            cwd=self.create_bp_out_dir(burnup)
+        else:
+            cwd=self.abs_file_path
+    
+        return cwd
+    
     def get_lst(self,fuel=False):
         if fuel:
             rod_map=self.fuel_map
@@ -1116,6 +1184,18 @@ class PreRobinTask(BaseModel):
         lst=rod_map.split(sep=',')
         
         return lst
+    
+    @property
+    def bp_in(self):
+        lst=self.get_lst()
+        pk_set=set(lst)
+        pk_set.discard('0')
+        for pk in pk_set:
+            mt=MaterialTransection.objects.get(pk=int(pk))
+            if mt.if_bp_rod:
+                return True
+        return False
+
     
     #without fuel transection
     @property
@@ -1144,7 +1224,7 @@ class PreRobinTask(BaseModel):
         fuel_map_xml.appendChild(doc.createTextNode(fuel_map))
         return fuel_map_xml
     
-    def generate_pin_map_xml(self):
+    def generate_pin_map_xml(self,bp_out=False):
         pin_lst=self.get_lst(fuel=False)
         doc=minidom.Document()
         side_num=self.fuel_assembly_type.side_pin_num
@@ -1165,13 +1245,24 @@ class PreRobinTask(BaseModel):
                 pk=int(line_lst[j])
                 #GT or IT
                 if pk==0:
-                    pin=positions.get(row=real_row,column=real_col)
-                    if pin.type=='guide':
-                        pin_str='GT'
-                    elif pin.type=='instrument': 
-                        pin_str='IT' 
+                    if bp_out:
+                        pin_str="NONE"
+                    else:
+                        pin=positions.get(row=real_row,column=real_col)
+                        if pin.type=='guide':
+                            pin_str='GT'
+                        elif pin.type=='instrument': 
+                            pin_str='IT' 
                 else:
-                    pin_str=MaterialTransection.objects.get(pk=pk).pin_id
+                    mt=MaterialTransection.objects.get(pk=pk)
+                    if bp_out:
+                        if mt.if_bp_rod:
+                            pin_str='GT'
+                        else:
+                            pin_str='NONE' 
+                    else:
+                        pin_str=mt.pin_id
+                    
                 
                 row_lst.append(pin_str)
             
@@ -1193,24 +1284,61 @@ class PreRobinTask(BaseModel):
         assembly_model_xml.appendChild(pin_map_xml)
         return assembly_model_xml
     
-    @property
-    def segment_file_path(self):
-        abs_file_path=self.abs_file_path
-        return os.path.join(abs_file_path,'calculation_segments.xml')
+    def generate_pin_replace_xml(self,burnup):
+        doc=minidom.Document()
+        pin_replace_xml=doc.createElement('pin_replace')
+        pin_map_xml=self.generate_pin_map_xml(bp_out=True)
+        pin_replace_xml.appendChild(pin_map_xml)
+        
+        bu_xml=doc.createElement('bu')
+        bu_xml.appendChild(doc.createTextNode(str(burnup)))
+        pin_replace_xml.appendChild(bu_xml)
+        
+        depletion_state=self.depletion_state
+        bor_xml=doc.createElement('bor')
+        bor=depletion_state.boron_density
+        bor_xml.appendChild(doc.createTextNode(str(bor)))
+        pin_replace_xml.appendChild(bor_xml)
+        
+        tmo_xml=doc.createElement('tmo')
+        tmo=depletion_state.moderator_temperature
+        tmo_xml.appendChild(doc.createTextNode(str(tmo)))
+        pin_replace_xml.appendChild(tmo_xml)
+        
+        tfu_xml=doc.createElement('tfu')
+        tfu=depletion_state.fuel_temperature
+        tfu_xml.appendChild(doc.createTextNode(str(tfu)))
+        pin_replace_xml.appendChild(tfu_xml)
+        
+        return pin_replace_xml
+        
     
-    def generate_base_segment_xml(self):
+    
+    def generate_base_segment_xml(self,burnup=0):
         assembly_model_xml=self.generate_assembly_model_xml()
         depletion_state_xml=self.generate_depletion_state_xml()
         
         doc=minidom.Document()
         base_segment_xml=doc.createElement('base_segment')
         segment_ID_xml=doc.createElement('segment_ID')
-        segment_ID_xml.appendChild(doc.createTextNode(self.segment_ID))
+        segment_ID=self.get_segment_ID(burnup)
+        segment_ID_xml.appendChild(doc.createTextNode(segment_ID))
         
         branch_calc_ID_xml=doc.createElement('branch_calc_ID')
-        base_branch_ID_lst=self.branch.base_branch_ID_lst
+        #bp in or bp out 
+        branch=self.branch
+        #bp out already
+        if burnup:
+            base_branch_ID_lst=branch.get_base_branch_ID_lst(bp_in=False)
+        else:
+            base_branch_ID_lst=branch.get_base_branch_ID_lst(bp_in=self.bp_in)
         branch_calc_ID_xml.appendChild(doc.createTextNode(','.join(base_branch_ID_lst)))
         base_segment_xml.appendChild(branch_calc_ID_xml)
+        
+        #pin replace
+        if burnup:
+            pin_replace_xml=self.generate_pin_replace_xml(burnup)
+            base_segment_xml.appendChild(pin_replace_xml)
         #prerobin default
         pre_robin_model=self.pre_robin_model
         accuracy_control_xml=pre_robin_model.generate_accuracy_control_xml()
@@ -1230,17 +1358,17 @@ class PreRobinTask(BaseModel):
         return base_segment_xml
         
         
-    def generate_his_segment_lst(self,option='HCB'):
+    def generate_his_segment_lst(self,boron_density,option='HCB',burnup=0):
         '''
         option:HCB,HTF,HTM
         '''
         segment_lst=[]
-        his_lst=self.branch.get_his_lst(option=option)
+        his_lst=self.branch.get_his_lst(boron_density,option=option)
         for item in his_lst:
             doc=minidom.Document()
             base_segment_xml=doc.createElement('base_segment')
             use_pre_segment_xml=doc.createElement('use_pre_segment')
-            base_segment_ID=self.segment_ID
+            base_segment_ID=self.get_segment_ID(burnup=burnup)
             use_pre_segment_xml.appendChild(doc.createTextNode(base_segment_ID))
             base_segment_xml.appendChild(use_pre_segment_xml)
             
@@ -1272,7 +1400,7 @@ class PreRobinTask(BaseModel):
     
 
           
-    def generate_grid_segment_lst(self):
+    def generate_grid_segment_lst(self,burnup=0):
         fuel_assembly_model=self.fuel_assembly_type.model
         total_grid_type_num=fuel_assembly_model.total_grid_type_num
         segment_lst=[]
@@ -1283,7 +1411,7 @@ class PreRobinTask(BaseModel):
             doc=minidom.Document()
             base_segment_xml=doc.createElement('base_segment')
             use_pre_segment_xml=doc.createElement('use_pre_segment')
-            base_segment_ID=self.segment_ID
+            base_segment_ID=self.get_segment_ID(burnup)
             use_pre_segment_xml.appendChild(doc.createTextNode(base_segment_ID))
             base_segment_xml.appendChild(use_pre_segment_xml)
             
@@ -1307,35 +1435,38 @@ class PreRobinTask(BaseModel):
             
         return segment_lst
     
-    def generate_calculation_segments_xml(self):
+ 
+    
+    SEGMENT_FILE_PATH='calculation_segments.xml'
+    
+    def generate_calculation_segments_xml(self,boron_density,burnup=0):
         doc=minidom.Document()
         calculation_segments_xml=doc.createElement('calculation_segments')
         doc.appendChild(calculation_segments_xml)
+        
         #base
-        base_segment_xml=self.generate_base_segment_xml()
+        base_segment_xml=self.generate_base_segment_xml(burnup)
         calculation_segments_xml.appendChild(base_segment_xml)
         
         #grid
-        grid_segment_lst=self.generate_grid_segment_lst()
+        grid_segment_lst=self.generate_grid_segment_lst(burnup)
         for grid_segment in grid_segment_lst:
             calculation_segments_xml.appendChild(grid_segment)
         
         #history
-        HCB_segment_lst=self.generate_his_segment_lst(option='HCB')
+        HCB_segment_lst=self.generate_his_segment_lst(boron_density,option='HCB',burnup=burnup)
         for HCB_segment in HCB_segment_lst:
             calculation_segments_xml.appendChild(HCB_segment)
             
-        HTF_segment_lst=self.generate_his_segment_lst(option='HTF')
+        HTF_segment_lst=self.generate_his_segment_lst(boron_density,option='HTF',burnup=burnup)
         for HTF_segment in HTF_segment_lst:
             calculation_segments_xml.appendChild(HTF_segment)
         
-        HTM_segment_lst=self.generate_his_segment_lst(option='HTM')
+        HTM_segment_lst=self.generate_his_segment_lst(boron_density,option='HTM',burnup=burnup)
         for HTM_segment in HTM_segment_lst:
             calculation_segments_xml.appendChild(HTM_segment)
             
-            
-        
-        segment_file_path=self.segment_file_path
+        segment_file_path=PreRobinTask.SEGMENT_FILE_PATH
         segment_file=open(segment_file_path,'w')
         doc.writexml(segment_file,indent='  ',addindent='  ', newl='\n',)
         segment_file.close()
@@ -1373,17 +1504,13 @@ class PreRobinTask(BaseModel):
         f.close()
         return pin_databank_path
     
-    @property
-    def input_file_path(self):
-        abs_file_path=self.create_file_path()
-        input_file_path=os.path.join(abs_file_path,'input_file_info.inp')
-        return input_file_path
+    INPUT_FILE_NAME='input_file_info.inp'
     
-    def generate_prerobin_input(self):
-        abs_file_path=self.create_file_path()
-        os.chdir(abs_file_path)
-        input_file_path=self.input_file_path
-        f=open(input_file_path,'w')
+    def generate_prerobin_input(self,burnup=0):
+        cwd=self.get_cwd(burnup=burnup)
+        os.chdir(cwd)
+        #input_file_path=self.input_file_path
+        f=open(PreRobinTask.INPUT_FILE_NAME,'w')
         f.write('& INPUT_FILE_INFO\n')
         
         #material_element.lib comes from table BasicMaterial 
@@ -1397,62 +1524,78 @@ class PreRobinTask(BaseModel):
         f.write('    hydro_table             = "%s"\n'%hydro_table_path)
         
         #material_databank comes from table Material
-        material_databank_path=Material.material_databank_path
+        material_databank_path=Material.MATERIAL_DATABANK_PATH
         if not os.path.exists(material_databank_path):
             Material.generate_material_databank_xml()
         #convert xml to sread format
-        material_databank=parse_xml_to_lst(material_databank_path,abs_file_path) 
+        material_databank=parse_xml_to_lst(material_databank_path) 
         f.write('    material_databank       = "%s"\n'%material_databank)
         
         #pin_databank comes from table PreRobinInput
         pin_databank_path=self.generate_pin_databank_xml()
-        pin_databank=parse_xml_to_lst(pin_databank_path,abs_file_path) 
+        pin_databank=parse_xml_to_lst(pin_databank_path) 
         f.write('    pin_databank            = "%s"\n'%pin_databank)
            
         #branch_calculation_info
-        branch_file_path=self.branch.generate_databank_xml()
-        branch_file=parse_xml_to_lst(branch_file_path,abs_file_path) 
+        assembly_enrichment=self.fuel_assembly_type.assembly_enrichment
+        boron_density=get_boron_density(assembly_enrichment)
+        branch_file_path=self.branch.generate_databank_xml(boron_density)
+        branch_file=parse_xml_to_lst(branch_file_path) 
         f.write('    branch_calculation_info = "%s"\n'%branch_file) 
          
         #calculation_segments
-        segment_file_path=self.generate_calculation_segments_xml()
-        segment_file=parse_xml_to_lst(segment_file_path,abs_file_path) 
+        segment_file_path=self.generate_calculation_segments_xml(boron_density,burnup)
+        segment_file=parse_xml_to_lst(segment_file_path) 
         f.write('    calculation_segments    = "%s"\n'%segment_file)
         
         f.write('/\n')
         f.close()
         
-    def generate_prerobin_output(self):
-        abs_file_path=self.create_file_path()
-        os.chdir(abs_file_path)
-        input_file_path=self.input_file_path
-        if not os.path.exists(input_file_path):
-            self.generate_prerobin_input()
+    def generate_prerobin_output(self,burnup=0):
+        self.generate_prerobin_input(burnup=burnup)
+        input_file_path=PreRobinTask.INPUT_FILE_NAME
         process=Popen(['/opt/nustar/bin/myprerobin','-i',input_file_path])
         return_code=process.wait()
         return return_code
     
-    def generate_robin_tasks(self,postfix=None):
-        abs_file_path=self.abs_file_path
-        os.chdir(abs_file_path)
-        inputfile_names=self.find_inputfile_names(postfix)
+    def generate_robin_tasks(self,postfix=None,burnup=0):
+        inputfile_names=self.find_inputfile_names(postfix,burnup)
+        #get server
+        last=RobinTask.objects.last()
+        if last:
+            server=last.server.next()
+        else:
+            server=Server.first()
+            
         for inputfile_name in inputfile_names:
             f=open(inputfile_name)
-            RobinTask.objects.create(name=inputfile_name.rstrip('.inp'),pre_robin_task=self,input_file=File(f))
+            name=inputfile_name.split(sep='.')[0]
+            obj=RobinTask.objects.create(name=name,pre_robin_task=self,input_file=File(f),server=server)
             f.close()
+            obj.change_server()
+    
+    def generate_all_robin_tasks(self,burnup=0):
+        #base
+        self.generate_robin_tasks(burnup=burnup)
+        #grid
+        self.generate_robin_tasks('GRID',burnup)
+        #HTM
+        self.generate_robin_tasks('HTM',burnup)
+        #HTF
+        self.generate_robin_tasks('HTF',burnup)
+        #HCB
+        self.generate_robin_tasks('HCB',burnup)
             
     def start_prerobin(self):
+        #no bp out 
         return_code=self.generate_prerobin_output()
-        #base
-        self.generate_robin_tasks()
-        #grid
-        self.generate_robin_tasks('GRID')
-        #HTM
-        self.generate_robin_tasks('HTM')
-        #HTF
-        self.generate_robin_tasks('HTF')
-        #HCB
-        self.generate_robin_tasks('HCB')
+        self.generate_all_robin_tasks()
+        if self.bp_in:
+            BP_OUT_POINTS=PreRobinTask.BP_OUT_POINTS
+            for burnup in BP_OUT_POINTS:
+                self.generate_prerobin_output(burnup=burnup)
+                self.generate_all_robin_tasks(burnup=burnup)
+        
         if return_code!=0:
             self.task_status=6
         else:  
@@ -1465,21 +1608,22 @@ class PreRobinTask(BaseModel):
         for robin_task in robin_tasks:
             #if waiting
             if robin_task.task_status==0:
-                time.sleep(1)
                 robin_task.start_calculation()
     
     def stop_robin(self): 
-        server=self.server
-        queue=server.queue+"_control"
-        s=signature('calculation.tasks.stop_robin_task', args=(self.pk,))
-        s.freeze()
-        s.apply_async(queue=queue,task_id=str(self.pk)) 
+        robin_tasks=self.robin_tasks.all()
+        for robin_task in robin_tasks: 
+            queue=robin_task.server.queue+"_control"
+            s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
+            s.freeze()
+            s.apply_async(queue=queue) 
         
             
-    def find_inputfile_names(self,postfix=None):
-        base_segment_ID=self.segment_ID
-        abs_file_path=self.abs_file_path
-        filenames=os.listdir(abs_file_path)
+    def find_inputfile_names(self,postfix=None,burnup=0):
+        base_segment_ID=self.get_segment_ID(burnup)
+        cwd=self.get_cwd(burnup=burnup)  
+        os.chdir(cwd)
+        filenames=os.listdir(cwd)
         inputfile_names=[]
         if postfix:
             name=base_segment_ID+'_'+postfix+'_.+\.inp'
@@ -1492,25 +1636,25 @@ class PreRobinTask(BaseModel):
                 inputfile_names.append(filename) 
         return inputfile_names
     
-    def create_subdir(self):
+    def create_subdir(self,burnup=0):
         abs_file_path=self.abs_file_path
-        sub_dir=os.path.join(abs_file_path,'IDYLL')
-        
+        sub_dir=os.path.join(abs_file_path,'IDYLL',str(burnup))
         if not os.path.exists(sub_dir):
             os.makedirs(sub_dir) 
         return sub_dir
                
-    def cp_out_to_subdir(self,subdir):
+    def cp_out_to_subdir(self,subdir,burnup=0):
         robin_tasks=self.robin_tasks.all()
         for robin_task in robin_tasks:
-            cwd=robin_task.get_cwd()
-            output_filename=robin_task.get_output_filename()
-            shutil.copy(os.path.join(cwd,output_filename),subdir)
+            if robin_task.get_burnup()==burnup:
+                cwd=robin_task.get_cwd()
+                output_filename=robin_task.get_output_filename()
+                shutil.copy(os.path.join(cwd,output_filename),subdir)
             
-    def get_idyll_input(self):
-        abs_file_path=self.abs_file_path
-        segment_ID=self.segment_ID
-        return os.path.join(abs_file_path,"IDYLL_"+segment_ID+".inp")
+    def get_idyll_input(self,burnup=0):
+        cwd=self.get_cwd(burnup=burnup)
+        segment_ID=self.get_segment_ID(burnup)
+        return os.path.join(cwd,"IDYLL_"+segment_ID+".inp")
     
     def generate_ptc_wet(self):
         fuel_assembly_type=self.fuel_assembly_type
@@ -1549,9 +1693,9 @@ class PreRobinTask(BaseModel):
         
         f.close()
         
-    def start_idyll(self): 
-        idyll_input=self.get_idyll_input()
-        subdir=self.create_subdir()
+    def start_idyll(self,burnup=0): 
+        idyll_input=self.get_idyll_input(burnup)
+        subdir=self.create_subdir(burnup)
         os.chdir(subdir)  
         #create idyll dirs
         try:
@@ -1564,14 +1708,24 @@ class PreRobinTask(BaseModel):
         #generate ptc_wet file
         self.generate_ptc_wet()
         #cp idyll into subdir
-        shutil.copy(idyll_input,os.path.join(subdir,"IBIS.INP"))
+        shutil.copy(idyll_input,os.path.join(subdir,"IDYLL.INP"))
         #cp out1 into subdir
-        self.cp_out_to_subdir(subdir)
+        self.cp_out_to_subdir(subdir,burnup)
         
-        process=Popen(['/opt/nustar/bin/myidyll',"IBIS.INP"])
+        process=Popen(['/opt/nustar/bin/myidyll',"IDYLL.INP"])
         return_code=process.wait()
         self.link_table()
         return return_code
+    
+    def start_all_idyll(self):
+        #no bp out
+        self.start_idyll(burnup=0)
+        #bp out
+        if self.bp_in:
+            burnup_points=PreRobinTask.BP_OUT_POINTS
+            for burnup in burnup_points:
+                self.start_idyll(burnup=burnup)
+            
     
     @property    
     def robin_finished(self):
@@ -1580,26 +1734,25 @@ class PreRobinTask(BaseModel):
         else:
             return True
       
-    @property
-    def table_path(self):
-        abs_file_path=self.abs_file_path
-        return os.path.join(abs_file_path,"IDYLL","TABLE_OUTPUT","ASSEMBLY.TAB")
+    
+    def get_table_path(self,burnup=0):
+        subdir=self.create_subdir(burnup)
+        return os.path.join(subdir,"TABLE_OUTPUT","ASSEMBLY.TAB")
     
     def table_generated(self):
-        return True  if os.path.isfile(self.table_path) else False 
+        return True  if os.path.isfile(self.get_table_path()) else False 
     table_generated.boolean=True 
     
-    def link_table(self):
-        table_path=self.table_path
+    def link_table(self,burnup=0):
+        table_path=self.get_table_path(burnup)
         idyll_dir=self.plant.reactor_model.idyll_dir
         if not os.path.exists(idyll_dir):
             os.makedirs(idyll_dir)
-        dest=os.path.join(idyll_dir,self.segment_ID+".TAB")
+        dest=os.path.join(idyll_dir,self.get_segment_ID(burnup)+".TAB")
         os.symlink(table_path,dest)
         
     def __str__(self):
-        #return "{} {}".format(self.pk,self.fuel_assembly_type)
-        return self.segment_ID
+        return self.get_segment_ID()
     
 
 def get_robintask_upload_path(instance,filename):
@@ -1618,7 +1771,7 @@ class RobinTask(models.Model):
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
-    #pid=models.PositiveSmallIntegerField(blank=True,null=True)
+    server=models.ForeignKey(Server,related_name="robin_tasks",default=server_default)
     class Meta:
         db_table='robin_task'
         
@@ -1650,11 +1803,11 @@ class RobinTask(models.Model):
         return url
     
     def start_calculation(self):
-        server=self.pre_robin_task.server
+        server=self.server
         queue=server.queue
         s=signature('calculation.tasks.robin_calculation_task', args=(self.pk,))
         s.freeze()
-        s.apply_async(queue=queue,task_id=str(self.pk))   
+        s.apply_async(queue=queue,task_id=str(self.pk))
         
     def cancel_calculation(self):
         #only can cancel waiting tasks
@@ -1683,8 +1836,45 @@ class RobinTask(models.Model):
         pid= int(f.read())
         f.close()
         return pid
-           
         
+        
+    def get_burnup(self):
+        name=self.name
+        if "BP_OUT" in name:
+            names=name.split("_")
+            index=names.index('OUT')
+            return int(names[index+1])
+        else:
+            return 0
+        
+    def in_same_group(self,task):
+        if self.pre_robin_task==task.pre_robin_task:
+            if self.get_burnup()==task.get_burnup():
+                return True
+        return False
+    @property
+    def base(self):
+        name=self.name
+        for item in ['HCB','HTF','HTM']:
+            if item in name:
+                return False
+        return True 
+        
+    def get_base(self):
+        if self.base:
+            return self
+        else:
+            tasks=RobinTask.objects.filter(pre_robin_task=self.pre_robin_task).exclude(Q(name__contains='HCB')|Q(name__contains='HTF')|Q(name__contains='HTM'))
+            for task in tasks:
+                if task.get_burnup()==self.get_burnup():
+                    return task
+                
+    def change_server(self):
+        if not self.base:
+            base=self.get_base()
+            self.server=base.server
+            self.save()
+            
         
     def __str__(self):
         return self.name

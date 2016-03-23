@@ -258,12 +258,12 @@ class BasicMaterial(BaseModel):
         return True
     data_integrity.boolean=True
     
-    def get_density(self,factor=None):
-        density=self.density
-        if factor and self.name=="UO2":
-            return density*factor
-        else:
-            return density
+#     def get_density(self,factor=None):
+#         density=self.density
+#         if factor and self.name=="UO2":
+#             return density*factor
+#         else:
+#             return density
         
     def get_name(self,enrichment=None):
         if self.name=="UO2":
@@ -405,8 +405,8 @@ class Material(BaseModel):
         if self.input_method!=3:
             factor=fuel_pellet.factor if fuel_pellet else None
             compo=self.weight_mixtures.all()
-            result=100/sum(item.percent/item.basic_material.get_density(factor) for item in compo)*(self.density_percent/100)
-            return round(result,5)
+            result=100/sum(item.percent/item.basic_material.density for item in compo)*(self.density_percent/100)
+            return round(factor*result,5) if factor else round(result,5) 
         else:
             return None
         
@@ -458,10 +458,10 @@ class Material(BaseModel):
         base_mat_lst.extend(fuel_base_mat_lst)
         return base_mat_lst
             
-    material_databank_path=os.path.join(PRE_ROBIN_PATH,"material_databank.xml")
+    MATERIAL_DATABANK_PATH=os.path.join(PRE_ROBIN_PATH,"material_databank.xml")
     @classmethod
     def generate_material_databank_xml(cls):
-        f=open(cls.material_databank_path,'w')
+        f=open(cls.MATERIAL_DATABANK_PATH,'w')
         doc = minidom.Document()
         material_databank_xml=doc.createElement('material_databank')
         base_mat_lst=cls.generate_base_mat_lst()
@@ -584,7 +584,7 @@ class ReactorModel(BaseModel):
     vendor = models.ForeignKey(Vendor)  
     thermal_couple_position=models.ManyToManyField('ReactorPosition',related_name='thermal_couple_position',db_table='thermal_couple_map',blank=True,)
     incore_instrument_position=models.ManyToManyField('ReactorPosition',related_name='incore_instrument_position',db_table='incore_instrument_map',blank=True,)
-    boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
+    #boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
     fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
     moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
     class Meta:
@@ -826,9 +826,6 @@ class UnitParameter(BaseModel):
         plant=self.plant
         return os.path.join(plant.plant_dir,'unit'+str(self.unit))
     
-    @property
-    def boron_density(self):
-        return self.reactor_model.boron_density
     
     @property
     def fuel_temperature(self):
@@ -843,10 +840,9 @@ class UnitParameter(BaseModel):
     def depletion_state_lst(self):
         primary_system_pressure=self.primary_system_pressure
         ave_mass_power_density=self.ave_mass_power_density
-        boron_density=self.boron_density
         fuel_temperature=self.fuel_temperature
         moderator_temperature=self.moderator_temperature
-        return [primary_system_pressure,fuel_temperature,moderator_temperature,boron_density,ave_mass_power_density]
+        return [primary_system_pressure,fuel_temperature,moderator_temperature,ave_mass_power_density]
     @property    
     def base_component_path(self):
         plant=self.plant
@@ -974,9 +970,9 @@ class Cycle(BaseModel):
             
     def generate_fuel_node(self):  
         doc = minidom.Document()      
-        fuel_xml=doc.createElement('fuel')
+        fuel_xml=doc.createElement('base_fuel')
         doc.appendChild(fuel_xml)
-        fuel_xml=doc.createElement('fuel')
+        fuel_xml=doc.createElement('base_fuel')
         fuel_assembly_loading_patterns=self.fuel_assembly_loading_patterns.all()
         
         for item in fuel_assembly_loading_patterns:
@@ -1106,6 +1102,11 @@ class Cycle(BaseModel):
         
         return f
     
+    def get_base_fuel_by_pos(self,reactor_position):
+        fuel_assembly_loading_pattern=self.fuel_assembly_loading_patterns.get(reactor_position=reactor_position)
+        bpa_loading_pattern=self.bpa_loading_patterns.get(reactor_position=reactor_position)
+        
+    
     def generate_base_fuel_set(self):
         base_fuel_set=set()
         fuel_assembly_loading_patterns=self.fuel_assembly_loading_patterns.all()
@@ -1137,7 +1138,8 @@ class FuelAssemblyLoadingPattern(BaseModel):
     reactor_position=models.ForeignKey(ReactorPosition)
     fuel_assembly=models.ForeignKey('FuelAssemblyRepository',related_name='cycle_positions',default=1)
     rotation_degree=models.CharField(max_length=3,choices=ROTATION_DEGREE_CHOICES,default='0',help_text='anticlokwise')
-    
+    burnable_poison_assembly=models.ForeignKey('BurnablePoisonAssembly',related_name="bpa",blank=True,null=True)
+    control_rod_assembly=models.ForeignKey('ControlRodAssembly',related_name="cra",blank=True,null=True)
     class Meta:
         db_table='fuel_assembly_loading_pattern'
        
@@ -1183,26 +1185,11 @@ class FuelAssemblyLoadingPattern(BaseModel):
             return None
     
     def if_insert_bpa(self):
-        cycle=self.cycle
-        reactor_position=self.reactor_position
-        try:
-            BurnablePoisonAssemblyLoadingPattern.objects.get(cycle=cycle,reactor_position=reactor_position)
-            return True
-        except:
-            return False
-    
-    def if_insert_cra(self):
-        cycle=self.cycle
-        reactor_position=self.reactor_position
-        
-        try:
-            cra_cycle=cycle.get_cra_cycle()
-            ControlRodAssemblyLoadingPattern.objects.get(cycle=cra_cycle,reactor_position=reactor_position)
-            return True
-        except:
-            return False
+        return True if self.burnable_poison_assembly else False
             
-        
+    def if_insert_cra(self):
+        return True if self.control_rod_assembly else False
+            
     def get_grid(self):
         fuel_assembly=self.fuel_assembly
         grids=fuel_assembly.type.model.grid_positions.all()
@@ -1405,6 +1392,7 @@ class FuelAssemblyType(BaseModel):
         for fuel_element_type in fuel_element_types:
             if fuel_element_type.enrichment==enrichment:
                 return fuel_element_type
+            
     def insert_fuel(self):
         '''only available if all fuel element is the same 
         '''
@@ -2751,6 +2739,10 @@ class ControlRodAssemblyType(BaseModel):
     def get_branch_ID(self,height):
         return "CRD_{}_{}".format(self.pk,height)
     
+    def get_branch_ID_set(self):
+        lst= [self.get_branch_ID(height) for height in self.height_lst]
+        return set(lst)
+    
     def generate_base_branch_xml(self,height):
         transection=self.generate_transection(height)
         doc=minidom.Document()
@@ -2897,8 +2889,6 @@ class ControlRodAssemblyLoadingPattern(BaseModel):
     cycle=models.ForeignKey(Cycle,related_name='control_rod_assembly_loading_patterns',blank=True,null=True)
     reactor_position=models.ForeignKey(ReactorPosition,related_name='control_rod_assembly_pattern',)
     control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='loading_patterns',)
-    
-    
 
     class Meta:
         db_table='control_rod_assembly_loading_pattern'

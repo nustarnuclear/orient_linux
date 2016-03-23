@@ -96,15 +96,14 @@ def robin_calculation_task(pk):
     
 @shared_task
 def stop_robin_task(pk):
-    pre_robin_task=PreRobinTask.objects.get(pk=pk)
-    robin_tasks=pre_robin_task.robin_tasks.all()
-    cal_tasks=robin_tasks.filter(task_status=1)
-    wait_tasks=robin_tasks.filter(task_status=0)
-    for task in wait_tasks:
-        task.cancel_calculation()
+    robin_task=RobinTask.objects.get(pk=pk)
+    task_status=robin_task.task_status
+    #waiting
+    if task_status==0:
+        robin_task.cancel_calculation()
               
-    for task in cal_tasks:  
-        task.stop_calculation() 
+    elif task_status==1: 
+        robin_task.stop_calculation() 
 
         
     

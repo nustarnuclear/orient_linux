@@ -369,7 +369,7 @@ class FuelAssemblyLoadingPatternInline(admin.TabularInline):
 class FuelAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_filter=['fuel_assembly__type','reactor_position','cycle']
-    list_display=['cycle','reactor_position','fuel_assembly',]
+    list_display=['cycle','reactor_position','fuel_assembly','burnable_poison_assembly','control_rod_assembly']
     list_select_related = ('cycle', 'fuel_assembly')
     raw_id_fields = ("fuel_assembly",)
     ordering=('cycle','reactor_position')
@@ -604,8 +604,8 @@ class FuelElementTypePositionInline(admin.TabularInline):
     exclude=('remark',)
     model=FuelElementTypePosition
     raw_id_fields=("fuel_assembly_position","fuel_element_type")
-    def has_add_permission(self,request):
-        return False
+#     def has_add_permission(self,request):
+#         return False
     
     def has_delete_permission(self,request,obj):
         return False
@@ -780,7 +780,7 @@ class ControlRodAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[ControlRodAssemblyMapInline,]
     model=ControlRodAssemblyType
-    list_display=('pk','reactor_model','type','black_grey_rod_num','height_lst','start_index','end_index','length_lst','type_lst')
+    list_display=('pk','reactor_model','type','black_grey_rod_num','height_lst','start_index','end_index','length_lst','type_lst','get_branch_ID_set')
 admin.site.register(ControlRodAssemblyType, ControlRodAssemblyTypeAdmin)
    
 class ControlRodAssemblyAdmin(admin.ModelAdmin):

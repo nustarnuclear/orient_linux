@@ -68,16 +68,16 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
                                         'fields':('max_moderator_temperature','min_moderator_temperature','moderator_temperature_interval')
                                      
                 }),
-                ('shutdown cooling branch',{
-                                 'classes': ('grp-collapse grp-closed',),
-                                 'fields':('shutdown_cooling_days',)
-                                     
-                }),
-                ('xenon branch',{
-                                 'classes': ('grp-collapse grp-closed',),
-                                 'fields':('xenon',)
-                                     
-                }),
+#                 ('shutdown cooling branch',{
+#                                  'classes': ('grp-collapse grp-closed',),
+#                                  'fields':('shutdown_cooling_days',)
+#                                      
+#                 }),
+#                 ('xenon branch',{
+#                                  'classes': ('grp-collapse grp-closed',),
+#                                  'fields':('xenon',)
+#                                      
+#                 }),
     )
     list_display=('pk',"__str__",)
 admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
@@ -185,7 +185,7 @@ admin.site.register(DepletionState, DepletionStateAdmin)
 class RobinTaskInline(admin.TabularInline):
     model=RobinTask
     extra=0
-    fields = ('name', 'input_file', 'task_status','start_time','end_time','logfile_link','outfile_link')
+    fields = ('name', 'input_file','server', 'task_status','start_time','end_time','logfile_link','outfile_link')
     readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time','logfile_link','outfile_link')
     def has_add_permission(self,request):
         return False
@@ -206,12 +206,12 @@ class RobinTaskInline(admin.TabularInline):
 class PreRobinTaskAdmin(admin.ModelAdmin):
     add_form_template="calculation/no_action.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','server','robin_finished','table_generated')
+    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished','table_generated','bp_in')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
     actions = ['auto_start_prerobin','del_all_robin_tasks','auto_start_robin','auto_start_idyll']
-    
+    list_filter=("plant",)
     def auto_start_prerobin(self, request, queryset):
         index=0
         for obj in queryset.exclude(task_status=4):
@@ -307,14 +307,14 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
         if not obj.robin_finished:  
             self.message_user(request, 'Your need to wait all robin tasks finished',messages.WARNING)
         else:
-            obj.start_idyll()
+            obj.start_all_idyll()
             self.message_user(request, 'table generated completed')
         return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
     
 admin.site.register(PreRobinTask, PreRobinTaskAdmin)
 
 class RobinTaskAdmin(admin.ModelAdmin):
-    list_display=('pk','__str__',"logfile_link","outfile_link")
+    list_display=('pk','__str__',"logfile_link","outfile_link","get_burnup","base",'get_base')
     
     def logfile_link(self, item):
         url = item.get_logfile_url()
