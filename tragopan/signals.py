@@ -78,9 +78,9 @@ def del_raw_file(sender, instance, **kwargs):
 def generate_material_lib(sender, instance, **kwargs): 
     BasicMaterial.generate_material_lib()
     
-@receiver(post_save,sender=FuelPelletType)   
-@receiver(post_save,sender=Material)
-def generate_material_databank_xml(sender, instance, **kwargs): 
-    Material.generate_material_databank_xml()
+# @receiver(post_save,sender=FuelPelletType)   
+# @receiver(post_save,sender=Material)
+# def generate_material_databank_xml(sender, instance, **kwargs): 
+#     Material.generate_material_databank_xml()
    
     

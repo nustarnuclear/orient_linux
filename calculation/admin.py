@@ -10,7 +10,7 @@ from django.template.response import TemplateResponse
 # Register your models here.
 
 class ServerAdmin(admin.ModelAdmin):
-    list_display=("name","IP","queue","available",'next')
+    list_display=("name","IP","queue",'next')
 admin.site.register(Server,ServerAdmin)
 
 class PreRobinModelAdmin(admin.ModelAdmin):
@@ -206,7 +206,7 @@ class RobinTaskInline(admin.TabularInline):
 class PreRobinTaskAdmin(admin.ModelAdmin):
     add_form_template="calculation/no_action.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished','table_generated','bp_in')
+    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished','table_generated','bp_in','get_material_pk_set')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
@@ -287,7 +287,7 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
         pk=kwargs['pk']
         obj = PreRobinTask.objects.get(pk=pk)
         obj.stop_robin()
-        self.message_user(request, 'all robin tasks are stopped')
+        self.message_user(request, 'all robin tasks have been stopped')
         return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
     
     def delete_robin_view(self,request, *args, **kwargs):
@@ -298,7 +298,12 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
             self.message_user(request, 'You need to stop ROBIN first',messages.WARNING)
         else:
             robin_tasks.delete()
-            self.message_user(request, 'all robin tasks are deleted')
+            #delete prerobin files
+            cwd=obj.get_cwd()
+            task_name=os.path.basename(cwd)
+            os.chdir(os.path.dirname(cwd))
+            shutil.rmtree(task_name)
+            self.message_user(request, 'all robin tasks have been deleted')
         return redirect(reverse("admin:calculation_prerobintask_change",args=[pk]))
     
     def start_idyll_view(self,request, *args, **kwargs):

@@ -91,8 +91,6 @@ def robin_calculation_task(pk):
         shutil.rmtree(basename)
         
     return return_code
-
-    
     
 @shared_task
 def stop_robin_task(pk):

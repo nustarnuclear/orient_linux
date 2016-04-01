@@ -375,7 +375,7 @@ class PreRobinBranch(models.Model):
         reactor_model=self.reactor_model
         return [boron_density,reactor_model.fuel_temperature,reactor_model.moderator_temperature]
         
-    def generate_value_str(self,boron_density,option):
+    def generate_value_lst(self,boron_density,option):
         '''1->BOR
            2->TFU
            3->TMO
@@ -402,8 +402,8 @@ class PreRobinBranch(models.Model):
             lst.remove(base)
         if max_val not in lst:
             lst.append(max_val)
-        lst_str=','.join([str(i) for i in lst])
-        return lst_str
+        #lst_str=','.join([str(i) for i in lst])
+        return lst
         
         
     def generate_branch_xml(self,boron_density,option):
@@ -416,16 +416,17 @@ class PreRobinBranch(models.Model):
         if option==1:
             ID='BRCH_BOR'
             name='BOR'
-            value_str=self.generate_value_str(boron_density,option=1)
+            value_lst=self.generate_value_lst(boron_density,option=1)
         elif option==2:
             ID='BRCH_TFU'
             name='TFU'
-            value_str=self.generate_value_str(boron_density,option=2)
+            value_lst=self.generate_value_lst(boron_density,option=2)
         elif option==3:
             ID='BRCH_TMO'
             name='TMO'
-            value_str=self.generate_value_str(boron_density,option=3)
+            value_lst=self.generate_value_lst(boron_density,option=3)
             
+        value_str=','.join([str(i) for i in value_lst])   
         branch_xml=doc.createElement('base_branch')
     
         ID_xml=doc.createElement('ID')
@@ -461,12 +462,14 @@ class PreRobinBranch(models.Model):
         branch_xml.appendChild(ID_xml)
         
         name1='TMO'
-        lst_str1=self.generate_value_str(boron_density,option=3)
+        lst1=self.generate_value_lst(boron_density,option=3)
+        lst_str1=','.join([str(i) for i in lst1])  
         name1_xml=doc.createElement(name1)
         name1_xml.appendChild(doc.createTextNode(lst_str1))
         
         name2='BOR'
-        lst_str2=self.generate_value_str(boron_density,option=1)
+        lst2=self.generate_value_lst(boron_density,option=1)
+        lst_str2=','.join([str(i) for i in lst2])
         name2_xml=doc.createElement(name2)
         name2_xml.appendChild(doc.createTextNode(lst_str2))
         
@@ -600,7 +603,13 @@ class PreRobinBranch(models.Model):
         for crat in cra_types:
             crat_branch_xml_lst=crat.generate_base_branch_xml_lst()
             for crat_branch_xml in crat_branch_xml_lst:
-                BOR=self.generate_value_str(boron_density,option=1)
+                BOR_lst=self.generate_value_lst(boron_density,option=1)
+                base_lst=self.get_base_lst(boron_density)
+                base_boron_density=base_lst[0]
+                if base_boron_density not in BOR_lst:
+                    BOR_lst.append(base_boron_density)
+                    BOR_lst.sort()
+                BOR=','.join([str(i) for i in BOR_lst])
                 BOR_xml=doc.createElement('BOR')
                 BOR_xml.appendChild(doc.createTextNode(BOR))
                 crat_branch_xml.appendChild(BOR_xml)
@@ -1018,7 +1027,7 @@ class PreRobinInput(BaseModel):
 class AssemblyLamination(models.Model):
     pre_robon_input=models.ForeignKey(PreRobinInput,related_name="layers")
     height =models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],verbose_name="bottom_height",help_text='unit:cm')
-    pre_robin_task=models.ForeignKey('PreRobinTask')
+    pre_robin_task=models.ForeignKey('PreRobinTask',related_name="layers")
     
     class Meta:
         db_table="assembly_lamination"
@@ -1122,14 +1131,12 @@ def server_default():
 class PreRobinTask(BaseModel):
     plant=models.ForeignKey('tragopan.Plant')
     fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
-    pin_map=models.CommaSeparatedIntegerField(max_length=256)
-    fuel_map=models.CommaSeparatedIntegerField(max_length=256)
+    pin_map=models.CommaSeparatedIntegerField(max_length=256,help_text="material transection pk")
+    fuel_map=models.CommaSeparatedIntegerField(max_length=256,help_text="material pk")
     branch=models.ForeignKey(PreRobinBranch)
     depletion_state=models.ForeignKey(DepletionState)
     pre_robin_model=models.ForeignKey(PreRobinModel)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
-    #server=models.ForeignKey(Server,related_name="pre_robin_tasks",default=server_default)
-    #bp_in=models.BooleanField(default=False)
     class Meta:
         db_table='pre_robin_task'
         
@@ -1171,7 +1178,7 @@ class PreRobinTask(BaseModel):
         if burnup:
             cwd=self.create_bp_out_dir(burnup)
         else:
-            cwd=self.abs_file_path
+            cwd=self.create_file_path()
     
         return cwd
     
@@ -1184,6 +1191,50 @@ class PreRobinTask(BaseModel):
         lst=rod_map.split(sep=',')
         
         return lst
+    
+    def get_material_pk_set(self):
+        material_set=set()
+        #pin map
+        material_transection_pk_lst=set(self.get_lst())
+        material_transection_pk_lst.remove('0')
+        for material_transection_pk in  material_transection_pk_lst:
+            material_set.update(MaterialTransection.objects.get(pk=int(material_transection_pk)).material_set)
+        #fuel map
+        material_pk_set=set(self.get_lst(fuel=True))
+        material_pk_set.remove('0')
+        material_set.update(map(int,material_pk_set))
+        
+        #control rod material
+        reactor_model=self.plant.reactor_model
+        control_rod_types=reactor_model.control_rod_types.all()
+        for control_rod_type in control_rod_types:
+            material_set.update(control_rod_type.material_set)
+        
+        return material_set
+    
+    def generate_material_databank_xml(self):
+        '''generate material databank xml in current working directory
+        '''
+        fuel_assembly_model=self.fuel_assembly_type.model
+        fuel_pellet=fuel_assembly_model.fuelpellet
+        material_pk_set =self.get_material_pk_set()
+        base_mat_lst=[]
+        for material_pk in material_pk_set:
+            material=Material.objects.get(pk=material_pk)
+            base_mat=material.generate_base_mat(fuel_pellet)
+            base_mat_lst.append(base_mat)
+        #grids
+        grids=fuel_assembly_model.grids.all()
+        total_grid_type_num=fuel_assembly_model.total_grid_type_num
+        for type_num in range(1,total_grid_type_num+1):
+            for grid in grids:
+                if grid.type_num==type_num:
+                    base_mat=grid.generate_base_mat()
+                    base_mat_lst.append(base_mat)
+                    break
+        
+        file_name=Material.generate_material_databank_xml(base_mat_lst)   
+        return file_name
     
     @property
     def bp_in(self):
@@ -1403,35 +1454,37 @@ class PreRobinTask(BaseModel):
     def generate_grid_segment_lst(self,burnup=0):
         fuel_assembly_model=self.fuel_assembly_type.model
         total_grid_type_num=fuel_assembly_model.total_grid_type_num
+        grids=fuel_assembly_model.grids.all()
         segment_lst=[]
     
-        for type_num in range(1,total_grid_type_num):
-            grid=fuel_assembly_model.grids.filter(type_num=type_num).first()
-            moderator_material_ID=grid.moderator_material_ID
-            doc=minidom.Document()
-            base_segment_xml=doc.createElement('base_segment')
-            use_pre_segment_xml=doc.createElement('use_pre_segment')
-            base_segment_ID=self.get_segment_ID(burnup)
-            use_pre_segment_xml.appendChild(doc.createTextNode(base_segment_ID))
-            base_segment_xml.appendChild(use_pre_segment_xml)
-            
-            segment_ID=base_segment_ID+'_GRID_'+str(type_num)
-         
-            segment_ID_xml=doc.createElement('segment_ID')
-            segment_ID_xml.appendChild(doc.createTextNode(segment_ID))
-            base_segment_xml.appendChild(segment_ID_xml)  
-            
-            branch_calc_ID_xml=doc.createElement('branch_calc_ID')
-            branch_calc_ID_xml.appendChild(doc.createTextNode(''))
-            base_segment_xml.appendChild(branch_calc_ID_xml)  
-            
-            assembly_model_xml=doc.createElement('assembly_model')
-            moderator_mat_xml=doc.createElement('moderator_mat')
-            moderator_mat_xml.appendChild(doc.createTextNode(moderator_material_ID))
-            assembly_model_xml.appendChild(moderator_mat_xml)
-            base_segment_xml.appendChild(assembly_model_xml) 
-            
-            segment_lst.append(base_segment_xml)
+        for type_num in range(1,total_grid_type_num+1):
+            for grid in grids:
+                if grid.type_num==type_num:
+                    moderator_material_ID=grid.moderator_material_ID
+                    doc=minidom.Document()
+                    base_segment_xml=doc.createElement('base_segment')
+                    use_pre_segment_xml=doc.createElement('use_pre_segment')
+                    base_segment_ID=self.get_segment_ID(burnup)
+                    use_pre_segment_xml.appendChild(doc.createTextNode(base_segment_ID))
+                    base_segment_xml.appendChild(use_pre_segment_xml)
+                    
+                    segment_ID=base_segment_ID+'_GRID_'+str(type_num)
+                 
+                    segment_ID_xml=doc.createElement('segment_ID')
+                    segment_ID_xml.appendChild(doc.createTextNode(segment_ID))
+                    base_segment_xml.appendChild(segment_ID_xml)  
+                    
+                    branch_calc_ID_xml=doc.createElement('branch_calc_ID')
+                    branch_calc_ID_xml.appendChild(doc.createTextNode(''))
+                    base_segment_xml.appendChild(branch_calc_ID_xml)  
+                    
+                    assembly_model_xml=doc.createElement('assembly_model')
+                    moderator_mat_xml=doc.createElement('moderator_mat')
+                    moderator_mat_xml.appendChild(doc.createTextNode(moderator_material_ID))
+                    assembly_model_xml.appendChild(moderator_mat_xml)
+                    base_segment_xml.appendChild(assembly_model_xml) 
+                    segment_lst.append(base_segment_xml)
+                    break
             
         return segment_lst
     
@@ -1523,24 +1576,30 @@ class PreRobinTask(BaseModel):
         hydro_table_path=os.path.join(PRE_ROBIN_PATH,'hydro.table')
         f.write('    hydro_table             = "%s"\n'%hydro_table_path)
         
-        #material_databank comes from table Material
-        material_databank_path=Material.MATERIAL_DATABANK_PATH
-        if not os.path.exists(material_databank_path):
-            Material.generate_material_databank_xml()
-        #convert xml to sread format
-        material_databank=parse_xml_to_lst(material_databank_path) 
+        if burnup==0:
+            material_databank_path=self.generate_material_databank_xml()
+            #convert xml to sread format
+            material_databank=parse_xml_to_lst(material_databank_path)      
+        else:
+            material_databank=os.path.join("..","..","material_databank.txt")  
         f.write('    material_databank       = "%s"\n'%material_databank)
         
         #pin_databank comes from table PreRobinInput
-        pin_databank_path=self.generate_pin_databank_xml()
-        pin_databank=parse_xml_to_lst(pin_databank_path) 
-        f.write('    pin_databank            = "%s"\n'%pin_databank)
+        if burnup==0:
+            pin_databank_path=self.generate_pin_databank_xml()
+            pin_databank=parse_xml_to_lst(pin_databank_path) 
+        else:
+            pin_databank=os.path.join("..","..","pin_databank.txt")
+        f.write('    pin_databank            = "%s"\n'%pin_databank)    
            
         #branch_calculation_info
         assembly_enrichment=self.fuel_assembly_type.assembly_enrichment
         boron_density=get_boron_density(assembly_enrichment)
-        branch_file_path=self.branch.generate_databank_xml(boron_density)
-        branch_file=parse_xml_to_lst(branch_file_path) 
+        if burnup==0:
+            branch_file_path=self.branch.generate_databank_xml(boron_density)
+            branch_file=parse_xml_to_lst(branch_file_path) 
+        else:
+            branch_file=os.path.join("..","..","branch_calc_databank.txt")
         f.write('    branch_calculation_info = "%s"\n'%branch_file) 
          
         #calculation_segments
@@ -1725,7 +1784,41 @@ class PreRobinTask(BaseModel):
             burnup_points=PreRobinTask.BP_OUT_POINTS
             for burnup in burnup_points:
                 self.start_idyll(burnup=burnup)
+            self.generate_BPOUT_file()
             
+    def generate_BPOUT_file(self):
+        if self.bp_in:
+            cwd=self.get_cwd()
+            os.chdir(cwd)
+            segment_ID=self.get_segment_ID()    
+            filename= segment_ID+'.BPOUT'
+            f=open(filename,'w')
+            no_bp_in_task=self.get_no_bp_in_task()
+            tab_lst=[('0',no_bp_in_task.get_segment_ID())]
+            for burnup in PreRobinTask.BP_OUT_POINTS:
+                tab_lst.append((str(1000*burnup),self.get_segment_ID(burnup)))
+            f.write("\n")
+            f.write("%d"%(len(tab_lst)))
+            f.write("\n")
+            for item in tab_lst:
+                f.write(",".join(item))
+                f.write("\n")
+            f.close()
+            #link to idyll dir
+            idyll_dir=self.plant.reactor_model.idyll_dir
+            dest=os.path.join(idyll_dir,filename)
+            table_path=os.path.join(cwd,filename)
+            os.symlink(table_path,dest)
+            return filename
+        
+    def get_no_bp_in_task(self):
+        if self.bp_in:
+            objs=PreRobinTask.objects.filter(plant=self.plant,fuel_assembly_type=self.fuel_assembly_type,fuel_map=self.fuel_map,branch=self.branch,depletion_state=self.depletion_state,pre_robin_model=self.pre_robin_model)
+            for obj in objs:
+                if not obj.bp_in:
+                    return obj
+        else:
+            return self       
     
     @property    
     def robin_finished(self):
@@ -1767,7 +1860,7 @@ def get_robintask_upload_path(instance,filename):
 class RobinTask(models.Model):
     name=models.CharField(max_length=64)
     pre_robin_task=models.ForeignKey(PreRobinTask,related_name="robin_tasks")
-    input_file=models.FileField(upload_to=get_robintask_upload_path)
+    input_file=models.FileField(max_length=200,upload_to=get_robintask_upload_path)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
@@ -1855,7 +1948,7 @@ class RobinTask(models.Model):
     @property
     def base(self):
         name=self.name
-        for item in ['HCB','HTF','HTM']:
+        for item in ['HCB','HTF','HTM','GRID']:
             if item in name:
                 return False
         return True 
@@ -1864,7 +1957,7 @@ class RobinTask(models.Model):
         if self.base:
             return self
         else:
-            tasks=RobinTask.objects.filter(pre_robin_task=self.pre_robin_task).exclude(Q(name__contains='HCB')|Q(name__contains='HTF')|Q(name__contains='HTM'))
+            tasks=RobinTask.objects.filter(pre_robin_task=self.pre_robin_task).exclude(Q(name__contains='HCB')|Q(name__contains='HTF')|Q(name__contains='HTM')|Q(name__contains='GRID'))
             for task in tasks:
                 if task.get_burnup()==self.get_burnup():
                     return task
@@ -2204,7 +2297,9 @@ class EgretTask(BaseModel):
         s.freeze()
         self.calculation_identity=s.id
         self.save()
-        s.delay()
+        #s.delay()
+        queue=Server.objects.get(name="Controller").queue
+        s.apply_async(queue=queue)
         
     
     @property

@@ -17,7 +17,7 @@ start_time=datetime.now()
 log_file.write('IDYLL starts at %s\n'%start_time)
 
 #Begin IDYLL calculation
-with Popen(['/opt/nustar/bin/IBIS',],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
+with Popen(['/opt/nustar/bin/IDYLL',],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
     log_file.write("IDYLL's pid is  %s\n"%proc.pid)
     outs,errs=proc.communicate()
     if errs:

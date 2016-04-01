@@ -150,7 +150,7 @@ admin.site.register(BasicMaterial,BasicMaterialAdmin)
 class MaterialAdmin(admin.ModelAdmin):
     inlines=(MaterialWeightCompositionInline,)
     exclude=('remark',)
-    list_display=('pk','__str__','input_method','is_correct','get_density')
+    list_display=('pk','__str__','is_correct',)
     
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
@@ -428,7 +428,7 @@ admin.site.register(Cycle, CycleAdmin)
 #fuel assembly model information
 class GridAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','grid_volume','water_volume','moderator_material_ID','type_num')
+    list_display=('__str__','grid_volume','water_volume','type_num')
 admin.site.register(Grid, GridAdmin)
 
 
@@ -457,14 +457,36 @@ class LowerNozzleInline(admin.TabularInline):
 class FuelElementInline(admin.TabularInline):
     exclude=('remark',)
     model=FuelElement
+    extra=0
 class FuelPelletInline(admin.TabularInline):
     exclude=('remark',)
     model=FuelPellet
-     
+    
+class FuelAssemblyPositionInline(admin.TabularInline):
+    exclude=('remark',)
+    model=FuelAssemblyPosition
+    extra=0
+    
 class FuelAssemblyModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num','get_wet_frac')
-    inlines=[GridPositionInline,UpperNozzleInline,LowerNozzleInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline]
+    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num','get_grid_material_lst')
+    inlines=[GridPositionInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline,FuelAssemblyPositionInline]
+    add_form_template="no_action.html"
+    change_form_template="tragopan/distribute_tube.html"
+    def get_urls(self):
+        urls = super(FuelAssemblyModelAdmin, self).get_urls()
+        my_urls = [
+            url(r'^(?P<pk>\d+)/distribute_tube/$', self.admin_site.admin_view(self.distribute_tube_view),
+                name='tragopan_fuel_assembly_model_distribute_tube'),
+        ]
+        return my_urls + urls
+    
+    def distribute_tube_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj=FuelAssemblyModel.objects.get(pk=pk)
+        num=obj.distribute_tube()
+        self.message_user(request, '%d tube positions have been set successfully'%num)
+        return redirect(reverse("admin:tragopan_fuelassemblymodel_change",args=[pk]))
     
     def get_fuel_element_num(self,obj):
         num=obj.positions.filter(type='fuel').count()
@@ -705,7 +727,7 @@ class TransectionMaterialInline(admin.TabularInline):
     
 class MaterialTransectionAdmin(admin.ModelAdmin):
     inlines=[TransectionMaterialInline,]
-    list_display=('pk',"__str__","if_fuel",'if_control_rod','if_bp_rod')
+    list_display=('pk',"__str__","if_fuel",'if_control_rod','if_bp_rod','material_set')
 admin.site.register(MaterialTransection, MaterialTransectionAdmin)
 
 #fuel pellet type information    
@@ -722,7 +744,7 @@ class ControlRodSectionInline(admin.TabularInline):
 
 class ControlRodTypeAdmin(admin.ModelAdmin):
     inlines=(ControlRodSectionInline,)
-    list_display=('pk','__str__','height_lst')
+    list_display=('pk','__str__','height_lst','generate_material_transection_set')
     exclude=('remark',)
 admin.site.register(ControlRodType, ControlRodTypeAdmin)
 

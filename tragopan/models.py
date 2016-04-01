@@ -13,7 +13,6 @@ import tempfile
 import math
 from xml.dom import minidom
 from decimal import Decimal
-import calculation
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
@@ -236,8 +235,7 @@ class WmisElementComposition(BaseModel):
 class BasicMaterial(BaseModel):
     TYPE_CHOICES=(
                            (1,'Compound or elementary substance'),
-                           (2,'mixture'),
-                           #(3,'symbolic'),
+                           (2,'alloy'),
     )
     name=models.CharField(max_length=16,unique=True)
     type=models.PositiveSmallIntegerField(default=1,choices=TYPE_CHOICES)
@@ -257,14 +255,7 @@ class BasicMaterial(BaseModel):
                 return False
         return True
     data_integrity.boolean=True
-    
-#     def get_density(self,factor=None):
-#         density=self.density
-#         if factor and self.name=="UO2":
-#             return density*factor
-#         else:
-#             return density
-        
+       
     def get_name(self,enrichment=None):
         if self.name=="UO2":
             return self.name+"_"+str(enrichment)
@@ -352,74 +343,58 @@ class BasicElementComposition(BaseModel):
 
 #describe material information
 class Material(BaseModel):
-    INPUT_METHOD_CHOICES=(
-                          (1,'fuel by enrichment'),
-                          (2,'blend basic materials by weight percent and B10 linear density'),
-                          (3,'symbolic'),
-                          #(4,'totally inherit from basic material'),
-                          #(5,'inherit from basic material with B10 linear density'),
-                          (6,'blend basic materials by weight percent and density'), 
-    )
+#     INPUT_METHOD_CHOICES=(
+#                           (1,'fuel by enrichment'),
+#                           #(2,'blend basic materials by weight percent and B10 linear density'),
+#                           (3,'symbolic'),
+#                           #(4,'totally inherit from basic material'),
+#                           #(5,'inherit from basic material with B10 linear density'),
+#                           (6,'blend basic materials by weight percent and density'), 
+#     )
     nameCH=models.CharField(max_length=40,blank=True)
     nameEN=models.CharField(max_length=40,blank=True)
-    #volume_composition=models.ManyToManyField('self',symmetrical=False,through='MixtureComposition',through_fields=('mixture','material',))
     bpr_B10=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"mg/cm",blank=True,null=True)
     enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"U235:%",blank=True,null=True)
-    input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
-    #density=models.DecimalField(max_digits=15, decimal_places=8,help_text=r'unit:g/cm3',blank=True,null=True)
-    density_percent=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%",default=100)
+    #input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
     weight_composition=models.ManyToManyField(BasicMaterial,through='MaterialWeightComposition',)
+    symbolic=models.BooleanField(default=False)
     class Meta:
      
         db_table='material'
         verbose_name='Material repository'
         verbose_name_plural='Material repository'
-        
-    def clean(self):
-        if self.input_method==1:
-            if not self.enrichment:
-                raise ValidationError({'enrichment':_('enrichment cannot be blank when you choose such input method'),                           
-            }) 
-        elif self.input_method==2:
-            if not self.bpr_B10:
-                raise ValidationError({'bpr_B10':_('bpr_B10 cannot be blank when you choose such input method'),                           
-            }) 
-            if not self.nameEN:
-                raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
-            }) 
-                  
-        elif self.input_method==6:
-            if not self.nameEN:
-                raise ValidationError({'nameEN':_('nameEN cannot be blank when you choose such input method'),                           
-            }) 
+    
             
     @property
     def prerobin_identifier(self):
        
-        if self.input_method==1:
+        if self.enrichment:
             return 'FUEL_'+str(self.pk)
         else:
             return self.nameEN
         
     def get_density(self,fuel_pellet=None):
-        if self.input_method!=3:
-            factor=fuel_pellet.factor if fuel_pellet else None
+        if not self.symbolic:
+            #factor only apply to fuel
+            factor=fuel_pellet.factor if (fuel_pellet and self.enrichment) else None
             compo=self.weight_mixtures.all()
-            result=100/sum(item.percent/item.basic_material.density for item in compo)*(self.density_percent/100)
+            result=100/sum(item.percent/item.basic_material.density for item in compo)
             return round(factor*result,5) if factor else round(result,5) 
         else:
             return None
         
     def generate_base_mat(self,fuel_pellet=None):
+        if self.symbolic:
+            return 
         result={'ID':self.prerobin_identifier}
-        if self.input_method in [1,6]:
+        if self.bpr_B10 is None:
             result['density']=self.get_density(fuel_pellet)
             compo=self.weight_mixtures.all()
             composition_ID_lst=[item.basic_material.get_name(self.enrichment) for item in compo]
             weight_percent_lst=[str(item.percent) for item in compo]
             result['composition_ID']=','.join(composition_ID_lst)
             result['weight_percent']=','.join(weight_percent_lst)
-        elif self.input_method==2:
+        else:
             result['bpr_B10']=self.bpr_B10
             compo=self.weight_mixtures.all()
             composition_ID_lst=[item.basic_material.name for item in compo]
@@ -427,60 +402,49 @@ class Material(BaseModel):
             result['composition_ID']=','.join(composition_ID_lst)
             result['weight_percent']=','.join(weight_percent_lst)
         
-#         elif self.input_method==6:
-#             result['density']=self.density
-#             compo=self.weight_mixtures.all()
-#             #totally inherit from basic material
-#             if len(compo)==1:
-#                 #symbolic
-#                 if compo[0].basic_material.type==3:
-#                     return {}
-#                 
-#             composition_ID_lst=[item.basic_material.name for item in compo]
-#             weight_percent_lst=[str(item.percent) for item in compo]
-#             result['composition_ID']=','.join(composition_ID_lst)
-#             result['weight_percent']=','.join(weight_percent_lst)
-            
         return  result  
-    @classmethod
-    def generate_base_mat_lst(cls):
-        #grid moderator material
-        base_mat_lst=Grid.generate_base_mat_lst()
-        #without considering fuel
-        materials=cls.objects.exclude(input_method__in=[1,3])
-        for material in  materials:
-            base_mat=material.generate_base_mat()
-            if base_mat:
-                base_mat_lst.append(base_mat) 
-        
-        #consider fuel
-        fuel_base_mat_lst=FuelPelletType.generate_base_mat_lst()
-        base_mat_lst.extend(fuel_base_mat_lst)
-        return base_mat_lst
+#     @classmethod
+#     def generate_base_mat_lst(cls):
+#         #grid moderator material
+#         base_mat_lst=Grid.generate_base_mat_lst()
+#         #without considering fuel
+#         materials=cls.objects.filter(enrichment=None,symbolic=False)
+#         for material in  materials:
+#             base_mat=material.generate_base_mat()
+#             if base_mat:
+#                 base_mat_lst.append(base_mat) 
+#         
+#         #consider fuel
+#         fuel_base_mat_lst=FuelPelletType.generate_base_mat_lst()
+#         base_mat_lst.extend(fuel_base_mat_lst)
+#         return base_mat_lst
             
-    MATERIAL_DATABANK_PATH=os.path.join(PRE_ROBIN_PATH,"material_databank.xml")
+    #MATERIAL_DATABANK_PATH=os.path.join(PRE_ROBIN_PATH,"material_databank.xml")
     @classmethod
-    def generate_material_databank_xml(cls):
-        f=open(cls.MATERIAL_DATABANK_PATH,'w')
+    def generate_material_databank_xml(cls,base_mat_lst):
+        f=open("material_databank.xml",'w')
         doc = minidom.Document()
         material_databank_xml=doc.createElement('material_databank')
-        base_mat_lst=cls.generate_base_mat_lst()
+#         base_mat_lst=cls.generate_base_mat_lst()
         for base_mat in  base_mat_lst:
-            base_mat_xml=doc.createElement('base_mat')
-            for key,value in base_mat.items():
-                key_xml=doc.createElement(str(key))
-                key_xml.appendChild(doc.createTextNode(str(value)))
-                base_mat_xml.appendChild(key_xml)
-            material_databank_xml.appendChild(base_mat_xml)
+            if base_mat:
+                base_mat_xml=doc.createElement('base_mat')
+                for key,value in base_mat.items():
+                    key_xml=doc.createElement(str(key))
+                    key_xml.appendChild(doc.createTextNode(str(value)))
+                    base_mat_xml.appendChild(key_xml)
+                material_databank_xml.appendChild(base_mat_xml)
         doc.appendChild(material_databank_xml) 
         doc.writexml(f, indent="  ", addindent="  ", newl="\n") 
         f.close()     
-        return material_databank_xml  
+        return "material_databank.xml"  
         
             
     def __str__(self):
+        if self.enrichment:
+            return "UO2_"+str(self.enrichment)
         return self.prerobin_identifier
-
+        
 class MaterialWeightComposition(BaseModel):
     mixture=models.ForeignKey(Material,related_name='weight_mixtures',)
     basic_material=models.ForeignKey(BasicMaterial)
@@ -1295,9 +1259,35 @@ class FuelAssemblyModel(BaseModel):
     
     @property
     def total_grid_type_num(self):
-        return self.grids.aggregate(Max('type_num'))['type_num__max']
-        
-           
+        return len(self.get_grid_material_lst())
+    
+    def get_grid_material_lst(self):
+        grids=self.grids.all()
+        material_lst=[]
+        for grid in grids:
+            material_pk=grid.sleeve_material.pk
+            if material_pk  not in material_lst:
+                material_lst.append(material_pk)
+        return sorted(material_lst)
+    
+    def distribute_tube(self):
+        if self.positions.all().exists():
+            return 0
+        else:
+            side_pin_num=self.side_pin_num
+            try:
+                base=FuelAssemblyModel.objects.filter(side_pin_num=side_pin_num).exclude(pk=self.pk).first()
+                for position in base.positions.all():
+                    position.pk=None
+                    position.fuel_assembly_model=self
+                    position.save()
+            except:
+                for row in range(1,side_pin_num+1):
+                    for col in range(1,side_pin_num+1):
+                        FuelAssemblyPosition.objects.create(fuel_assembly_model=self,row=row,column=col)
+            
+            return self.positions.count()    
+               
     def __str__(self):
         return "{}".format(self.name)
 
@@ -1578,14 +1568,21 @@ class Grid(BaseModel):
     #outer_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_material=models.ForeignKey(Material,related_name='grid_sleeves',related_query_name='grid_sleeve',blank=True,null=True)
     #spring_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
-    spring_material=models.ForeignKey(Material,related_name='grid_springs',related_query_name='grid_spring',blank=True,null=True)
+    #spring_material=models.ForeignKey(Material,related_name='grid_springs',related_query_name='grid_spring',blank=True,null=True)
     functionality=models.CharField(max_length=5,choices=FUCTIONALITY_CHOICS,default='fix')
     #moderator_material=models.ForeignKey(Material,default=70,related_name='grid_moderator',)
-    type_num = models.PositiveSmallIntegerField(default=1)
+    #type_num = models.PositiveSmallIntegerField(default=1)
     class Meta:
         db_table='grid'
         verbose_name='Fuel grid'
         
+    @property
+    def type_num(self):
+        fuel_assembly_model=self.fuel_assembly_model
+        grid_material_lst=fuel_assembly_model.get_grid_material_lst()
+        material_pk=self.sleeve_material.pk
+        return grid_material_lst.index(material_pk)+1
+    
     @property
     def grid_volume(self):
         return self.sleeve_volume+self.spring_volume
@@ -1612,43 +1609,52 @@ class Grid(BaseModel):
         mod_material=Material.objects.get(nameEN='MOD')
         return {sleeve_material.prerobin_identifier:volume_percent,mod_material.prerobin_identifier:100-volume_percent}
     
-    @classmethod
-    def get_moderator_material_lst(cls):
-        moderator_material_lst=[]
-        for grid in cls.objects.all():
-            moderator_material=grid.generate_moderator_material()
-            if moderator_material not in moderator_material_lst:
-                
-                moderator_material_lst.append(moderator_material)
-        
-        return moderator_material_lst
+#     @classmethod
+#     def get_moderator_material_lst(cls):
+#         moderator_material_lst=[]
+#         for grid in cls.objects.all():
+#             moderator_material=grid.generate_moderator_material()
+#             if moderator_material not in moderator_material_lst:
+#                 
+#                 moderator_material_lst.append(moderator_material)
+#         
+#         return moderator_material_lst
     
     @property
     def moderator_material_ID(self):
-        moderator_material_lst=Grid.get_moderator_material_lst()
+#         moderator_material_lst=Grid.get_moderator_material_lst()
+#         moderator_material=self.generate_moderator_material()
+#         
+#         return "HOMO_"+ str(moderator_material_lst.index(moderator_material)+1)
+        return "HOMO_"+str(self.type_num)
+    
+    
+#     @classmethod
+#     def generate_base_mat_lst(cls):
+#         moderator_material_lst=cls.get_moderator_material_lst()
+#         base_mat_lst=[]
+#         index=1
+#         for moderator_material in moderator_material_lst:
+#             moderator_material_ID="HOMO_"+str(index)
+#             index+=1
+#             
+#             base_mat={'ID':moderator_material_ID}
+#             homgenized_mat_lst=list(moderator_material.keys())
+#             percent_lst=[str(moderator_material[key]) for key in homgenized_mat_lst]
+#             base_mat['homgenized_mat']=','.join(homgenized_mat_lst)
+#             base_mat['volume_percent']=','.join(percent_lst)
+#             base_mat_lst.append(base_mat)
+#         return base_mat_lst
+
+    def generate_base_mat(self):
+        moderator_material_ID=self.moderator_material_ID
+        base_mat={'ID':moderator_material_ID}    
         moderator_material=self.generate_moderator_material()
-        
-        return "HOMO_"+ str(moderator_material_lst.index(moderator_material)+1)
-    
-    
-    @classmethod
-    def generate_base_mat_lst(cls):
-        moderator_material_lst=cls.get_moderator_material_lst()
-        base_mat_lst=[]
-        index=1
-        for moderator_material in moderator_material_lst:
-            moderator_material_ID="HOMO_"+str(index)
-            index+=1
-            
-            base_mat={'ID':moderator_material_ID}
-            homgenized_mat_lst=list(moderator_material.keys())
-            percent_lst=[str(moderator_material[key]) for key in homgenized_mat_lst]
-            base_mat['homgenized_mat']=','.join(homgenized_mat_lst)
-            base_mat['volume_percent']=','.join(percent_lst)
-            base_mat_lst.append(base_mat)
-        return base_mat_lst
-            
-        
+        homgenized_mat_lst=list(moderator_material.keys())
+        percent_lst=[str(moderator_material[key]) for key in homgenized_mat_lst]
+        base_mat['homgenized_mat']=','.join(homgenized_mat_lst)
+        base_mat['volume_percent']=','.join(percent_lst)
+        return base_mat
     
     def __str__(self):
         return '{} {}'.format(self.fuel_assembly_model,self.name)
@@ -1901,6 +1907,13 @@ class MaterialTransection(BaseModel):
             return False
         else:
             return True
+    @property
+    def material_set(self):
+        radial_materials=self.radial_materials.all()
+        material_set=set()
+        for radial_material in radial_materials:
+            material_set.add(radial_material.material.pk)
+        return material_set
         
     def generate_base_pin_xml(self,guide_tube=None):
         doc=minidom.Document()
@@ -2095,14 +2108,12 @@ class FuelPellet(BaseModel):
     def factor(self):
         return (100-self.dish_volume_percentage-self.chamfer_volume_percentage)/100*(self.nominal_density_percent/100)
     
-    
-    
     def __str__(self):
         return '{} pellet'.format(self.fuel_assembly_model)
 
 class FuelPelletType(BaseModel):
     model=models.ForeignKey(FuelPellet)
-    material=models.ForeignKey(Material,related_name='fuel_pellet_material')
+    material=models.ForeignKey(Material,related_name='fuel_pellet_material',limit_choices_to={'enrichment__isnull':False})
     
     class Meta:
         db_table='fuel_pellet_type'
@@ -2222,6 +2233,13 @@ class ControlRodType(BaseModel):
             material_transection_set.add(material_transection)
         return material_transection_set
     
+    @property
+    def material_set(self):
+        material_transection_set=self.generate_material_transection_set()
+        material_set=set()
+        for material_transection in material_transection_set:
+            material_set.update(MaterialTransection.objects.get(pk=material_transection).material_set)
+        return material_set
     def __str__(self):
         if self.black:  
             return "{} black rod {}".format(self.reactor_model, self.active_length)
