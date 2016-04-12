@@ -1,0 +1,10 @@
+{% extends "admin/change_form.html" %}
+{% load i18n admin_urls %}
+
+{% block object-tools %}
+    <ul class="grp-object-tools">
+        {% block object-tools-items %}
+            <li><a href="refresh_loading_pattern">Refresh loading pattern</a></li>
+        {% endblock %}
+    </ul>
+{% endblock %}

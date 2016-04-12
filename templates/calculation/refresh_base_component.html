@@ -6,11 +6,11 @@
 {% endblock %}
 
 {% block content %}
-<h1>Select unit:</h1>
-<form action="{% url "admin:caculation_prerobininput_auto_add" %}" method="post">
+<h1>Refresh base component by reactor model:</h1>
+<form action="{% url "admin:caculation_prerobininput_refresh_base_component" %}" method="post">
 	{{ block.super }} 
     {% csrf_token %}
-    {{ unit_form }}
+    {{ reactor_model_form }}
     <input type="submit" value="Submit" />
 </form>
 {% endblock %}

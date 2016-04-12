@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import *
-from .forms import UnitForm
+from .forms import UnitForm,ReactorModelForm
+from .functions import generate_base_core
 from django.conf.urls import url
 from django.core.urlresolvers import reverse
 from django.shortcuts import redirect
@@ -113,12 +114,23 @@ class PreRobinInputAdmin(admin.ModelAdmin):
             url(r'^(?P<pk>\d+)/auto_cut/$', self.admin_site.admin_view(self.auto_cut_view),
                 name='caculation_prerobininput_auto_cut'),
             
-                   
+            url(r'^refresh_base_component_link/$', self.admin_site.admin_view(self.refresh_base_component_link_view),
+                name='caculation_prerobininput_refresh_base_component_link'),
+                          
             url(r'^refresh_base_component/$', self.admin_site.admin_view(self.refresh_base_component_view),
                 name='caculation_prerobininput_refresh_base_component'),
             
+            url(r'^refresh_loading_pattern_link/$', self.admin_site.admin_view(self.refresh_loading_pattern_link_view),
+                name='caculation_prerobininput_refresh_loading_pattern_link'),
+                   
             url(r'^refresh_loading_pattern/$', self.admin_site.admin_view(self.refresh_loading_pattern_view),
                 name='caculation_prerobininput_refresh_loading_pattern'),
+                   
+            url(r'^refresh_base_core_link/$', self.admin_site.admin_view(self.refresh_base_core_link_view),
+                name='caculation_prerobininput_refresh_base_core_link'),
+                   
+            url(r'^refresh_base_core/$', self.admin_site.admin_view(self.refresh_base_core_view),
+                name='caculation_prerobininput_refresh_base_core'),
             
             url(r'^auto_add_link/$', self.admin_site.admin_view(self.auto_add_link_view),
                 name='caculation_prerobininput_auto_add_link'),
@@ -149,20 +161,50 @@ class PreRobinInputAdmin(admin.ModelAdmin):
                 num+=1
         self.message_user(request, '%s base fuels(s) auto cut successfully'%num)
         return redirect(reverse("admin:calculation_prerobininput_changelist"))
+    #########################################################################################
+    def refresh_base_component_link_view(self,request, *args, **kwargs):
+        context={"reactor_model_form":ReactorModelForm}
+        return TemplateResponse(request, "calculation/refresh_base_component.html", context)
        
     def refresh_base_component_view(self,request, *args, **kwargs):
-        PreRobinInput.write_base_component_xml()
-        self.message_user(request, 'Refresh succeed')
-        return redirect(reverse("admin:calculation_prerobininput_changelist"))
+        if request.method == 'POST':
+            form = ReactorModelForm(request.POST)
+            if form.is_valid():
+                reactor_model=form.cleaned_data['reactor_model']
+                PreRobinInput.write_base_component_xml(reactor_model)
+                self.message_user(request, 'Refresh succeed')
+                return redirect(reverse("admin:calculation_prerobininput_changelist"))
+    ##########################################################################################
+    def refresh_loading_pattern_link_view(self,request, *args, **kwargs):
+        context={"unit_form":UnitForm}
+        return TemplateResponse(request, "calculation/refresh_loading_pattern.html", context)
     
     def refresh_loading_pattern_view(self,request, *args, **kwargs):
-        PreRobinInput.write_loading_pattern_xml()
-        self.message_user(request, 'Refresh succeed')
-        return redirect(reverse("admin:calculation_prerobininput_changelist"))
+        if request.method == 'POST':
+            form = UnitForm(request.POST)
+            if form.is_valid():
+                unit=form.cleaned_data['unit']
+                PreRobinInput.write_loading_pattern_xml(unit)
+                self.message_user(request, 'Refresh succeed')
+                return redirect(reverse("admin:calculation_prerobininput_changelist"))
+    ##########################################################################################      
+    def refresh_base_core_link_view(self,request, *args, **kwargs):
+        context={"unit_form":UnitForm}
+        return TemplateResponse(request, "calculation/refresh_base_core.html", context)
+    
+    def refresh_base_core_view(self,request, *args, **kwargs):
+        if request.method == 'POST':
+            form = UnitForm(request.POST)
+            if form.is_valid():
+                unit=form.cleaned_data['unit']
+                generate_base_core(unit)
+                self.message_user(request, 'Refresh succeed')
+                return redirect(reverse("admin:calculation_prerobininput_changelist"))
     
     def auto_add_link_view(self,request, *args, **kwargs):
         context={"unit_form":UnitForm}
         return TemplateResponse(request, "calculation/auto_add_pre_robin.html", context)
+    
     
     def auto_add_view(self,request, *args, **kwargs):
         if request.method == 'POST':
@@ -186,7 +228,8 @@ class RobinTaskInline(admin.TabularInline):
     model=RobinTask
     extra=0
     fields = ('name', 'input_file','server', 'task_status','start_time','end_time','logfile_link','outfile_link')
-    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time','logfile_link','outfile_link')
+    #readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time','logfile_link','outfile_link')
+    readonly_fields=('logfile_link','outfile_link')
     def has_add_permission(self,request):
         return False
     
@@ -206,7 +249,7 @@ class RobinTaskInline(admin.TabularInline):
 class PreRobinTaskAdmin(admin.ModelAdmin):
     add_form_template="calculation/no_action.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished','table_generated','bp_in','get_material_pk_set')
+    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished','table_generated','bp_in',)
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
@@ -333,34 +376,34 @@ class RobinTaskAdmin(admin.ModelAdmin):
     
 admin.site.register(RobinTask, RobinTaskAdmin)
 
-class IbisAdmin(admin.ModelAdmin):
-    exclude=('remark','user')
-    list_display=('__str__','plant','burnable_poison_assembly','ibis_path')
-    list_editable=('burnable_poison_assembly',)
-    list_filter=('plant',)
-admin.site.register(Ibis, IbisAdmin)    
-
-class BaseFuelCompositionInline(admin.TabularInline):
-    model=BaseFuelComposition
-    exclude=('remark',)
-
-
-class BaseFuelAdmin(admin.ModelAdmin):
-    exclude=('remark','user')
-    inlines=(BaseFuelCompositionInline,)
-    list_display=('__str__','get_ibis_composition','composition_set','if_insert_burnable_fuel','offset',)
-    list_filter=('plant',)
-    list_editable=('offset',)
-    def get_ibis_composition(self,obj):
-        ibis_composition=obj.composition.all()
-        result=''
-        for ibis in ibis_composition:
-            result = result+' '+ibis.ibis.ibis_name
-        return  result
-    get_ibis_composition.short_description='ibis file name'
-    
-admin.site.register(BaseFuel, BaseFuelAdmin) 
-    
+# class IbisAdmin(admin.ModelAdmin):
+#     exclude=('remark','user')
+#     list_display=('__str__','plant','burnable_poison_assembly','ibis_path')
+#     list_editable=('burnable_poison_assembly',)
+#     list_filter=('plant',)
+# admin.site.register(Ibis, IbisAdmin)    
+# 
+# class BaseFuelCompositionInline(admin.TabularInline):
+#     model=BaseFuelComposition
+#     exclude=('remark',)
+# 
+# 
+# class BaseFuelAdmin(admin.ModelAdmin):
+#     exclude=('remark','user')
+#     inlines=(BaseFuelCompositionInline,)
+#     list_display=('__str__','get_ibis_composition','composition_set','if_insert_burnable_fuel','offset',)
+#     list_filter=('plant',)
+#     list_editable=('offset',)
+#     def get_ibis_composition(self,obj):
+#         ibis_composition=obj.composition.all()
+#         result=''
+#         for ibis in ibis_composition:
+#             result = result+' '+ibis.ibis.ibis_name
+#         return  result
+#     get_ibis_composition.short_description='ibis file name'
+#     
+# admin.site.register(BaseFuel, BaseFuelAdmin) 
+#     
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)

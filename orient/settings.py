@@ -177,7 +177,7 @@ REST_FRAMEWORK = {
 FILEBROWSER_DIRECTORY=''
 FILEBROWSER_EXTENSIONS={
     'Image': ['.jpg','.jpeg','.gif','.png','.tif','.tiff'],
-    'Document': ['.pdf','.doc','.rtf','.txt','.xls','.csv','.docx',],
+    'Document': ['.pdf','.doc','.rtf','.txt','.xls','.csv','.docx','.ini','.qss'],
     'Video': ['.mov','.wmv','.mpeg','.mpg','.avi','.rm','.mkv'],
     'Audio': ['.mp3','.mp4','.wav','.aiff','.midi','.m4p']
 }

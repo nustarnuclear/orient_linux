@@ -12,7 +12,10 @@ from django.shortcuts import redirect
 #################################################
 #basic information 
 #################################################
-
+def get_obj(request,model):
+    path=request.path
+    pk=path.split('/')[-2]
+    return model.objects.get(pk=int(pk))
 #element information
 
 class NuclideInline(admin.TabularInline):
@@ -350,7 +353,7 @@ admin.site.register(ReactorModel,ReactorModelAdmin)
 
 class UnitParameterAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_current_cycle','base_component_path','base_core_path','loading_pattern_path',)
+    list_display=('__str__','get_current_cycle','base_core_path','loading_pattern_path',)
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
             return ('plant','unit','reactor_model','electric_power','thermal_power','heat_fraction_in_fuel','primary_system_pressure',
@@ -369,59 +372,40 @@ class FuelAssemblyLoadingPatternInline(admin.TabularInline):
 class FuelAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_filter=['fuel_assembly__type','reactor_position','cycle']
-    list_display=['cycle','reactor_position','fuel_assembly','burnable_poison_assembly','control_rod_assembly']
+    list_display=['cycle','reactor_position','fuel_assembly','burnable_poison_assembly','control_rod_assembly','get_previous']
     list_select_related = ('cycle', 'fuel_assembly')
     raw_id_fields = ("fuel_assembly",)
     ordering=('cycle','reactor_position')
     #list_editable=("fuel_assembly",)
     list_per_page=121
 admin.site.register(FuelAssemblyLoadingPattern, FuelAssemblyLoadingPatternAdmin)
-
-class ControlRodAssemblyLoadingPatternInline(admin.TabularInline):
-    exclude=('remark',)
-    extra=0
-    model=ControlRodAssemblyLoadingPattern
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "reactor_position":
-            try:
-                kwargs["queryset"] = ReactorPosition.objects.filter(reactor_model=Cycle.objects.get(pk=int(request.path.split(sep='/')[-2])).unit.reactor_model)
-            except Exception:
-                pass
-        return super(ControlRodAssemblyLoadingPatternInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
-
-class BurnablePoisonAssemblyLoadingPatternInline(admin.TabularInline):
-    exclude=('remark',)
-    extra=0
-    model=BurnablePoisonAssemblyLoadingPattern
-    raw_id_fields=('burnable_poison_assembly',)    
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        print(request.body,request.path,request.POST,request.META)
-        if db_field.name == "reactor_position":
-            try:
-                kwargs["queryset"] = ReactorPosition.objects.filter(reactor_model=Cycle.objects.get(pk=int(request.path.split(sep='/')[-2])).unit.reactor_model)
-            except Exception:
-                pass
-        return super(BurnablePoisonAssemblyLoadingPatternInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
-
-
-        
+    
 class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
-    #inlines=[BurnablePoisonAssemblyLoadingPatternInline,ControlRodAssemblyLoadingPatternInline]
-    list_display=('pk','__str__','get_pre_cycle','get_cra_cycle','generate_base_fuel_set')
-   
+    list_display=('pk','__str__','get_pre_cycle',)
+    add_form_template="no_action.html"
+    change_form_template="tragopan/refresh_loading_pattern.html"
+    actions = ['refresh_loading_pattern']
+    def get_urls(self):
+        urls = super(CycleAdmin, self).get_urls()
+        my_urls = [
+            url(r'^(?P<pk>\d+)/refresh_loading_pattern/$', self.admin_site.admin_view(self.refresh_loading_pattern_view),
+                name='tragopan_cycle_refresh_loading_pattern'),
+        ]
+        return my_urls + urls
     
-    def get_burnable_poison_assembly_num(self,obj):
-        num=obj.bpa_loading_patterns.count()
-        return num
-    get_burnable_poison_assembly_num.short_description='burnable poison assembly count'
+    def refresh_loading_pattern_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj=Cycle.objects.get(pk=pk)
+        obj.refresh_loading_pattern()
+        self.message_user(request, 'Loading pattern xml file has been refreshed successfully')
+        return redirect(reverse("admin:tragopan_cycle_change",args=[pk]))
     
-    def get_source_assembly_num(self,obj):
-        num=obj.source_assembly_positions.count()       
-        return num
-    get_source_assembly_num.short_description='source assembly count'
-    
+    def refresh_loading_pattern(self, request, queryset):
+        for obj in queryset:
+            obj.refresh_loading_pattern()
+        self.message_user(request, 'All loading pattern xml files have been refreshed successfully')    
 admin.site.register(Cycle, CycleAdmin)
 
 
@@ -440,11 +424,16 @@ class InstrumentTubeInline(admin.TabularInline):
     exclude=('remark',)
     model=InstrumentTube
 
-    
+
 class GridPositionInline(admin.TabularInline):
     exclude=('remark',)
     extra=0
     model=GridPosition
+    def formfield_for_foreignkey(self, db_field,request, **kwargs):
+        if db_field.name=='grid':
+            obj=self.get_obj(request,FuelAssemblyModel)
+            kwargs["queryset"] = Grid.objects.filter(fuel_assembly_model=obj)
+        return super(GridPositionInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 
 class UpperNozzleInline(admin.TabularInline):
     exclude=('remark',)
@@ -626,10 +615,11 @@ class FuelElementTypePositionInline(admin.TabularInline):
     exclude=('remark',)
     model=FuelElementTypePosition
     raw_id_fields=("fuel_assembly_position","fuel_element_type")
-#     def has_add_permission(self,request):
-#         return False
-    
+    extra=0
     def has_delete_permission(self,request,obj):
+        return False
+    
+    def has_add_permission(self,request):
         return False
 
 class FuelElementTypePositionAdmin(admin.ModelAdmin):
@@ -666,7 +656,11 @@ class FuelElementPelletLoadingSchemeInline(admin.TabularInline):
     exclude=('remark',)
     extra=0
     model=FuelElementPelletLoadingScheme
-
+    def formfield_for_foreignkey(self, db_field,request, **kwargs):
+        if db_field.name=='fuel_pellet_type':
+            obj=get_obj(request,FuelElementType)
+            kwargs["queryset"] = FuelPelletType.objects.filter(model__fuel_assembly_model=obj.model.fuel_assembly_model)
+            return super(FuelElementPelletLoadingSchemeInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 class FuelElementTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('__str__','enrichment')
@@ -778,21 +772,13 @@ class BurnablePoisonAssemblyMapInline(admin.TabularInline):
 class BurnablePoisonAssemblyAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[BurnablePoisonAssemblyMapInline,]
-    list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','get_substitute_bpa','height_lst','symmetry','get_symmetry_bpa']
-    #list_editable=('symmetry',)
-    
+    list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','height_lst','symmetry','get_symmetry_bpa']
     def get_rod_num(self,obj):
         num=obj.rod_positions.count()
         return num
     get_rod_num.short_description='burnable position rod count'
 admin.site.register(BurnablePoisonAssembly, BurnablePoisonAssemblyAdmin)
 
-class BurnablePoisonAssemblyLoadingPatternAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    list_display=('cycle','reactor_position','burnable_poison_assembly','get_sysmetry_quadrant')
-    list_filter=('cycle',)
-admin.site.register(BurnablePoisonAssemblyLoadingPattern, BurnablePoisonAssemblyLoadingPatternAdmin)
-###############################################################################
 #control rod assembly   
 class ControlRodAssemblyMapInline(admin.TabularInline):
     model=ControlRodAssemblyMap
@@ -802,7 +788,7 @@ class ControlRodAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
     inlines=[ControlRodAssemblyMapInline,]
     model=ControlRodAssemblyType
-    list_display=('pk','reactor_model','type','black_grey_rod_num','height_lst','start_index','end_index','length_lst','type_lst','get_branch_ID_set')
+    list_display=('pk','reactor_model','black_grey_rod_num','height_lst','start_index','end_index','length_lst','type_lst','get_branch_ID_set')
 admin.site.register(ControlRodAssemblyType, ControlRodAssemblyTypeAdmin)
    
 class ControlRodAssemblyAdmin(admin.ModelAdmin):
@@ -810,20 +796,10 @@ class ControlRodAssemblyAdmin(admin.ModelAdmin):
     list_display=('__str__','cluster',)
 admin.site.register(ControlRodAssembly, ControlRodAssemblyAdmin)
 
-class ControlRodAssemblyLoadingPatternAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    list_display=('reactor_position','control_rod_assembly','cycle',)
-    list_filter=('cycle','control_rod_assembly__cluster')
-    
-admin.site.register(ControlRodAssemblyLoadingPattern, ControlRodAssemblyLoadingPatternAdmin)
-
     
 class ControlRodClusterAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    #inlines=[ControlRodMapInline,]
     list_display=('pk','__str__','control_rod_assembly_type',)
-    #list_editable=('control_rod_assembly_type',)
-    #list_display=('__str__','reactor_model','get_control_rod_assembly_num','side_pin_num','type','black_grey_rod_num')
     list_filter=('control_rod_assembly_type__reactor_model',)
 admin.site.register(ControlRodCluster, ControlRodClusterAdmin)
 

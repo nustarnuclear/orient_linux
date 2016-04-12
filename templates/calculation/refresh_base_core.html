@@ -6,8 +6,8 @@
 {% endblock %}
 
 {% block content %}
-<h1>Select unit:</h1>
-<form action="{% url "admin:caculation_prerobininput_auto_add" %}" method="post">
+<h1>Refresh base core by unit:</h1>
+<form action="{% url "admin:caculation_prerobininput_refresh_base_core" %}" method="post">
 	{{ block.super }} 
     {% csrf_token %}
     {{ unit_form }}

@@ -1,7 +1,8 @@
 from django.db.models.signals import post_save,pre_delete
 from django.dispatch import receiver
-from tragopan.models import OperationMonthlyParameter,OperationBankPosition,OperationDistributionData,Material,BasicMaterial,FuelPelletType
-from tragopan.functions import OperationDataHandler
+from .models import OperationMonthlyParameter,OperationBankPosition,OperationDistributionData,BasicMaterial
+from .functions import OperationDataHandler
+
 @receiver(post_save,sender=OperationMonthlyParameter)
 def parse_raw_file(sender, instance, created=False, **kwargs):
     if created:

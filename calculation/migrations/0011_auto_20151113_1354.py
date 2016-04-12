@@ -15,6 +15,7 @@ class Migration(migrations.Migration):
         migrations.AlterField(
             model_name='basefuel',
             name='fuel_identity',
-            field=models.CharField(default=calculation.models.fuel_identity_default, max_length=32, unique=True),
+            field=models.CharField(max_length=32, unique=True),
         ),
     ]
+#(default=calculation.models.fuel_identity_default,

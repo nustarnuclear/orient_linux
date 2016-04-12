@@ -1,54 +1,30 @@
 from rest_framework import serializers
-from tragopan.models import FuelAssemblyType,FuelAssemblyModel,Grid,GridPosition,UnitParameter,Cycle
-from calculation.models import EgretTask,Ibis,BaseFuelComposition,BaseFuel,MultipleLoadingPattern
+from tragopan.models import FuelAssemblyType,FuelAssemblyModel,Grid,GridPosition,UnitParameter,Cycle,BurnablePoisonAssembly
+from calculation.models import EgretTask,MultipleLoadingPattern,PreRobinInput
 from django.contrib.auth.models import User,Group
 
 class GridSerializer(serializers.ModelSerializer):
-    
     class Meta:
         model = Grid
-        fields = ('sleeve_height','functionality')   
-        
+        fields = ('sleeve_height','functionality','sleeve_material')   
+        depth=1
 class GridPositionSerializer(serializers.ModelSerializer):
     grid=GridSerializer()
     class Meta:
         model = GridPosition
         fields = ( 'height','grid')
 
-
-
 class FuelAssemblyModelSerializer(serializers.ModelSerializer):
-    grids=GridPositionSerializer(many=True, read_only=True)
+    grid_positions=GridPositionSerializer(many=True, read_only=True)
     class Meta:
         model=FuelAssemblyModel
-        fields=('grids','overall_length')
+        fields=('pk','name','active_length','grid_positions')
 
 class FuelAssemblyTypeSerializer(serializers.ModelSerializer):
     model=FuelAssemblyModelSerializer()
     class Meta:
         model=FuelAssemblyType
-        fields=('model',)
-
-class IbisSerializer(serializers.ModelSerializer):
-    fuel_assembly_type=FuelAssemblyTypeSerializer()
-    class Meta:
-        model=Ibis
-        fields=('ibis_name','fuel_assembly_type','reactor_model','active_length')
-
-
-class BaseFuelCompositionSerializer(serializers.ModelSerializer):
-    ibis=IbisSerializer()
-    class Meta:
-        model=BaseFuelComposition
-        fields=('height','ibis')       
-        
-class CustomBaseFuelSerializer(serializers.ModelSerializer):
-    
-    composition=BaseFuelCompositionSerializer(many=True, read_only=True)
-    class Meta:
-        model=BaseFuel
-        fields = ( 'fuel_identity','offset','base_bottom','composition')
-        
+        fields=('pk','model','assembly_enrichment')
         
 class UnitParameterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -57,18 +33,12 @@ class UnitParameterSerializer(serializers.ModelSerializer):
         
         
 class CycleSerializer(serializers.ModelSerializer):
-   
-    
     class Meta:
         model = Cycle
         fields = ( 'unit','fuel_assembly_loading_patterns')
-        
-        
-        
  
  
 class EgretCycleSerializer(serializers.ModelSerializer):
-   
     unit=UnitParameterSerializer()
     class Meta:
         model = Cycle
@@ -99,4 +69,17 @@ class MultipleLoadingPatternSerializer(serializers.ModelSerializer):
     user=UserSerializer()
     class Meta:
         model = MultipleLoadingPattern
-        fields = ( 'pk','name','cycle','xml_file','user','from_database','pre_loading_pattern','visibility','authorized')
+        fields = ( 'pk','name','cycle','xml_file','user','pre_loading_pattern','visibility','authorized')
+        
+class BurnablePoisonAssemblySerializer(serializers.ModelSerializer):
+    class Meta:
+        model=BurnablePoisonAssembly
+        fields=('pk','bp_num','bottom_height')
+
+class PreRobinInputSerializer(serializers.ModelSerializer):
+    fuel_assembly_type=FuelAssemblyTypeSerializer()
+    burnable_poison_assembly=BurnablePoisonAssemblySerializer()
+    unit=UnitParameterSerializer()
+    class Meta:
+        model=PreRobinInput
+        fields = ( 'pk','unit','fuel_assembly_type','burnable_poison_assembly',)

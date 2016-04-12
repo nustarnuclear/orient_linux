@@ -17,19 +17,18 @@ def plant_list(request,format=None):
     
 
     
-@api_view(('GET',))
-def fuel_assembly_type_list(request,format=None):
-    
-    if request.method == 'GET':
-        try:
-            fat=FuelAssemblyType.objects.all()
-            serializer=FuelAssemblyTypeSerializer(fat,many=True)
-            return Response(serializer.data)
-        
-        except Exception as e:
-            print(e)
-            error_message={'error_message':e}
-            return Response(data=error_message,status=404)
+# @api_view(('GET',))
+# def fuel_assembly_type_list(request,format=None):
+#     
+#     if request.method == 'GET':
+#         try:
+#             fat=FuelAssemblyType.objects.all()
+#             serializer=FuelAssemblyTypeSerializer(fat,many=True)
+#             return Response(serializer.data)
+#         
+#         except Exception as e:
+#             error_message={'error_message':e}
+#             return Response(data=error_message,status=404)
 
 
 @api_view(('GET','PUT'))
@@ -56,7 +55,6 @@ def fuel_assembly_detail(request,format=None):
                     
                 return Response(data,status=200)
         except Exception as e:
-            print(e)
             error_message={'error_message':e}
             return Response(data=error_message,status=404)
         
@@ -77,14 +75,11 @@ def fuel_assembly_detail(request,format=None):
                  
             if 'availability' in query_params:
                 availability=query_params['availability']
-                print(availability)
                 fuel_assembly.availability=int(availability)
             fuel_assembly.save()
-            print(fuel_assembly.availability)
             success_message={'success_message':'your request has been handled successfully'}
             return Response(data=success_message,status=200,)
         except Exception as e:
-            print(e)
             error_message={'error_message':e}
             return Response(data=error_message,status=404)    
         

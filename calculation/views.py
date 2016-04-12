@@ -4,9 +4,9 @@ from django.core.files import File
 from rest_framework.response import Response
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from calculation.functions import position_node_by_excel,get_same_group_users
-from calculation.serializers import EgretTaskSerializer,MultipleLoadingPatternSerializer
+from calculation.serializers import EgretTaskSerializer,MultipleLoadingPatternSerializer,PreRobinInputSerializer
 from tragopan.models import Plant,UnitParameter,Cycle
-from calculation.models import EgretTask,MultipleLoadingPattern
+from calculation.models import EgretTask,MultipleLoadingPattern,PreRobinInput
 from xml.dom import minidom
 import signal
 from rest_framework_xml.renderers import XMLRenderer
@@ -18,6 +18,9 @@ from orient.celery import app
 from datetime import datetime
 import shutil
 import tempfile
+from tragopan.models import del_fieldfile
+from rest_framework import viewsets
+from django.shortcuts import get_object_or_404
 @api_view(('POST','GET','DELETE','PUT'))
 @parser_classes((FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
@@ -80,7 +83,7 @@ def egret_task(request,format=None):
         elif operation_type==3:
             try:
                 calculation_identity=task.calculation_identity
-                app.control.revoke(calculation_identity)
+                app.control.revoke(calculation_identity)  # @UndefinedVariable
                 task.task_status=5
                 task.end_time=datetime.now()
                 task.save()
@@ -217,7 +220,7 @@ def egret_task(request,format=None):
             elif int(update_type)==2:
                 
                 assert task_instance.locked==False, 'The task to be recalculated is locked'
-                
+
                 data=request.data
                 input_file=data['file']
                 remark=query_params['remark']
@@ -229,16 +232,12 @@ def egret_task(request,format=None):
                 task_instance.start_time=None
                 task_instance.end_time=None
                 task_instance.save()
-                
                 #prepare for calculation
                 current_workdirectory=task_instance.get_cwd()
                 os.chdir(current_workdirectory)
-                #generate myegret xml
-                
+                #generate myegret xml    
                 task_instance.generate_runegret_xml(restart=1)
-                
                 task_instance.start_calculation(countdown=countdown)
-                
                 success_message={'success_message':'your request has been handled successfully','get_input_filename':task_instance.get_input_filename()}
                 return Response(data=success_message,status=200,)
                 
@@ -251,7 +250,6 @@ def egret_task(request,format=None):
                 task_instance.task_name=new_name
                 task_instance.egret_input_file.name=task_instance.egret_input_file.name.replace(name,new_name)
                 task_instance.save()
-                
                 #copy the files
                 new_cwd=os.path.join(os.path.dirname(cwd),new_name)
                 shutil.copytree(cwd, new_cwd, symlinks=True,)
@@ -279,8 +277,7 @@ def multiple_loading_pattern(request,format=None):
     if request.method=='DELETE':
         try:
             pk=query_params['pk']
-            mlp=MultipleLoadingPattern.objects.get(pk=pk)
-                
+            mlp=MultipleLoadingPattern.objects.get(pk=pk)   
             if request.user!=mlp.user and not request.user.is_superuser or mlp.authorized:
                 error_message={'error_message':"you have no permission"}
                 return Response(data=error_message,status=550)
@@ -293,11 +290,9 @@ def multiple_loading_pattern(request,format=None):
             
         
     try:
-        
         plantname=query_params['plant']
         unit_num=query_params['unit']
         cycle_num=query_params['cycle']
-    
         plant=Plant.objects.get(abbrEN=plantname)
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
@@ -313,7 +308,6 @@ def multiple_loading_pattern(request,format=None):
         name=request.query_params['name']
         try:
             pre_pk=request.query_params['pre_pk']
-            
             pre_loading_pattern=MultipleLoadingPattern.objects.get(pk=pre_pk)
             mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle,pre_loading_pattern=pre_loading_pattern)
         except:
@@ -338,12 +332,11 @@ def multiple_loading_pattern(request,format=None):
         file=data['file']
         name=request.query_params['name']
         try:
-            
             loading_pattern=MultipleLoadingPattern.objects.get(name=name,cycle=cycle,user=request.user,)
         except Exception as e:
-            print(e)
             return Response(data={'error_message':e},status=404)
         loading_pattern.xml_file.delete()
+        del_fieldfile.send(sender=MultipleLoadingPattern,pk=loading_pattern.pk)
         loading_pattern.xml_file=file
         loading_pattern.save()
         success_message={'success_message':'your request has been handled successfully'}
@@ -359,13 +352,11 @@ def upload_loading_pattern(request,format=None):
         plantname=query_params['plant']
         unit_num=query_params['unit']
         cycle_num=query_params['cycle']
-    
         plant=Plant.objects.get(abbrEN=plantname)
         unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
         cycle=Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
     except Exception as e:
         error_message={'error_message':e}
-        print(e)
         return Response(data=error_message,status=404)
     
     
@@ -393,7 +384,6 @@ def upload_loading_pattern(request,format=None):
                     position_node=position_node_by_excel(nth_cycle,int(row),int(column),position_or_type)
                 except Exception as e:
                     error_message={'error_message':e}
-                    print(error_message)
                     return Response(data=error_message,status=404)
             
                 fuel_xml.appendChild(position_node)
@@ -403,7 +393,6 @@ def upload_loading_pattern(request,format=None):
             doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
             
             mlp=MultipleLoadingPattern.objects.create(name=name,cycle=cycle,xml_file=File(f),user=request.user,)
-            print('finished')
             f.close()
                 
             success_message={'success_message':'your request has been handled successfully','pk':mlp.pk,'url':mlp.xml_file.url}
@@ -411,7 +400,6 @@ def upload_loading_pattern(request,format=None):
         
         except Exception as e:
             error_message={'error_message':e}
-            print(e)
             return Response(data=error_message,status=404)
         
 
@@ -447,7 +435,6 @@ def extra_updating(request,format=None):
                 target=MultipleLoadingPattern.objects.get(pk=pk)
             else:
                 error_message={'error_message':'the target type is not supported'}
-                print(error_message)
                 return Response(data=error_message,status=404)
                 
             #visibility or authorized
@@ -455,7 +442,6 @@ def extra_updating(request,format=None):
     
                 if target.user!=request.user:
                     error_message={'error_message':"you have no permission"}
-                    print(error_message)
                     return Response(data=error_message,status=550)
                 
                 target.visibility=update_value
@@ -465,14 +451,12 @@ def extra_updating(request,format=None):
                 
                 if not request.user.is_superuser:
                     error_message={'error_message':"you have no permission"}
-                    print(error_message)
                     return Response(data=error_message,status=550)
                 
                 target.authorized=update_value
                 target.save()  
             else:
                 error_message={'error_message':'the update type is not supported'}
-                print(error_message)
                 return Response(data=error_message,status=404)
                         
             success_message={'success_message':'your request has been handled successfully'}
@@ -480,9 +464,17 @@ def extra_updating(request,format=None):
             
         except Exception as e:
             error_message={'error_message':e}
-            print(e)
             return Response(data=error_message,status=404)
         
-
         
+
+class PreRobinInputViewSet(viewsets.ViewSet):
+    
+    def list(self,request):
+        query_params=request.query_params
+        pk=query_params['plant_pk']
+        plant = get_object_or_404(Plant.objects.all(), pk=pk)
+        queryset = PreRobinInput.objects.filter(unit__plant=plant)
+        serializer = PreRobinInputSerializer(queryset, many=True)
+        return Response(serializer.data)
 

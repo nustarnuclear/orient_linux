@@ -1,6 +1,6 @@
 from django.db import models
 from django.core.validators import MaxValueValidator, MinValueValidator
-from django.db.models import Max, Sum
+from django.db.models import Max,Sum,Min
 #token generated automatically when creating a new user
 from django.conf import settings
 from django.db.models.signals import post_save
@@ -13,6 +13,12 @@ import tempfile
 import math
 from xml.dom import minidom
 from decimal import Decimal
+from django.core.files import File
+from django.contrib.auth.models import User
+import django.dispatch
+#define some signals
+del_fieldfile=django.dispatch.Signal(providing_args=["pk",])
+
 @receiver(post_save, sender=settings.AUTH_USER_MODEL)
 def create_auth_token(sender, instance=None, created=False, **kwargs):
     if created:
@@ -493,14 +499,14 @@ class Plant(BaseModel):
     @property
     def plant_dir(self):
         media_root=settings.MEDIA_ROOT
-        plant_dir=os.path.join(media_root, self.abbrEN)
+        plant_dir=os.path.join(media_root, 'pre_robin',self.abbrEN)
         return plant_dir
     
-    @property    
-    def ibis_dir(self):
-        plant_dir=self.plant_dir
-        ibis_dir=os.path.join(plant_dir,'ibis_files')
-        return ibis_dir
+#     @property    
+#     def ibis_dir(self):
+#         plant_dir=self.plant_dir
+#         ibis_dir=os.path.join(plant_dir,'ibis_files')
+#         return ibis_dir
         
     def __str__(self):
         return self.abbrEN  
@@ -533,6 +539,12 @@ class ReactorModel(BaseModel):
         ('Number', 'Number'),
         ('Letter', 'Letter'),
     )
+    DIRECTION_CHOICES = (
+        ('E','East'),
+        ('S', 'South'),
+        ('W','West'),
+        ('N', 'North'),
+    )
 
 
     name = models.CharField(max_length=50,choices=MODEL_CHOICES)
@@ -541,6 +553,7 @@ class ReactorModel(BaseModel):
     geometry_type = models.CharField(max_length=9, choices=GEOMETRY_CHOICES)
     row_symbol = models.CharField(max_length=6, choices=SYMBOL_CHOICES)
     column_symbol = models.CharField(max_length=6, choices=SYMBOL_CHOICES)
+    letter_order=models.CharField(max_length=32,default='A B C D E F G H J K L M N')
     num_loops = models.PositiveSmallIntegerField(blank=True,null=True)
     fuel_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     core_equivalent_diameter = models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
@@ -551,6 +564,12 @@ class ReactorModel(BaseModel):
     #boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
     fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
     moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
+    control_rod_step_size=models.DecimalField(max_digits=7,decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=1.58310)
+    default_step=models.PositiveSmallIntegerField(default=225)
+    max_step=models.PositiveSmallIntegerField(default=228)
+    set_zero_to_direction=models.CharField(max_length=1, choices=DIRECTION_CHOICES,default='E')
+    clockwise_increase=models.BooleanField(default=True)
+    
     class Meta:
         db_table = 'reactor_model'
         
@@ -563,6 +582,9 @@ class ReactorModel(BaseModel):
     @property
     def idyll_dir(self):
         return os.path.join(PRE_ROBIN_PATH,self.name,'IDYLL')
+    @property    
+    def base_component_path(self):
+        return os.path.join(PRE_ROBIN_PATH,self.name,'base_component.xml')
         
     def __str__(self):
         return '{}'.format(self.name)  
@@ -807,12 +829,12 @@ class UnitParameter(BaseModel):
         fuel_temperature=self.fuel_temperature
         moderator_temperature=self.moderator_temperature
         return [primary_system_pressure,fuel_temperature,moderator_temperature,ave_mass_power_density]
-    @property    
-    def base_component_path(self):
-        plant=self.plant
-        base_component_path=os.path.join(plant.plant_dir,'base_component.xml')
-        if os.path.isfile(base_component_path):
-            return base_component_path
+#     @property    
+#     def base_component_path(self):
+#         plant=self.plant
+#         base_component_path=os.path.join(plant.plant_dir,'base_component.xml')
+#         if os.path.isfile(base_component_path):
+#             return base_component_path
     
     @property
     def base_core_path(self):
@@ -846,7 +868,7 @@ class UnitParameter(BaseModel):
     def get_current_cycle(self):
         result_cycle=Cycle.get_max_cycle_by_unit(self) 
         while result_cycle:
-            if result_cycle.fuel_assembly_loading_patterns.all():
+            if result_cycle.loading_patterns.all():
                 return result_cycle
             result_cycle=result_cycle.get_pre_cycle()
     get_current_cycle.short_description='current cycle' 
@@ -886,15 +908,14 @@ class Cycle(BaseModel):
             if not pre_cycle:
                 raise ValidationError({'cycle':_('the cycle number is not consistent')})
     
-    def duplicate_cra_lp(self,base_cycle):
-        
-        base_cra_lps=base_cycle.control_rod_assembly_loading_patterns.all()
-        for base_cra_lp in base_cra_lps:
-            reactor_position=base_cra_lp.reactor_position
-            control_rod_assembly=base_cra_lp.control_rod_assembly
-            control_rod_assembly.pk=None
-            control_rod_assembly.save()
-            ControlRodAssemblyLoadingPattern.objects.create(reactor_position=reactor_position,cycle=self,control_rod_assembly=control_rod_assembly)
+#     def duplicate_cra_lp(self,base_cycle):
+#         base_cra_lps=base_cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
+#         for base_cra_lp in base_cra_lps:
+#             reactor_position=base_cra_lp.reactor_position
+#             control_rod_assembly=base_cra_lp.control_rod_assembly
+#             control_rod_assembly.pk=None
+#             control_rod_assembly.save()
+#             ControlRodAssemblyLoadingPattern.objects.create(reactor_position=reactor_position,cycle=self,control_rod_assembly=control_rod_assembly)
         
             
         
@@ -916,7 +937,7 @@ class Cycle(BaseModel):
         reactor_model=self.unit.reactor_model
         reactor_position=reactor_model.positions.get(row=row,column=column)
         try:
-            falp=self.fuel_assembly_loading_patterns.get(reactor_position=reactor_position)
+            falp=self.loading_patterns.get(reactor_position=reactor_position)
             return falp
         except:
             return None
@@ -925,121 +946,13 @@ class Cycle(BaseModel):
         
         this_cycle=self
         while this_cycle:
-            cra=this_cycle.control_rod_assembly_loading_patterns.all()
+            cra=this_cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
             
             if cra:
                 return this_cycle
             this_cycle=this_cycle.get_pre_cycle()
             
-            
-    def generate_fuel_node(self):  
-        doc = minidom.Document()      
-        fuel_xml=doc.createElement('base_fuel')
-        doc.appendChild(fuel_xml)
-        fuel_xml=doc.createElement('base_fuel')
-        fuel_assembly_loading_patterns=self.fuel_assembly_loading_patterns.all()
-        
-        for item in fuel_assembly_loading_patterns:
-            #position info
-            fuel_position_xml=doc.createElement('position')
-            fuel_xml.appendChild(fuel_position_xml)
-            reactor_position=item.reactor_position
-            row=reactor_position.row
-            column=reactor_position.column
-            fuel_position_xml.setAttribute('row', str(row))
-            fuel_position_xml.setAttribute('column', str(column))
-            
-            #assembly info
-            fuel_assembly_xml=doc.createElement('fuel_assembly')
-            fuel_position_xml.appendChild(fuel_assembly_xml)
-            fuel_assembly=item.fuel_assembly
-            pk=fuel_assembly.pk
-            type=fuel_assembly.type
-            enrichment=type.assembly_enrichment
-            assembly_name=type.assembly_name
-            
-            fuel_assembly_xml.appendChild(doc.createTextNode(str(type.pk)))
-            fuel_assembly_xml.setAttribute('id', str(pk))
-            fuel_assembly_xml.setAttribute('enrichment', str(enrichment))
-            fuel_assembly_xml.setAttribute('assembly_name', str(assembly_name))
-            #previous cycle info
-            previous=item.get_previous()
-            if previous:
-                previous_xml=doc.createElement('previous')
-                fuel_position_xml.appendChild(previous_xml)
-                data=previous.split(sep='-') 
-                previous_xml.setAttribute('row', data[1])
-                previous_xml.setAttribute('column', data[2])
-                previous_xml.appendChild(doc.createTextNode(data[0]))
-                
-            first=fuel_assembly.get_first_loading_pattern()
-            first_cycle=first.cycle
-            first_position=first.reactor_position
-            first_xml=doc.createElement('first')
-            fuel_position_xml.appendChild(first_xml)
-            first_xml.setAttribute('row', str(first_position.row))
-            first_xml.setAttribute('column', str(first_position.column))
-            first_xml.appendChild(doc.createTextNode(str(first_cycle.cycle)))
-            
-        return fuel_xml    
-    
-    def generate_bpa_node(self):
-        doc = minidom.Document()
-        bpa_xml=doc.createElement('bpa')
-        bpa_loading_patterns=self.bpa_loading_patterns.all()
-        for item in bpa_loading_patterns:
-            #position info
-            bpa_position_xml=doc.createElement('position')
-            bpa_xml.appendChild(bpa_position_xml)
-            reactor_position=item.reactor_position
-            row=reactor_position.row
-            column=reactor_position.column
-            bpa_position_xml.setAttribute('row', str(row))
-            bpa_position_xml.setAttribute('column', str(column))
-            
-            #bpa info
-            burnable_poison_assembly=item.burnable_poison_assembly
-            burnable_poison_assembly_xml=doc.createElement('burnable_poison_assembly')
-            bpa_position_xml.appendChild(burnable_poison_assembly_xml)
-            rod_num=burnable_poison_assembly.get_poison_rod_num()
-            #rod_height=burnable_poison_assembly.get_poison_rod_height()
-            burnable_poison_assembly_xml.setAttribute('id', str(burnable_poison_assembly.pk))
-            #burnable_poison_assembly_xml.setAttribute('height', str(rod_height))
-            burnable_poison_assembly_xml.appendChild(doc.createTextNode(str(rod_num)))
-        return bpa_xml
-    
-    def generate_cra_node(self):
-        doc = minidom.Document()  
-        cra_xml=doc.createElement('cra')
-        cra_loading_patterns=self.control_rod_assembly_loading_patterns.all()
-        for item in cra_loading_patterns:
-            #position info
-            cra_position_xml=doc.createElement('position')
-            cra_xml.appendChild(cra_position_xml)
-            reactor_position=item.reactor_position
-            row=reactor_position.row
-            column=reactor_position.column
-            cra_position_xml.setAttribute('row', str(row))
-            cra_position_xml.setAttribute('column', str(column))
-            
-            #cra info
-            control_rod_assembly=item.control_rod_assembly
-            control_rod_assembly_xml=doc.createElement('control_rod_assembly')
-            cra_position_xml.appendChild(control_rod_assembly_xml)
-            
-            cluster_name=control_rod_assembly.cluster_name
-            type=control_rod_assembly.type
-            step_size=control_rod_assembly.step_size
-            basez=control_rod_assembly.basez
-            control_rod_assembly_xml.setAttribute('id', str(control_rod_assembly.pk))
-            control_rod_assembly_xml.setAttribute('type', str(type))
-            control_rod_assembly_xml.setAttribute('step_size', str(step_size))
-            control_rod_assembly_xml.setAttribute('basez', str(basez))
-            control_rod_assembly_xml.appendChild(doc.createTextNode(cluster_name)) 
-        return  cra_xml
-    
     def generate_loading_pattern_xml(self):
-       
         unit=self.unit
         plant=unit.plant
         #start xml 
@@ -1049,41 +962,64 @@ class Cycle(BaseModel):
         loading_pattern_xml.setAttribute("unit_num",str(unit.unit))
         loading_pattern_xml.setAttribute("plant_name",plant.abbrEN)
         doc.appendChild(loading_pattern_xml)
-        #generate child nodes respectively
-        fuel_node=self.generate_fuel_node()
-        bpa_node=self.generate_bpa_node()
-        cra_node=self.generate_cra_node() 
         
-        loading_pattern_xml.appendChild(fuel_node)
-        if bpa_node is not None:
-            loading_pattern_xml.appendChild(bpa_node)
-        if cra_node is not None:
-            loading_pattern_xml.appendChild(cra_node)
-            
+        loading_patterns=self.loading_patterns.all()
+        for loading_pattern in loading_patterns:
+            reactor_position=loading_pattern.reactor_position
+            row=reactor_position.row
+            column=reactor_position.column
+            position_xml=doc.createElement('position')
+            position_xml.setAttribute('row', str(row))
+            position_xml.setAttribute('column', str(column))
+            #fuel assembly
+            fuel_assembly=loading_pattern.fuel_assembly
+            fuel_assembly_xml=fuel_assembly.generate_fuel_assembly_xml(loading_pattern)
+            position_xml.appendChild(fuel_assembly_xml)
+            #burnable poison assembly
+            burnable_poison_assembly=loading_pattern.burnable_poison_assembly
+            if burnable_poison_assembly:
+                burnable_poison_assembly_xml=burnable_poison_assembly.generate_burnable_poison_assembly_xml()
+                position_xml.appendChild(burnable_poison_assembly_xml)
+            #control rod assembly
+            control_rod_assembly=loading_pattern.control_rod_assembly
+            if control_rod_assembly:
+                control_rod_assembly_xml=control_rod_assembly.generate_control_rod_assembly_xml()
+                position_xml.appendChild(control_rod_assembly_xml)
+            loading_pattern_xml.appendChild(position_xml)
         f = tempfile.TemporaryFile(mode='w+')
         #f=open('/home/django/Desktop/mylp.xml','w')
         doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        
+        #f.close()
         return f
     
-    def get_base_fuel_by_pos(self,reactor_position):
-        fuel_assembly_loading_pattern=self.fuel_assembly_loading_patterns.get(reactor_position=reactor_position)
-        bpa_loading_pattern=self.bpa_loading_patterns.get(reactor_position=reactor_position)
+    def refresh_loading_pattern(self):
+        unit=self.unit
+        plant=unit.plant
+        loading_pattern_name="STD_{}_U{}C{}".format(plant.abbrEN, unit.unit,self.cycle)
+        xml_file=self.generate_loading_pattern_xml()
         
-    
+        try:
+            loading_pattern=self.multipleloadingpattern_set.get(authorized=True)
+            loading_pattern.xml_file.delete()
+            #send a signal to delete the old file
+            del_fieldfile.send(sender=loading_pattern.__class__,pk=loading_pattern.pk)
+            #save the new file
+            loading_pattern.xml_file=File(xml_file)
+            loading_pattern.save()
+        except:
+            #if not exists,create a new one
+            self.multipleloadingpattern_set.create(name=loading_pattern_name,authorized=True,xml_file=File(xml_file),user=User.objects.get(username='admin')) 
+        xml_file.close()
+        
     def generate_base_fuel_set(self):
         base_fuel_set=set()
-        fuel_assembly_loading_patterns=self.fuel_assembly_loading_patterns.all()
-        bpa_loading_patterns=self.bpa_loading_patterns.all()
+        fuel_assembly_loading_patterns=self.loading_patterns.all()
         for fuel_assembly_loading_pattern in fuel_assembly_loading_patterns:
-            reactor_position=fuel_assembly_loading_pattern.reactor_position
             fuel_assembly_type=fuel_assembly_loading_pattern.fuel_assembly.type
-            try:
-                bpa_loading_pattern=bpa_loading_patterns.get(reactor_position=reactor_position)
-                burnable_poison_assembly=bpa_loading_pattern.burnable_poison_assembly.get_symmetry_bpa()
-            except:
-                burnable_poison_assembly=None
-                
+            burnable_poison_assembly=fuel_assembly_loading_pattern.burnable_poison_assembly
+            if burnable_poison_assembly:
+                burnable_poison_assembly=burnable_poison_assembly.get_symmetry_bpa()
+           
             base_fuel_set.add((fuel_assembly_type,burnable_poison_assembly))
         return base_fuel_set
             
@@ -1098,7 +1034,7 @@ class FuelAssemblyLoadingPattern(BaseModel):
         ('180','180'),
         ('270','270'),
     )
-    cycle=models.ForeignKey(Cycle,related_name='fuel_assembly_loading_patterns')
+    cycle=models.ForeignKey(Cycle,related_name='loading_patterns')
     reactor_position=models.ForeignKey(ReactorPosition)
     fuel_assembly=models.ForeignKey('FuelAssemblyRepository',related_name='cycle_positions',default=1)
     rotation_degree=models.CharField(max_length=3,choices=ROTATION_DEGREE_CHOICES,default='0',help_text='anticlokwise')
@@ -1106,7 +1042,6 @@ class FuelAssemblyLoadingPattern(BaseModel):
     control_rod_assembly=models.ForeignKey('ControlRodAssembly',related_name="cra",blank=True,null=True)
     class Meta:
         db_table='fuel_assembly_loading_pattern'
-       
         unique_together=(('cycle','reactor_position'),('cycle','fuel_assembly'))
         verbose_name='Incore fuel loading pattern'
         
@@ -1121,16 +1056,9 @@ class FuelAssemblyLoadingPattern(BaseModel):
         fuel_assembly=self.fuel_assembly
         cycle=self.cycle
         try:
-            
             falp=FuelAssemblyLoadingPattern.objects.filter(fuel_assembly=fuel_assembly,cycle__cycle__lt=cycle.cycle,cycle__unit=cycle.unit)
-            previous_cycles=[]
-            for item in falp:
-                previous_cycles.append(item.cycle.cycle)
-                
-              
-            last_cycle=max(previous_cycles)   
-            last_position=falp.get(cycle__cycle=last_cycle).reactor_position
-            return "{}-{}-{}".format(last_cycle,last_position.row,last_position.column)
+            cycle_max=falp.aggregate(Max('cycle__cycle'))['cycle__cycle__max']
+            return falp.get(cycle__cycle=cycle_max)
         except:
             return None
         
@@ -1163,7 +1091,7 @@ class FuelAssemblyLoadingPattern(BaseModel):
             tmp_lst.append(tmp)
         result='-'.join(tmp_lst)
         return result
-        
+      
        
     def __str__(self):
         return '{} {}'.format(self.cycle, self.reactor_position)
@@ -1179,7 +1107,6 @@ class FuelAssemblyModel(BaseModel):
     side_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     assembly_pitch=models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm')
     pin_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    #bottom_height=models.DecimalField(max_digits=7, decimal_places=5,default=0,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of fuel active part')
     lower_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     upper_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     side_pin_num=models.PositiveSmallIntegerField(default=17)
@@ -1437,7 +1364,7 @@ class FuelAssemblyRepository(BaseModel):
         
         first_position=first_loading_pattern.reactor_position
         try:
-            bpa_pattern=BurnablePoisonAssemblyLoadingPattern.objects.get(cycle=first_cycle,reactor_position=first_position)
+            bpa_pattern=first_cycle.loading_patterns.filter(burnable_poison_assembly__isnull=True,reactor_position=first_position).get()
             bpa=bpa_pattern.burnable_poison_assembly
             bp_num=bpa.get_poison_rod_num()
         except:
@@ -1473,8 +1400,38 @@ class FuelAssemblyRepository(BaseModel):
         else:
             return 'Fresh'
         
+    def generate_fuel_assembly_xml(self,loading_pattern):
+        doc = minidom.Document()
+        fuel_assembly_xml=doc.createElement('fuel_assembly')
+        fuel_assembly_xml.appendChild(doc.createTextNode(str(self.pk)))
+        fuel_assembly_type=self.type
+        type_pk=fuel_assembly_type.pk
+        enrichment=fuel_assembly_type.assembly_enrichment
+        name=fuel_assembly_type.model.name
+        #first
+        first_loading_pattern=self.get_first_loading_pattern()
+        reactor_position=first_loading_pattern.reactor_position
+        first_cycle=first_loading_pattern.cycle.cycle
+        first_row=reactor_position.row
+        first_col=reactor_position.column
+        #previous
+        previous=loading_pattern.get_previous()
+        if previous:
+            pre_row=previous.reactor_position.row
+            pre_col=previous.reactor_position.column
+            pre_cycle=previous.cycle.cycle
+            fuel_assembly_xml.setAttribute('pre_row',str(pre_row))
+            fuel_assembly_xml.setAttribute('pre_col',str(pre_col))
+            fuel_assembly_xml.setAttribute('pre_cycle',str(pre_cycle))
+        fuel_assembly_xml.setAttribute('name',name)
+        fuel_assembly_xml.setAttribute('enrichment',str(enrichment))
+        fuel_assembly_xml.setAttribute('type',str(type_pk))
+        fuel_assembly_xml.setAttribute('first_row',str(first_row))
+        fuel_assembly_xml.setAttribute('first_col',str(first_col))
+        fuel_assembly_xml.setAttribute('first_cycle',str(first_cycle))
+        return fuel_assembly_xml
         
-    
+        
     def __str__(self):
         return "{} {}".format(self.pk, self.type)
     
@@ -1564,14 +1521,9 @@ class Grid(BaseModel):
     spring_volume=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm3')
     side_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_height=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
-    #inner_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
-    #outer_sleeve_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_material=models.ForeignKey(Material,related_name='grid_sleeves',related_query_name='grid_sleeve',blank=True,null=True)
-    #spring_thickness=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
-    #spring_material=models.ForeignKey(Material,related_name='grid_springs',related_query_name='grid_spring',blank=True,null=True)
     functionality=models.CharField(max_length=5,choices=FUCTIONALITY_CHOICS,default='fix')
-    #moderator_material=models.ForeignKey(Material,default=70,related_name='grid_moderator',)
-    #type_num = models.PositiveSmallIntegerField(default=1)
+
     class Meta:
         db_table='grid'
         verbose_name='Fuel grid'
@@ -2316,7 +2268,6 @@ class NozzlePlugRod(BaseModel):
     
 class BurnablePoisonRod(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='bp_rod')
-    #length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm')
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm') 
     bottom_height=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of fuel active part')                 
     class Meta:
@@ -2466,7 +2417,14 @@ class BurnablePoisonAssembly(BaseModel):
     def side_pin_num(self):
         return self.fuel_assembly_model.side_pin_num
     
+    @property
+    def bp_num(self):
+        return self.get_poison_rod_num()
     
+    @property
+    def bottom_height(self):
+        bottom_height=self.map.aggregate(Min('bottom_height'))['bottom_height__min']
+        return bottom_height
     def generate_transection(self,height):
         side_num=self.side_pin_num
         rod_positions=self.rod_positions.all()
@@ -2493,6 +2451,7 @@ class BurnablePoisonAssembly(BaseModel):
                         transection[position_4th]=rod_transection_pk
         
         return transection
+    
     def get_poison_rod_num(self):
         num=self.rod_positions.count()
         return num  
@@ -2508,23 +2467,11 @@ class BurnablePoisonAssembly(BaseModel):
         
         return sorted(symbol_lst)
     
-    def get_substitute_bpa(self):
-        quadrant_symbol=self.get_quadrant_symbol()
-        if quadrant_symbol==[1,2,3,4]:
-            return None
-        else:
-            num=self.get_poison_rod_num()
-            sub_num=num*4/len(quadrant_symbol)
-            sub_bpas=BurnablePoisonAssembly.objects.filter(fuel_assembly_model=self.fuel_assembly_model)
-            for sub_bpa in sub_bpas:
-                if sub_bpa.get_poison_rod_num()==sub_num:
-                        return sub_bpa
-            
     def get_symmetry_bpa(self):
         if self.symmetry:
             return self
         else:
-            poison_rod_num=self.get_poison_rod_num()
+            num=self.get_poison_rod_num()
             quadrant_symbol_lst=self.get_quadrant_symbol()
             if quadrant_symbol_lst in [[1],[2],[3],[4]]:
                 index=[1]
@@ -2534,9 +2481,17 @@ class BurnablePoisonAssembly(BaseModel):
                 index=[1,2,3]
             
             for item in BurnablePoisonAssembly.objects.filter(fuel_assembly_model=self.fuel_assembly_model):
-                if item.get_poison_rod_num()==poison_rod_num and item.get_quadrant_symbol()==index:
+                if item.get_poison_rod_num()==num and item.get_quadrant_symbol()==index:
                     return item
             
+    def generate_burnable_poison_assembly_xml(self):
+        doc=minidom.Document()
+        burnable_poison_assembly_xml=doc.createElement('burnable_poison_assembly')
+        num=self.get_poison_rod_num()
+        burnable_poison_assembly_xml.setAttribute('num', str(num))
+        burnable_poison_assembly_xml.appendChild(doc.createTextNode(str(self.pk)))
+        return burnable_poison_assembly_xml
+    
     def __str__(self):
         num=self.rod_positions.count()
         return '{} {}'.format(num, self.fuel_assembly_model)
@@ -2584,55 +2539,13 @@ class BurnablePoisonAssemblyMap(BaseModel):
     
     def __str__(self):
         return "{} R{}C{}".format(self.burnable_poison_assembly,self.row,self.column)
-    
-
-class BurnablePoisonAssemblyLoadingPattern(BaseModel):
-    cycle=models.ForeignKey(Cycle,related_name='bpa_loading_patterns')
-    reactor_position=models.ForeignKey(ReactorPosition)
-    burnable_poison_assembly=models.ForeignKey(BurnablePoisonAssembly)
-
-    class Meta:
-        db_table='burnable_poison_assembly_loading_pattern'
         
-        #unique_together=('reactor_position','burnable_poison_assembly')
-        #verbose_name='Burnable absorber assembly'
-        #verbose_name_plural='Burnable absorber assemblies'
-        
-    def clean(self):
-        if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
-            raise ValidationError({'cycle':_('the cycle and reactor_position are not compatible'),
-                                   'reactor_position':_('the cycle and reactor_position are not compatible')
-                                   
-            }) 
-        
-    def get_sysmetry_quadrant(self):
-        reactor_position=self.reactor_position
-        reactor_position_symbol=reactor_position.get_quadrant_symbol()
-        bpa=self.burnable_poison_assembly
-        bpa_symbol=bpa.get_quadrant_symbol()
-        if reactor_position_symbol==4:
-            sysm_relation={1:1,2:2,3:3,4:4}
-        elif reactor_position_symbol==1: 
-            sysm_relation={3:1,1:2,4:3,2:4}
-        elif reactor_position_symbol==2:
-            sysm_relation={4:1,3:2,2:3,1:4}
-        else:
-            sysm_relation={2:1,4:2,1:3,3:4}
-            
-        sysmetry_quadrant=[sysm_relation[i] for i in bpa_symbol]
-        return sysmetry_quadrant
-            
-    def __str__(self):
-        return '{} {}'.format(self.cycle, self.reactor_position)
-    
-    
-    
 ###############################################################################
 
 class ControlRodAssemblyType(BaseModel):
     reactor_model=models.ForeignKey(ReactorModel,related_name='cra_types')
     basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    #step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     side_pin_num=models.PositiveSmallIntegerField(default=17)
     map=models.ManyToManyField(ControlRodType,through='ControlRodAssemblyMap')
     symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
@@ -2642,17 +2555,11 @@ class ControlRodAssemblyType(BaseModel):
         order_with_respect_to = 'reactor_model'
         
     @property
-    def type(self):
-        #1 represents black rod
-        #2 represents grep rod
-        control_rods=self.map.all()
-        for control_rod in control_rods:
-            if not control_rod.black:
-                return 2
-        return 1
-    @property
     def cr_id(self):
         return "CR"+str(self.pk)
+    @property
+    def step_size(self):
+        return self.reactor_model.control_rod_step_size
     
     @property
     def start_index(self):
@@ -2802,7 +2709,7 @@ class ControlRodAssemblyType(BaseModel):
         return base_branch_xml_lst
         
     def __str__(self):
-        return '{} {}'.format(self.reactor_model,self.type)
+        return '{} control rod assembly type'.format(self.reactor_model)
 
 class ControlRodAssemblyMap(BaseModel):
     control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='rod_positions')
@@ -2842,7 +2749,6 @@ class ControlRodAssemblyMap(BaseModel):
   
     
 class ControlRodCluster(BaseModel):
-    reactor_model=models.ForeignKey(ReactorModel,related_name='control_rod_clusters')
     control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='clusters')
     cluster_name=models.CharField(max_length=5)
     class Meta:
@@ -2851,13 +2757,6 @@ class ControlRodCluster(BaseModel):
     def get_control_rod_assembly_num(self):
         return self.control_rod_assemblies.count()
     get_control_rod_assembly_num.short_description='same cluster number'
-    
-    
-    @property
-    def type(self):
-        #1 represents black rod
-        #2 represents grep rod
-        return self.control_rod_assembly_type.type
     
     @property
     def reactor_model(self):
@@ -2885,9 +2784,9 @@ class ControlRodAssembly(BaseModel):
     @property
     def cluster_name(self):
         return self.cluster.cluster_name
-    @property
-    def type(self):
-        return self.cluster.type
+#     @property
+#     def type(self):
+#         return self.cluster.type
     @property
     def reactor_model(self):
         return self.cluster.reactor_model
@@ -2898,29 +2797,43 @@ class ControlRodAssembly(BaseModel):
     @property
     def basez(self):
         return self.cluster.basez
+    
+    def generate_control_rod_assembly_xml(self):
+        doc=minidom.Document()
+        control_rod_assembly_xml=doc.createElement('control_rod_assembly')
+        control_rod_assembly_xml.appendChild(doc.createTextNode(str(self.pk)))
+        #attributes
+        #basez=self.basez
+        #step_size=self.step_size
+        cluster_name=self.cluster_name
+        #control_rod_assembly_xml.setAttribute('basez', str(basez))
+        #control_rod_assembly_xml.setAttribute('step_size', str(step_size))
+        control_rod_assembly_xml.setAttribute('cluster_name', cluster_name)
+        
+        return control_rod_assembly_xml
         
     def __str__(self):
         return '{} {}'.format(self.pk,self.cluster)
 
        
-class ControlRodAssemblyLoadingPattern(BaseModel):
-    cycle=models.ForeignKey(Cycle,related_name='control_rod_assembly_loading_patterns',blank=True,null=True)
-    reactor_position=models.ForeignKey(ReactorPosition,related_name='control_rod_assembly_pattern',)
-    control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='loading_patterns',)
-
-    class Meta:
-        db_table='control_rod_assembly_loading_pattern'
-        
-    def clean(self):
-        if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
-            raise ValidationError({'cycle':_('the cycle and reactor_position are not compatible'),
-                                   'reactor_position':_('the cycle and reactor_position are not compatible')
-                                   
-            })
-        
-    
-    def __str__(self):
-        return '{} '.format(self.reactor_position)    
+# class ControlRodAssemblyLoadingPattern(BaseModel):
+#     cycle=models.ForeignKey(Cycle,related_name='control_rod_assembly_loading_patterns',blank=True,null=True)
+#     reactor_position=models.ForeignKey(ReactorPosition,related_name='control_rod_assembly_pattern',)
+#     control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='loading_patterns',)
+# 
+#     class Meta:
+#         db_table='control_rod_assembly_loading_pattern'
+#         
+#     def clean(self):
+#         if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
+#             raise ValidationError({'cycle':_('the cycle and reactor_position are not compatible'),
+#                                    'reactor_position':_('the cycle and reactor_position are not compatible')
+#                                    
+#             })
+#         
+#     
+#     def __str__(self):
+#         return '{} '.format(self.reactor_position)    
     
 
 ##############################################################################
@@ -2928,8 +2841,6 @@ class ControlRodAssemblyLoadingPattern(BaseModel):
 class SourceAssembly(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
     source_rod_map=models.ManyToManyField(FuelAssemblyPosition,through='SourceRodMap')
-    
-    
     
     class Meta:
         db_table='source_assembly' 

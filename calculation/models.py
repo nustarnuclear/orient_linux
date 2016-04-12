@@ -111,32 +111,32 @@ def get_boron_density(assembly_enrichment):
         
     return boron_density
 
-def get_ibis_upload_path(instance,filename):
-    plant_name=instance.plant.abbrEN
-    
-    return "{}/ibis_files/{}".format(plant_name,filename)
-
-def get_robin_upload_path(instance,filename):
-    plant_name=instance.plant.abbrEN
-    file_type=instance.file_type
-    assembly_name=instance.fuel_assembly_type.model.name
-    enrichment=instance.fuel_assembly_type.assembly_enrichment
-    
-    if instance.burnable_poison_assembly:
-        str_num=str(instance.burnable_poison_assembly.rod_positions.count())
-    else:
-        str_num='00'
-        
-    tmp=str(int(enrichment*1000))+str_num
-    
-    return "{}/robin_files/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
-
-
-FILE_TYPE_CHOICES=(
-                    ('BASE_FUEL','BASE_FUEL'),
-                    ('BP_OUT','BP_OUT'),
-                    ('BR','BR'),
-    )
+# def get_ibis_upload_path(instance,filename):
+#     plant_name=instance.plant.abbrEN
+#     
+#     return "{}/ibis_files/{}".format(plant_name,filename)
+# 
+# def get_robin_upload_path(instance,filename):
+#     plant_name=instance.plant.abbrEN
+#     file_type=instance.file_type
+#     assembly_name=instance.fuel_assembly_type.model.name
+#     enrichment=instance.fuel_assembly_type.assembly_enrichment
+#     
+#     if instance.burnable_poison_assembly:
+#         str_num=str(instance.burnable_poison_assembly.rod_positions.count())
+#     else:
+#         str_num='00'
+#         
+#     tmp=str(int(enrichment*1000))+str_num
+#     
+#     return "{}/robin_files/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
+# 
+# 
+# FILE_TYPE_CHOICES=(
+#                     ('BASE_FUEL','BASE_FUEL'),
+#                     ('BP_OUT','BP_OUT'),
+#                     ('BR','BR'),
+#     )
 
  
 # base model to contain the basic information
@@ -153,12 +153,8 @@ media_url=settings.MEDIA_URL
 #concrete model in DATABASE
 
 class Server(models.Model):
-#     STATUS_CHOICES=(("A","available"),
-#                     ("B","busy"),
-#     )
     name=models.CharField(max_length=32,unique=True)
     IP=models.GenericIPAddressField(unique=True)
-    #status=models.CharField(max_length=1,default="A",choices=STATUS_CHOICES)
     queue=models.CharField(max_length=32,unique=True)
     class Meta:
         db_table="server"
@@ -352,9 +348,6 @@ class PreRobinBranch(models.Model):
     #default=models.BooleanField(default=False,help_text="set it as default",)
     reactor_model=models.OneToOneField(ReactorModel)
     max_burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=65,help_text='GWd/tU')
-    #identity=models.CharField(max_length=32)
-    #the default burnup point for BOR TMO TFU CRD
-    #boron density branch
     max_boron_density=models.PositiveSmallIntegerField(default=2000,help_text='ppm')
     min_boron_density=models.PositiveSmallIntegerField(default=0,help_text='ppm')
     boron_density_interval=models.PositiveSmallIntegerField(help_text='ppm',default=200)
@@ -814,10 +807,11 @@ class PreRobinInput(BaseModel):
             width=grid.sleeve_height
             type_num=grid.type_num
             spacer_grid_xml=doc.createElement("spacer_grid")
-            spacer_grid_xml.setAttribute("hight",str(hight))
-            spacer_grid_xml.setAttribute("width",str(width))
-            spacer_grid_xml.appendChild(doc.createTextNode(str(type_num)))
-            base_fuel_xml.appendChild(spacer_grid_xml)
+            if hight<active_length:
+                spacer_grid_xml.setAttribute("hight",str(hight))
+                spacer_grid_xml.setAttribute("width",str(width))
+                spacer_grid_xml.appendChild(doc.createTextNode(str(type_num)))
+                base_fuel_xml.appendChild(spacer_grid_xml)
             
         #if offset add one more BX fuel
         if not self.symmetry:
@@ -856,7 +850,7 @@ class PreRobinInput(BaseModel):
         doc=minidom.Document()
         base_component_xml=doc.createElement("base_component")
         base_component_xml.setAttribute("basecore_ID", reactor_model.name)
-        pre_robin_inputs=cls.objects.filter(unit__reactor_model=reactor_model)
+        pre_robin_inputs=cls.objects.filter(unit__plant__reactor_model=reactor_model)
         
         for pre_robin_input in pre_robin_inputs:
             base_fuel_xml,BX_base_fuel_xml=pre_robin_input.generate_base_fuel_xml()
@@ -876,16 +870,14 @@ class PreRobinInput(BaseModel):
         return os.path.join(os.getcwd(),filename) 
     
     @classmethod
-    def write_base_component_xml(cls):
-        reactor_models=ReactorModel.objects.all()
-        
-        for reactor_model in reactor_models:
-            name=reactor_model.name
-            file_path=os.path.join(PRE_ROBIN_PATH,name)
-            if not os.path.exists(file_path):
-                os.makedirs(file_path)
-            os.chdir(file_path)
-            cls.generate_base_component_xml(reactor_model)
+    def write_base_component_xml(cls,reactor_model):
+        #reactor_models=ReactorModel.objects.all()
+        name=reactor_model.name
+        file_path=os.path.join(PRE_ROBIN_PATH,name)
+        if not os.path.exists(file_path):
+            os.makedirs(file_path)
+        os.chdir(file_path)
+        cls.generate_base_component_xml(reactor_model)
     
     def cut_already(self):
         return True  if self.layers.exists() else False 
@@ -922,7 +914,7 @@ class PreRobinInput(BaseModel):
         #control rod xml
         
         for cycle in cycles:
-            control_rod_assembly_loading_patterns=cycle.control_rod_assembly_loading_patterns.all()
+            control_rod_assembly_loading_patterns=cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
             if control_rod_assembly_loading_patterns:
                 control_rod_xml=doc.createElement("control_rod")
                 control_rod_xml.setAttribute("cycle",str(cycle.cycle))
@@ -947,7 +939,7 @@ class PreRobinInput(BaseModel):
             previous_cycle_lst=[]
             rotation_lst=[]
             for reactor_position in reactor_positions:
-                    fuel_assembly_loading_pattern=cycle.fuel_assembly_loading_patterns.get(reactor_position=reactor_position)
+                    fuel_assembly_loading_pattern=cycle.loading_patterns.get(reactor_position=reactor_position)
                     #rotation
                     rotation_degree=fuel_assembly_loading_pattern.rotation_degree
                     if rotation_degree!='0':
@@ -955,9 +947,12 @@ class PreRobinInput(BaseModel):
                         
                     
                     #not fresh
-                    if fuel_assembly_loading_pattern.get_previous():
-                        [previous_cycle,previous_position_row,previous_position_column]=fuel_assembly_loading_pattern.get_previous().split('-')
-                        position='{}{}'.format(previous_position_row.zfill(2), previous_position_column.zfill(2))
+                    previous=fuel_assembly_loading_pattern.get_previous()
+                    if previous:
+                        previous_cycle=previous.cycle.cycle
+                        previous_position_row=previous.reactor_position.row
+                        previous_position_column=previous.reactor_position.column
+                        position='{}{}'.format(str(previous_position_row).zfill(2), str(previous_position_column).zfill(2))
                         fuel_lst.append(position)
                         #not from last cycle
                         if previous_cycle!=cycle.cycle-1:
@@ -966,8 +961,9 @@ class PreRobinInput(BaseModel):
                     #fresh       
                     else:
                         fuel_assembly_type=fuel_assembly_loading_pattern.fuel_assembly.type
-                        bpa_patterns=cycle.bpa_loading_patterns.filter(reactor_position=reactor_position)
-                        bpa=bpa_patterns.get().burnable_poison_assembly.get_symmetry_bpa() if bpa_patterns.exists() else None
+                        #bpa_patterns=cycle.bpa_loading_patterns.filter(reactor_position=reactor_position)
+                        burnable_poison_assembly=fuel_assembly_loading_pattern.burnable_poison_assembly
+                        bpa=burnable_poison_assembly.get_symmetry_bpa() if burnable_poison_assembly else None
                         pre_robin_input=cls.objects.get(unit=unit,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=bpa)
                         base_fuel_ID=pre_robin_input.basefuel_ID
                         if bpa and (not bpa.symmetry):
@@ -990,7 +986,7 @@ class PreRobinInput(BaseModel):
                     cycle_xml=doc.createElement("cycle")
                     cycle_xml.setAttribute('row',str(previous_cycle_info[1]))
                     cycle_xml.setAttribute('col',str(previous_cycle_info[2]))
-                    cycle_xml.appendChild(doc.createTextNode(previous_cycle_info[0]))
+                    cycle_xml.appendChild(doc.createTextNode(str(previous_cycle_info[0])))
                     fuel_xml.appendChild(cycle_xml)
                     
             
@@ -1009,16 +1005,13 @@ class PreRobinInput(BaseModel):
         return os.path.join(os.getcwd(),filename) 
     
     @classmethod
-    def write_loading_pattern_xml(cls):
-        units=UnitParameter.objects.all()
-        
-        for unit in units:
-            plant=unit.plant
-            file_path=os.path.join(PRE_ROBIN_PATH,plant.abbrEN,'unit'+str(unit.unit))
-            if not os.path.exists(file_path):
-                os.makedirs(file_path)
-            os.chdir(file_path)
-            cls.generate_loading_pattern_xml(unit)
+    def write_loading_pattern_xml(cls,unit):
+        plant=unit.plant
+        file_path=os.path.join(PRE_ROBIN_PATH,plant.abbrEN,'unit'+str(unit.unit))
+        if not os.path.exists(file_path):
+            os.makedirs(file_path)
+        os.chdir(file_path)
+        cls.generate_loading_pattern_xml(unit)
         
     def __str__(self):
         return "{} {} {}".format(self.unit,self.fuel_assembly_type,self.burnable_poison_assembly)
@@ -1144,7 +1137,7 @@ class PreRobinTask(BaseModel):
         fuel_assembly_type=self.fuel_assembly_type
         segment_ID= fuel_assembly_type.assembly_name+'_'+self.rela_file_path
         if burnup:
-            segment_ID +="_BP_OUT_"+str(burnup)
+            segment_ID +="_BP_"+str(burnup)
         return segment_ID
     
         
@@ -1169,7 +1162,7 @@ class PreRobinTask(BaseModel):
     #bp out info
     def create_bp_out_dir(self,burnup):
         abs_file_path=self.create_file_path()
-        bp_out_dir=os.path.join(abs_file_path,'BP_OUT',str(burnup))
+        bp_out_dir=os.path.join(abs_file_path,'BP',str(burnup))
         if not os.path.exists(bp_out_dir):
             os.makedirs(bp_out_dir)
         return bp_out_dir
@@ -1735,10 +1728,13 @@ class PreRobinTask(BaseModel):
         f.write("{}\n".format(total_grid_type_num))
         f.write("spa_fraction\n")
         volume_fraction_lst=[]
+        grids=fuel_assembly_model.grids.all()
         for type_num in range(1,total_grid_type_num+1):
-            grid=fuel_assembly_model.grids.filter(type_num=type_num).first()
-            volume_fraction=grid.volume_fraction
-            volume_fraction_lst.append(str(volume_fraction))
+            for grid in grids:
+                if grid.type_num==type_num:
+                    volume_fraction=grid.volume_fraction
+                    volume_fraction_lst.append(str(volume_fraction))
+                    break
         f.write(' '.join(volume_fraction_lst)+"\n")
         
         f.write("wet_fraction\n")
@@ -1773,7 +1769,13 @@ class PreRobinTask(BaseModel):
         
         process=Popen(['/opt/nustar/bin/myidyll',"IDYLL.INP"])
         return_code=process.wait()
+        #link base table
         self.link_table()
+        #link other bp out table
+        if self.bp_in:
+            bp_out_points=PreRobinTask.BP_OUT_POINTS
+            for burnup in bp_out_points:
+                self.link_table(burnup)
         return return_code
     
     def start_all_idyll(self):
@@ -1800,6 +1802,7 @@ class PreRobinTask(BaseModel):
             f.write("\n")
             f.write("%d"%(len(tab_lst)))
             f.write("\n")
+            f.write("\n")
             for item in tab_lst:
                 f.write(",".join(item))
                 f.write("\n")
@@ -1808,7 +1811,10 @@ class PreRobinTask(BaseModel):
             idyll_dir=self.plant.reactor_model.idyll_dir
             dest=os.path.join(idyll_dir,filename)
             table_path=os.path.join(cwd,filename)
-            os.symlink(table_path,dest)
+            try:
+                os.symlink(table_path,dest)
+            except:
+                pass
             return filename
         
     def get_no_bp_in_task(self):
@@ -1830,10 +1836,15 @@ class PreRobinTask(BaseModel):
     
     def get_table_path(self,burnup=0):
         subdir=self.create_subdir(burnup)
-        return os.path.join(subdir,"TABLE_OUTPUT","ASSEMBLY.TAB")
-    
+        output_path=os.path.join(subdir,"TABLE_OUTPUT")
+        if not os.path.exists(output_path):
+            return None
+        for filename in os.listdir(output_path):
+            if filename.endswith('.TAB'):
+                return os.path.join(output_path,filename)
+            
     def table_generated(self):
-        return True  if os.path.isfile(self.get_table_path()) else False 
+        return True  if self.get_table_path() else False 
     table_generated.boolean=True 
     
     def link_table(self,burnup=0):
@@ -1842,7 +1853,10 @@ class PreRobinTask(BaseModel):
         if not os.path.exists(idyll_dir):
             os.makedirs(idyll_dir)
         dest=os.path.join(idyll_dir,self.get_segment_ID(burnup)+".TAB")
-        os.symlink(table_path,dest)
+        try:
+            os.symlink(table_path,dest)
+        except:
+            pass
         
     def __str__(self):
         return self.get_segment_ID()
@@ -1858,7 +1872,7 @@ def get_robintask_upload_path(instance,filename):
     return "robin_task/{}/{}/{}/{}/{}".format(plant.abbrEN,model_name,enrichment,name,filename)
 
 class RobinTask(models.Model):
-    name=models.CharField(max_length=64)
+    name=models.CharField(max_length=32)
     pre_robin_task=models.ForeignKey(PreRobinTask,related_name="robin_tasks")
     input_file=models.FileField(max_length=200,upload_to=get_robintask_upload_path)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
@@ -1904,7 +1918,7 @@ class RobinTask(models.Model):
         
     def cancel_calculation(self):
         #only can cancel waiting tasks
-        app.control.revoke(str(self.pk),)
+        app.control.revoke(str(self.pk),)  # @UndefinedVariable
         self.task_status=5
         self.save()
     
@@ -1933,9 +1947,9 @@ class RobinTask(models.Model):
         
     def get_burnup(self):
         name=self.name
-        if "BP_OUT" in name:
+        if "BP" in name:
             names=name.split("_")
-            index=names.index('OUT')
+            index=names.index('BP')
             return int(names[index+1])
         else:
             return 0
@@ -1972,116 +1986,116 @@ class RobinTask(models.Model):
     def __str__(self):
         return self.name
     
-class Ibis(BaseModel):
-    plant=models.ForeignKey('tragopan.Plant')
-    ibis_name=models.CharField(max_length=32)
-    fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
-    reactor_model=models.ForeignKey('tragopan.ReactorModel')
-    burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
-    active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
-    #ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
-
-    class Meta:
-        db_table='ibis'
-        order_with_respect_to='reactor_model'
-        verbose_name_plural='Ibis'
-        
-    #validating objects(clean_fields->clean->validate_unique)
-    def clean(self):
-        units=self.plant.units.all()
-        reactor_model=self.reactor_model
-        reactor_model_lst=[unit.reactor_model for unit in units]
-        if reactor_model not in reactor_model_lst:
-            raise ValidationError({'plant':_('plant and reactor model are not compatible'), 
-                                 'reactor_model':_('plant and reactor model are not compatible'),                          
-            })
-    
-    @property
-    def ibis_path(self):
-        ibis_dir=self.plant.ibis_dir
-        name=self.ibis_name+'.TAB'
-        ibis_path=os.path.join(ibis_dir,name)
-        if os.path.isfile(ibis_path):
-            return ibis_path
-        
-    def get_non_bpa_basefuel(self):
-        basefuels=self.base_fuels.all()
-
-        for basefuel in basefuels:
-            if not basefuel.if_insert_burnable_fuel():
-                return basefuel
-            
-    def get_bpa_basefuel(self):
-        bpa=self.burnable_poison_assembly
-        if bpa:
-            basefuel=self.base_fuels.get()
-            return basefuel
-        return None
-        
-    def __str__(self):
-        return '{} {}'.format(self.plant,self.ibis_name)
-    
-
-def fuel_identity_default():
-    last_fuel_identity=BaseFuel.objects.filter(offset=False).last().fuel_identity
-    str_num=last_fuel_identity[1:]
-    try:
-        num=int(str_num)+1
-        return 'B'+str(num)
-    except:
-        return None
-        
-    
-
-class BaseFuel(BaseModel):
-    plant=models.ForeignKey('tragopan.Plant')
-    fuel_identity=models.CharField(max_length=32,unique=True,default=fuel_identity_default)
-    quadrant_one=models.ForeignKey('self',blank=True,null=True,related_name='one')
-    quadrant_two=models.ForeignKey('self',blank=True,null=True,related_name='two')
-    quadrant_three=models.ForeignKey('self',blank=True,null=True,related_name='three')
-    quadrant_four=models.ForeignKey('self',blank=True,null=True,related_name='four')
-    base_bottom=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',default=0)
-    axial_composition=models.ManyToManyField(Ibis,through='BaseFuelComposition',related_name='base_fuels')
-    offset=models.BooleanField(default=False)
-    
-    def if_insert_burnable_fuel(self):
-        composition_set=self.composition_set
-        
-        return True if composition_set[1] else False
-    
-    @property
-    def composition_set(self):
-        fuel_assembly_set=set()
-        bpa_set=set()
-        for item in self.axial_composition.all():
-            fuel_assembly=item.fuel_assembly_type
-            bpa=item.burnable_poison_assembly 
-            if fuel_assembly:
-                fuel_assembly_set.add(fuel_assembly)
-            if bpa:
-                bpa_set.add(bpa)  
-            
-        return (fuel_assembly_set,bpa_set)
-    
-    class Meta:
-        db_table='base_fuel'
-        
-        
-        
-    def __str__(self):
-        return '{}'.format(self.fuel_identity)
-    
-class BaseFuelComposition(models.Model):
-    base_fuel=models.ForeignKey(BaseFuel,related_name='composition')
-    ibis=models.ForeignKey(Ibis,related_name='base_fuel_compositions')
-    height=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',)
-    class Meta:
-        db_table='base_fuel_composition'
-        
-        
-        
-    def __str__(self):
-        return '{}'.format(self.base_fuel)
+# class Ibis(BaseModel):
+#     plant=models.ForeignKey('tragopan.Plant')
+#     ibis_name=models.CharField(max_length=32)
+#     fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
+#     reactor_model=models.ForeignKey('tragopan.ReactorModel')
+#     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
+#     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
+#     #ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
+# 
+#     class Meta:
+#         db_table='ibis'
+#         order_with_respect_to='reactor_model'
+#         verbose_name_plural='Ibis'
+#         
+#     #validating objects(clean_fields->clean->validate_unique)
+#     def clean(self):
+#         units=self.plant.units.all()
+#         reactor_model=self.reactor_model
+#         reactor_model_lst=[unit.reactor_model for unit in units]
+#         if reactor_model not in reactor_model_lst:
+#             raise ValidationError({'plant':_('plant and reactor model are not compatible'), 
+#                                  'reactor_model':_('plant and reactor model are not compatible'),                          
+#             })
+#     
+#     @property
+#     def ibis_path(self):
+#         ibis_dir=self.plant.ibis_dir
+#         name=self.ibis_name+'.TAB'
+#         ibis_path=os.path.join(ibis_dir,name)
+#         if os.path.isfile(ibis_path):
+#             return ibis_path
+#         
+#     def get_non_bpa_basefuel(self):
+#         basefuels=self.base_fuels.all()
+# 
+#         for basefuel in basefuels:
+#             if not basefuel.if_insert_burnable_fuel():
+#                 return basefuel
+#             
+#     def get_bpa_basefuel(self):
+#         bpa=self.burnable_poison_assembly
+#         if bpa:
+#             basefuel=self.base_fuels.get()
+#             return basefuel
+#         return None
+#         
+#     def __str__(self):
+#         return '{} {}'.format(self.plant,self.ibis_name)
+#     
+# 
+# def fuel_identity_default():
+#     last_fuel_identity=BaseFuel.objects.filter(offset=False).last().fuel_identity
+#     str_num=last_fuel_identity[1:]
+#     try:
+#         num=int(str_num)+1
+#         return 'B'+str(num)
+#     except:
+#         return None
+#         
+#     
+# 
+# class BaseFuel(BaseModel):
+#     plant=models.ForeignKey('tragopan.Plant')
+#     fuel_identity=models.CharField(max_length=32,unique=True,default=fuel_identity_default)
+#     quadrant_one=models.ForeignKey('self',blank=True,null=True,related_name='one')
+#     quadrant_two=models.ForeignKey('self',blank=True,null=True,related_name='two')
+#     quadrant_three=models.ForeignKey('self',blank=True,null=True,related_name='three')
+#     quadrant_four=models.ForeignKey('self',blank=True,null=True,related_name='four')
+#     base_bottom=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',default=0)
+#     axial_composition=models.ManyToManyField(Ibis,through='BaseFuelComposition',related_name='base_fuels')
+#     offset=models.BooleanField(default=False)
+#     
+#     def if_insert_burnable_fuel(self):
+#         composition_set=self.composition_set
+#         
+#         return True if composition_set[1] else False
+#     
+#     @property
+#     def composition_set(self):
+#         fuel_assembly_set=set()
+#         bpa_set=set()
+#         for item in self.axial_composition.all():
+#             fuel_assembly=item.fuel_assembly_type
+#             bpa=item.burnable_poison_assembly 
+#             if fuel_assembly:
+#                 fuel_assembly_set.add(fuel_assembly)
+#             if bpa:
+#                 bpa_set.add(bpa)  
+#             
+#         return (fuel_assembly_set,bpa_set)
+#     
+#     class Meta:
+#         db_table='base_fuel'
+#         
+#         
+#         
+#     def __str__(self):
+#         return '{}'.format(self.fuel_identity)
+#     
+# class BaseFuelComposition(models.Model):
+#     base_fuel=models.ForeignKey(BaseFuel,related_name='composition')
+#     ibis=models.ForeignKey(Ibis,related_name='base_fuel_compositions')
+#     height=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',)
+#     class Meta:
+#         db_table='base_fuel_composition'
+#         
+#         
+#         
+#     def __str__(self):
+#         return '{}'.format(self.base_fuel)
     
 
 
@@ -2143,38 +2157,22 @@ class EgretTask(BaseModel):
         pre_egret_task=self.pre_egret_task
         if pre_egret_task:
             pre_loading_pattern=pre_egret_task.loading_pattern
-            #locked=pre_egret_task.locked
-            
-            #if locked:
-            #    raise ValidationError({
-            #                           'pre_egret_task':_('your pre egret task is locked, please wait a moment'),                
-            #    })
-            
             if self.task_type=='FOLLOW':
                 if loading_pattern.get_pre_loading_pattern()!=pre_loading_pattern:
                     raise ValidationError({'loading_pattern':_('loading_pattern and pre_egret_task are not compatible'),
                                            'pre_egret_task':_('loading_pattern and pre_egret_task are not compatible'),                
-                    })
-                    
+                    })       
             #assure pre egret task is finished     
             if pre_egret_task.task_status!=4:
                 raise ValidationError({
                                        'pre_egret_task':_('pre_egret_task must be finished'),                
                 })
-                
         else:
             cycle_num=self.get_loading_pattern().cycle.cycle
             if cycle_num!=1:
                 raise ValidationError({
                                        'pre_egret_task':_('you need to provide a previous egret task'),                
                 })
-                
-        #check if the task_name repeated
-        #if EgretTask.objects.filter(task_name=self.task_name,user=self.user,loading_pattern=self.get_loading_pattern()):
-        #raise ValidationError({
-        #                           'task_name':_('the taskname already exists with respect to user and loading_pattern'),                
-        #        })
-            
         #check sequence task type
         if self.task_type=='SEQUENCE':
             if self.loading_pattern:
@@ -2215,8 +2213,6 @@ class EgretTask(BaseModel):
         rel_path=os.path.relpath(abs_path,media_root)
         return os.path.join(media_url,rel_path)
         
-    
-        
     def get_lp_res_filename(self):
         
         cycle=self.cycle
@@ -2230,8 +2226,6 @@ class EgretTask(BaseModel):
             '''move the .LP .RES in workspace to the upper directory'''
             name=self.get_lp_res_filename()
             cwd=self.get_cwd()
-            
-            
             #if this is not the first calculation,you should rename the .CASE and .RES files that already exist
             if self.recalculation_depth>1:
                 #depth=str(self.recalculation_depth-1).zfill(6)
@@ -2311,15 +2305,6 @@ class EgretTask(BaseModel):
         else:
             time_cost=None
         return time_cost
-    
-    #@property
-    #def egret_input_xml(self):
-    #    loading_pattern=self.get_loading_pattern()
-    #    unit=loading_pattern.cycle.unit
-    #    egret_input_xml=EgretInputXML.objects.get(unit=unit)
-    #    return egret_input_xml
-        
-    
     def generate_runegret_xml(self,restart=0,export=1):
         #loading_pattern=self.get_loading_pattern()
         cycle=self.cycle
@@ -2329,9 +2314,8 @@ class EgretTask(BaseModel):
         plant=unit.plant
         plant_name=plant.abbrEN
         core_id="{}_U{}".format(plant_name,unit_num)
-        
-        ibis_dir=plant.ibis_dir
-        
+        reactor_model=plant.reactor_model
+        idyll_dir=reactor_model.idyll_dir
         #egret_input_xml=self.egret_input_xml
         doc=minidom.Document()
         run_egret_xml=doc.createElement('run_egret')
@@ -2340,7 +2324,7 @@ class EgretTask(BaseModel):
         run_egret_xml.setAttribute('cycle',str(cycle_num))
         #xml path
         base_core_path=unit.base_core_path
-        base_component_path=unit.base_component_path
+        base_component_path=reactor_model.base_component_path
         base_core_xml=doc.createElement('base_core')
         base_core_xml.appendChild(doc.createTextNode(base_core_path))
         run_egret_xml.appendChild(base_core_xml)
@@ -2374,7 +2358,7 @@ class EgretTask(BaseModel):
         
         #ibis directory
         ibis_path_xml=doc.createElement('ibis_dir')
-        ibis_path_xml.appendChild(doc.createTextNode(ibis_dir))
+        ibis_path_xml.appendChild(doc.createTextNode(idyll_dir))
         run_egret_xml.appendChild(ibis_path_xml)
         input_filename=self.get_input_filename()
         run_egret_file=open(input_filename,'w')
@@ -2415,13 +2399,17 @@ class MultipleLoadingPattern(BaseModel):
     pre_loading_pattern=models.ForeignKey('self',related_name='post_loading_patterns',blank=True,null=True)
     cycle=models.ForeignKey('tragopan.Cycle')
     xml_file=models.FileField(upload_to=get_custom_loading_pattern)
-    from_database=models.BooleanField(default=False)
+    #from_database=models.BooleanField(default=False)
     authorized=models.BooleanField(default=False)
     visibility=models.PositiveSmallIntegerField(choices=VISIBILITY_CHOICES,default=3)
     class Meta:
         db_table='multiple_loading_pattern'
         unique_together=('user','name')
-        
+    
+    @property
+    def FILE(self):
+        return self.xml_file
+    
     def write_to_database(self):
         xml_file=self.xml_file
         cycle=self.cycle
@@ -2462,71 +2450,45 @@ class MultipleLoadingPattern(BaseModel):
     def generate_fuel_node(self):
         xml_file=self.xml_file
         cycle=self.cycle
+        unit=cycle.unit
         f=xml_file.path
-       
         dom=minidom.parse(f)
-        #handle bpa
-        bpa_nodes=dom.getElementsByTagName('bpa')
-        bpa_dic={}
-        if bpa_nodes:
-            bpa_node=bpa_nodes[0]
-            bpa_position_nodes=bpa_node.childNodes
-            for bpa_position in bpa_position_nodes:
-                bpa_row=bpa_position.getAttribute('row')
-                bpa_column=bpa_position.getAttribute('column')
-                bpa=bpa_position.getElementsByTagName('burnable_poison_assembly')[0]
-                bpa_id=bpa.getAttribute('id')
-                bpa=BurnablePoisonAssembly.objects.get(pk=bpa_id)
-                bpa_dic[(bpa_row,bpa_column)]=bpa
-        
-        #handle fuel     
-        fuel_node=dom.getElementsByTagName('fuel')[0]
-        position_nodes=fuel_node.getElementsByTagName('position')
+        position_nodes=dom.getElementsByTagName('position')
         fuel_lst=[]
         #num_lst=[]
         pre_fuel_lst=[]
         for position_node in position_nodes:
-            
-            row=position_node.getAttribute('row')
-            column=position_node.getAttribute('column')
+            row=int(position_node.getAttribute('row'))
+            column=int(position_node.getAttribute('column'))
             #num_lst.append(100*row+column)
             fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
-            previous_node=position_node.getElementsByTagName('previous')
             
-            type_pk=fuel_assembl_node.childNodes.item(0).data
+            type_pk=int(fuel_assembl_node.getAttribute('type'))
            
             fuel_assembly_type=FuelAssemblyType.objects.get(pk=type_pk)
             
-            
-            
             #fresh
-            if not previous_node:
-                #get bpa if exist
+            if not fuel_assembl_node.hasAttribute('pre_cycle'):
                 try:
-                    burnable_poison_assembly=bpa_dic[(row,column)]
-                    ibis=Ibis.objects.get(plant=cycle.unit.plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=burnable_poison_assembly)
-                    bpa_basefuel=ibis.get_bpa_basefuel() 
-                    fuel_lst.append(bpa_basefuel.fuel_identity)
+                    bpa_node=position_node.getElementsByTagName('burnable_poison_assembly')[0]
+                    print(bpa_node)
+                    bpa_pk=int(bpa_node.firstChild.data)
+                    print(bpa_pk)
+                    bpa=BurnablePoisonAssembly.objects.get(pk=bpa_pk).get_symmetry_bpa()
                 except:
-                    ibis=Ibis.objects.get(plant=cycle.unit.plant,fuel_assembly_type=fuel_assembly_type,burnable_poison_assembly=None)
-                    non_bpa_basefuel=ibis.get_non_bpa_basefuel() 
-                    fuel_lst.append(non_bpa_basefuel.fuel_identity)
-                
+                    bpa=None
+                pre_robin_input=PreRobinInput.objects.get(unit=unit,fuel_assembly_type=fuel_assembly_type, burnable_poison_assembly=bpa)
+                basefuel_ID=pre_robin_input.basefuel_ID
+                fuel_lst.append(basefuel_ID)
             else:
-                previous_row=previous_node[0].getAttribute('row')
-                previous_column=previous_node[0].getAttribute('column')
-                previous_cycle=int(previous_node[0].childNodes.item(0).data)
+                previous_row=fuel_assembl_node.getAttribute('pre_row')
+                previous_column=fuel_assembl_node.getAttribute('pre_col')
+                previous_cycle=int(fuel_assembl_node.getAttribute('pre_cycle'))
                 position='{}{}'.format(previous_row.zfill(2), previous_column.zfill(2))
                 fuel_lst.append(position)
-                
+                #not from last cycle
                 if previous_cycle!=cycle.cycle-1:
                     pre_fuel_lst.append([row,column,previous_cycle])
-                    print(pre_fuel_lst)
-     
-        #zipped_lst=list(zip(num_lst,fuel_lst))  
-        #zipped_lst.sort() 
-        #fuel_lst_sorted=[item[1] for item in zipped_lst] 
-
         
         doc = minidom.Document()
         fuel_xml=doc.createElement('fuel')
@@ -2538,8 +2500,8 @@ class MultipleLoadingPattern(BaseModel):
         for item in pre_fuel_lst:
             cycle_xml=doc.createElement('cycle')
             fuel_xml.appendChild(cycle_xml)
-            cycle_xml.setAttribute('col', str(item[1]))
             cycle_xml.setAttribute('row', str(item[0]))
+            cycle_xml.setAttribute('col', str(item[1]))
             cycle_xml.appendChild(doc.createTextNode(str(item[2])))
         
         return fuel_xml
@@ -2552,7 +2514,7 @@ class MultipleLoadingPattern(BaseModel):
             cycle=self.cycle
             pre_cycle=cycle.get_pre_cycle()
             if pre_cycle:
-                pre_loading_pattern=MultipleLoadingPattern.objects.get(from_database=True,cycle=pre_cycle)
+                pre_loading_pattern=MultipleLoadingPattern.objects.get(authorized=True,cycle=pre_cycle)
             else:
                 pre_loading_pattern=None
         
@@ -2576,7 +2538,7 @@ class MultipleLoadingPattern(BaseModel):
         chain=self.loading_pattern_chain()
         chain.reverse()
         for item in chain:
-            if item.from_database:
+            if item.authorized:
                 return item
         
     
@@ -2585,7 +2547,7 @@ class MultipleLoadingPattern(BaseModel):
         chain=self.loading_pattern_chain()
         chain.reverse()
         for item in chain:
-            if not item.from_database:
+            if not item.authorized:
                 fuel_node=item.generate_fuel_node()
                 fuel_node_lst.insert(0, fuel_node)
                 
