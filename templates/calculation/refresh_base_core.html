@@ -10,7 +10,7 @@
 <form action="{% url "admin:caculation_prerobininput_refresh_base_core" %}" method="post">
 	{{ block.super }} 
     {% csrf_token %}
-    {{ unit_form }}
+    {{ egret_default_form }}
     <input type="submit" value="Submit" />
 </form>
 {% endblock %}

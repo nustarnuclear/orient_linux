@@ -16,6 +16,7 @@ from decimal import Decimal
 from django.core.files import File
 from django.contrib.auth.models import User
 import django.dispatch
+from celery.worker.strategy import default
 #define some signals
 del_fieldfile=django.dispatch.Signal(providing_args=["pk",])
 
@@ -349,20 +350,12 @@ class BasicElementComposition(BaseModel):
 
 #describe material information
 class Material(BaseModel):
-#     INPUT_METHOD_CHOICES=(
-#                           (1,'fuel by enrichment'),
-#                           #(2,'blend basic materials by weight percent and B10 linear density'),
-#                           (3,'symbolic'),
-#                           #(4,'totally inherit from basic material'),
-#                           #(5,'inherit from basic material with B10 linear density'),
-#                           (6,'blend basic materials by weight percent and density'), 
-#     )
     nameCH=models.CharField(max_length=40,blank=True)
     nameEN=models.CharField(max_length=40,blank=True)
     bpr_B10=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"mg/cm",blank=True,null=True)
     enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0),],help_text=r"U235:%",blank=True,null=True)
-    #input_method=models.PositiveSmallIntegerField(choices=INPUT_METHOD_CHOICES,default=1)
     weight_composition=models.ManyToManyField(BasicMaterial,through='MaterialWeightComposition',)
+    volume_composition=models.ManyToManyField('self',through='MaterialVolumeComposition',symmetrical=False)
     symbolic=models.BooleanField(default=False)
     class Meta:
      
@@ -376,8 +369,13 @@ class Material(BaseModel):
        
         if self.enrichment:
             return 'FUEL_'+str(self.pk)
+        elif self.HOMO:
+            return 'HOMO_'+str(self.pk+10)
         else:
             return self.nameEN
+    @property
+    def HOMO(self):
+        return True if self.volume_composition.exists() else False
         
     def get_density(self,fuel_pellet=None):
         if not self.symbolic:
@@ -393,6 +391,15 @@ class Material(BaseModel):
         if self.symbolic:
             return 
         result={'ID':self.prerobin_identifier}
+        #HOMO_
+        if self.HOMO:
+            compo=self.volume_mixtures.all()
+            composition_ID_lst=[item.material.prerobin_identifier for item in compo]
+            volume_percent_lst=[str(item.percent) for item in compo]
+            result['homogenized_mat']=','.join(composition_ID_lst)
+            result['volume_percent']=','.join(volume_percent_lst)
+            return  result
+        
         if self.bpr_B10 is None:
             result['density']=self.get_density(fuel_pellet)
             compo=self.weight_mixtures.all()
@@ -409,26 +416,20 @@ class Material(BaseModel):
             result['weight_percent']=','.join(weight_percent_lst)
         
         return  result  
-#     @classmethod
-#     def generate_base_mat_lst(cls):
-#         #grid moderator material
-#         base_mat_lst=Grid.generate_base_mat_lst()
-#         #without considering fuel
-#         materials=cls.objects.filter(enrichment=None,symbolic=False)
-#         for material in  materials:
-#             base_mat=material.generate_base_mat()
-#             if base_mat:
-#                 base_mat_lst.append(base_mat) 
-#         
-#         #consider fuel
-#         fuel_base_mat_lst=FuelPelletType.generate_base_mat_lst()
-#         base_mat_lst.extend(fuel_base_mat_lst)
-#         return base_mat_lst
-            
-    #MATERIAL_DATABANK_PATH=os.path.join(PRE_ROBIN_PATH,"material_databank.xml")
+    
+    def generate_base_mat_xml(self,fuel_pellet=None):
+        base_mat=self.generate_base_mat(fuel_pellet)
+        doc = minidom.Document()
+        base_mat_xml=doc.createElement('base_mat')
+        for key,value in base_mat.items():
+            key_xml=doc.createElement(str(key))
+            key_xml.appendChild(doc.createTextNode(str(value)))
+            base_mat_xml.appendChild(key_xml)
+        return base_mat_xml
+        
     @classmethod
     def generate_material_databank_xml(cls,base_mat_lst):
-        f=open("material_databank.xml",'w')
+        #f=open("material_databank.xml",'w')
         doc = minidom.Document()
         material_databank_xml=doc.createElement('material_databank')
 #         base_mat_lst=cls.generate_base_mat_lst()
@@ -441,9 +442,9 @@ class Material(BaseModel):
                     base_mat_xml.appendChild(key_xml)
                 material_databank_xml.appendChild(base_mat_xml)
         doc.appendChild(material_databank_xml) 
-        doc.writexml(f, indent="  ", addindent="  ", newl="\n") 
-        f.close()     
-        return "material_databank.xml"  
+        #doc.writexml(f, indent="  ", addindent="  ", newl="\n") 
+        #f.close()     
+        return material_databank_xml  
         
             
     def __str__(self):
@@ -462,6 +463,18 @@ class MaterialWeightComposition(BaseModel):
              
     def __str__(self):
         return "{} {}".format(self.mixture, self.basic_material)   
+    
+class MaterialVolumeComposition(BaseModel):
+    mixture=models.ForeignKey(Material,related_name='volume_mixtures',)
+    material=models.ForeignKey(Material)
+    percent=models.DecimalField(max_digits=8, decimal_places=5,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%")
+    class Meta:
+        db_table='material_volume_composition'
+        verbose_name='Volume Composition'
+        verbose_name_plural='Volume Composition'
+             
+    def __str__(self):
+        return "{} {}".format(self.mixture, self.material) 
     
 
     
@@ -502,11 +515,6 @@ class Plant(BaseModel):
         plant_dir=os.path.join(media_root, 'pre_robin',self.abbrEN)
         return plant_dir
     
-#     @property    
-#     def ibis_dir(self):
-#         plant_dir=self.plant_dir
-#         ibis_dir=os.path.join(plant_dir,'ibis_files')
-#         return ibis_dir
         
     def __str__(self):
         return self.abbrEN  
@@ -545,12 +553,11 @@ class ReactorModel(BaseModel):
         ('W','West'),
         ('N', 'North'),
     )
-
-
     name = models.CharField(max_length=50,choices=MODEL_CHOICES)
     generation = models.CharField(max_length=2, choices=GENERATION_CHOICES)
     reactor_type = models.CharField(max_length=3, choices=TYPE_CHOICES)
     geometry_type = models.CharField(max_length=9, choices=GEOMETRY_CHOICES)
+    dimension=models.PositiveSmallIntegerField(default=15,help_text='the maximum assembly number per dimension allowed')
     row_symbol = models.CharField(max_length=6, choices=SYMBOL_CHOICES)
     column_symbol = models.CharField(max_length=6, choices=SYMBOL_CHOICES)
     letter_order=models.CharField(max_length=32,default='A B C D E F G H J K L M N')
@@ -561,7 +568,6 @@ class ReactorModel(BaseModel):
     vendor = models.ForeignKey(Vendor)  
     thermal_couple_position=models.ManyToManyField('ReactorPosition',related_name='thermal_couple_position',db_table='thermal_couple_map',blank=True,)
     incore_instrument_position=models.ManyToManyField('ReactorPosition',related_name='incore_instrument_position',db_table='incore_instrument_map',blank=True,)
-    #boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
     fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
     moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
     control_rod_step_size=models.DecimalField(max_digits=7,decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=1.58310)
@@ -573,19 +579,178 @@ class ReactorModel(BaseModel):
     class Meta:
         db_table = 'reactor_model'
         
-    def get_max_row_column(self):
-        positions=self.positions.all()
-        max_row=positions.aggregate(Max('row'))['row__max']
-        max_column=positions.aggregate(Max('column'))['column__max']
-        return [max_row,max_column]    
+        
     
     @property
     def idyll_dir(self):
         return os.path.join(PRE_ROBIN_PATH,self.name,'IDYLL')
+    @property
+    def task_dir(self):
+        return os.path.join(PRE_ROBIN_PATH,self.name,'task')
     @property    
     def base_component_path(self):
         return os.path.join(PRE_ROBIN_PATH,self.name,'base_component.xml')
         
+    @property
+    def middle(self):
+        return math.ceil(self.dimension/2)
+    
+
+    def in_core(self,row,col):
+        return self.positions.filter(row=row,column=col).exists()
+    
+    @property
+    def start_pos(self):
+        '''
+        reflect computation start position
+        '''
+        dimension=self.dimension
+        middle=self.middle
+        return (dimension+1,middle)
+    
+    @property
+    def end_pos(self):
+        '''
+        reflect computation start position
+        '''
+        quarter_pos=self.quarter_pos
+        return (quarter_pos+1,quarter_pos+1)
+    
+    def next(self,current_pos):
+        '''
+        only apply to the 1/8 core
+        '''
+        
+        end_pos=self.end_pos
+        #reach the end
+        if current_pos==end_pos:
+            return None
+        row=current_pos[0]
+        col=current_pos[1]
+        up_in_core=self.in_core(row-1,col)
+        if up_in_core:
+            return (row,col+1)
+        else:
+            return (row-1,col)
+    @property
+    def quarter_pos(self):
+        '''
+        the lower right corner position
+
+        '''
+        dimension=self.dimension
+        for i in range(dimension,0,-1):
+            if self.in_core(i, i):
+                return i
+        
+        
+    
+    def generate_pos_index(self,row,col,outer=True):
+        '''
+        only apply for the lower right part of the core(1/8 core)
+        return ((inner index),(outer index))
+        '''
+        if self.in_core(row,col):
+            return None
+        #locate at the quarter line
+        elif row==col:
+            result= ([9,],[10,12,10]) 
+        #in the 1/8 core
+        else:
+            left_in_core=self.in_core(row,col-1)
+            up_in_core=self.in_core(row-1,col)
+            if left_in_core and up_in_core:
+                result= ([6,5,7],[8,])
+            elif left_in_core or up_in_core:
+                result=([3,3],[4,4])
+            else:
+                result=([9,],[10,12,11])
+        return result[int(outer)]
+    
+    def generate_reflector_line(self):
+        line=[]
+        start_pos=self.start_pos            
+        current_pos=start_pos
+        while current_pos:
+            line.append(current_pos)
+            current_pos=self.next(current_pos)
+        return line
+    
+    def generate_reflector_index(self,outer=True):
+        line=self.generate_reflector_line()
+        index=[]
+        for pos in line:
+            row=pos[0]
+            col=pos[1]
+            pos_index=self.generate_pos_index(row,col,outer)
+            index +=pos_index
+        index.pop(0)
+        if outer:
+            index.pop(-1)
+        return index
+    
+    def generate_reflector_model_xml(self,model_type):
+        if model_type=='BR1':
+            num_fuel_assembly=1
+            num_edit_node=16
+        elif model_type=='BR2':
+            num_fuel_assembly=3
+            num_edit_node=16
+        elif model_type=='BR3':
+            num_fuel_assembly=2
+            num_edit_node=16
+        elif model_type=='BR_BOT':
+            num_fuel_assembly=2
+            num_edit_node=4
+        elif model_type=='BR_TOP':
+            num_fuel_assembly=2
+            num_edit_node=16
+            
+        doc=minidom.Document()
+        reflector_model_xml=doc.createElement('reflector_model')
+        num_fuel_assembly_xml=doc.createElement('num_fuel_assembly')
+        num_fuel_assembly_xml.appendChild(doc.createTextNode(str(num_fuel_assembly)))
+        reflector_model_xml.appendChild(num_fuel_assembly_xml)
+        
+        core_baffle=self.corebaffle
+        material_thickness_lst=map(str,core_baffle.get_material_thickness_lst(model_type))
+        material_ID_lst=core_baffle.get_material_ID_lst(model_type)
+        
+        material_thickness_xml=doc.createElement('material_thickness')
+        
+        material_thickness_xml.appendChild(doc.createTextNode(",".join(material_thickness_lst)))
+        reflector_model_xml.appendChild(material_thickness_xml)
+        
+        material_ID_xml=doc.createElement('material_ID')
+        material_ID_xml.appendChild(doc.createTextNode(",".join(material_ID_lst)))
+        reflector_model_xml.appendChild(material_ID_xml)
+        
+        num_edit_node_xml=doc.createElement('num_edit_node')
+        num_edit_node_xml.appendChild(doc.createTextNode(str(num_edit_node)))
+        reflector_model_xml.appendChild(num_edit_node_xml)
+        return reflector_model_xml
+    
+    def get_reflector_material_lst(self):
+        material_set=set()
+        core_baffle=self.corebaffle
+        radial_material=core_baffle.material
+        material_set.add(radial_material)
+        bottom_material=core_baffle.bottom_material
+        material_set.add(bottom_material)
+        top_material=core_baffle.top_material
+        material_set.add(top_material)
+        for material in [radial_material,bottom_material,top_material]:
+            if material.volume_composition.exists():
+                for item in material.volume_composition.all():
+                    if not item.symbolic:
+                        material_set.add(item)
+        material_lst=[]
+        for item in material_set:
+            if item.HOMO:
+                material_lst.append(item)
+            else:
+                material_lst.insert(0, item)
+        return material_lst
     def __str__(self):
         return '{}'.format(self.name)  
     
@@ -600,10 +765,7 @@ class ReactorPosition(BaseModel):
     class Meta:
         db_table='reactor_position'
         unique_together=('reactor_model','row','column')
-        ordering=['row','column']
-        
-   
-        
+        ordering=['row','column']  
         
     def get_quadrant_symbol(self):
         '''
@@ -611,18 +773,45 @@ class ReactorPosition(BaseModel):
         ---
         3|4
         '''
-        [max_row,max_column]=self.reactor_model.get_max_row_column()
+        dimension=self.reactor_model.dimension
         
-        if self.row<max_row/2 and self.column<max_column/2+1:
+        if self.row<dimension/2 and self.column<dimension/2+1:
             return 2
-        elif self.row<max_row/2+1 and self.column>max_column/2:
+        elif self.row<dimension/2+1 and self.column>dimension/2:
             return 1
-        elif self.row>max_row/2 and self.column<max_column/2:
-            
+        elif self.row>dimension/2 and self.column<dimension/2:
             return 3
         else:
             return 4
         
+    def in_outermost(self):
+        '''
+        return True if this position in the outermost of the reactor
+        '''
+        if self.get_pos_by_delt(-1,0) and self.get_pos_by_delt(0,-1) and self.get_pos_by_delt(0,1) and self.get_pos_by_delt(1,0):
+            return False
+        return True
+  
+    def get_pos_by_delt(self,delt_row,delt_col):
+        row=self.row
+        col=self.column
+        new_row=row+delt_row
+        new_col=col+delt_col
+        try:
+            new_position=self.reactor_model.positions.get(row=new_row,column=new_col)
+        except:
+            new_position=None
+        return new_position
+    
+    def get_outher_pos(self):
+        '''
+        1 2 3
+        4 5 6
+        7 8 9
+        self is 5
+        result order is [1,2,3,4,...]
+        '''
+        return [self.get_pos_by_delt(0,1),self.get_pos_by_delt(1,0),self.get_pos_by_delt(1,1)]
     
         
     def __str__(self):
@@ -743,16 +932,46 @@ class PressureVesselInsulation(BaseModel):
     def __str__(self):
         return "{}'s pressure vessel insulation".format(self.reactor_model)
     
+
+def bottom_material_default():
+    mod=Material.objects.get(NameEN='MOD')
+    fe=Material.objects.get(NameEN='Fe')
+    obj= Material.objects.filter(volume_mixtures__material=mod).filter(volume_mixtures__percent=10).filter(volume_mixtures__basic_material=fe).filter(volume_mixtures__percent=90).first()
+    return obj.pk
+def top_material_default():
+    mod=Material.objects.get(NameEN='MOD')
+    fe=Material.objects.get(NameEN='Fe')
+    obj= Material.objects.filter(volume_mixtures__material=mod).filter(volume_mixtures__percent=30).filter(volume_mixtures__material=fe).filter(volume_mixtures__percent=58).first()
+    return obj.pk
 class CoreBaffle(BaseModel):
     reactor_model=models.OneToOneField(ReactorModel)
     gap_to_fuel=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    outer_diameter=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    outer_diameter=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     material = models.ForeignKey(Material)
-    thickness= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    thickness= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     weight=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:Kg',blank=True,null=True)
-    vendor = models.ForeignKey(Vendor)
+    vendor = models.ForeignKey(Vendor,blank=True,null=True)
+    bottom_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',default=3.112)
+    bottom_thickness= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',default=7)
+    bottom_material=models.ForeignKey(Material,related_name='bottom_core_baffels',default=bottom_material_default)
+    top_material=models.ForeignKey(Material,related_name='top_core_baffels',default=top_material_default)
     class Meta:
         db_table='core_baffle'
+        
+    def get_material_thickness_lst(self,model_type):
+        if model_type in ['BR1','BR2','BR3']:
+            return [self.gap_to_fuel,self.thickness]
+        else:
+            return [self.bottom_gap,self.bottom_thickness]
+    
+            
+    def get_material_ID_lst(self,model_type):
+        if model_type in ['BR1','BR2','BR3']:
+            return ['MOD',self.material.prerobin_identifier,'MOD']
+        elif model_type=='BR_BOT':
+            return ['MOD',self.bottom_material.prerobin_identifier,'MOD']
+        elif model_type=='BR_TOP':
+            return [self.top_material.prerobin_identifier]*3
     
     def __str__(self):
         return "{}'s core baffle".format(self.reactor_model)
@@ -908,17 +1127,7 @@ class Cycle(BaseModel):
             if not pre_cycle:
                 raise ValidationError({'cycle':_('the cycle number is not consistent')})
     
-#     def duplicate_cra_lp(self,base_cycle):
-#         base_cra_lps=base_cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
-#         for base_cra_lp in base_cra_lps:
-#             reactor_position=base_cra_lp.reactor_position
-#             control_rod_assembly=base_cra_lp.control_rod_assembly
-#             control_rod_assembly.pk=None
-#             control_rod_assembly.save()
-#             ControlRodAssemblyLoadingPattern.objects.create(reactor_position=reactor_position,cycle=self,control_rod_assembly=control_rod_assembly)
-        
-            
-        
+
     def get_pre_cycle(self):
         try:
             pre_cycle=Cycle.objects.get(unit=self.unit,cycle=self.cycle-1)
@@ -942,16 +1151,23 @@ class Cycle(BaseModel):
         except:
             return None
         
-    def get_cra_cycle(self):
-        
-        this_cycle=self
-        while this_cycle:
-            cra=this_cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
-            
-            if cra:
-                return this_cycle
-            this_cycle=this_cycle.get_pre_cycle()
-            
+#     def get_cra_cycle(self):
+#         this_cycle=self
+#         while this_cycle:
+#             cra=this_cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
+#             if cra.exists():
+#                 return this_cycle
+#             this_cycle=this_cycle.get_pre_cycle()
+#         return None
+#     
+#     def get_cra_dic(self):
+#         cra_cycle=self.get_cra_cycle()
+#         cra_dic={}
+#         for loading_pattern in cra_cycle.loading_patterns.all():
+#             position=loading_pattern.reactor_position
+#             cra_dic[(position.row,position.column)]=1 if loading_pattern.control_rod_assembly else 0
+#         return cra_dic
+    
     def generate_loading_pattern_xml(self):
         unit=self.unit
         plant=unit.plant
@@ -963,7 +1179,8 @@ class Cycle(BaseModel):
         loading_pattern_xml.setAttribute("plant_name",plant.abbrEN)
         doc.appendChild(loading_pattern_xml)
         
-        loading_patterns=self.loading_patterns.all()
+        loading_patterns=self.loading_patterns.all() 
+        
         for loading_pattern in loading_patterns:
             reactor_position=loading_pattern.reactor_position
             row=reactor_position.row
@@ -981,35 +1198,36 @@ class Cycle(BaseModel):
                 burnable_poison_assembly_xml=burnable_poison_assembly.generate_burnable_poison_assembly_xml()
                 position_xml.appendChild(burnable_poison_assembly_xml)
             #control rod assembly
-            control_rod_assembly=loading_pattern.control_rod_assembly
-            if control_rod_assembly:
-                control_rod_assembly_xml=control_rod_assembly.generate_control_rod_assembly_xml()
-                position_xml.appendChild(control_rod_assembly_xml)
+            cr_out=loading_pattern.cr_out
+            if cr_out:
+                position_xml.setAttribute("cr_out",'1')
             loading_pattern_xml.appendChild(position_xml)
         f = tempfile.TemporaryFile(mode='w+')
-        #f=open('/home/django/Desktop/mylp.xml','w')
         doc.writexml(f,indent='  ',addindent='  ', newl='\n',)
-        #f.close()
         return f
     
+    @property
+    def completed(self):
+        return True if self.loading_patterns.exists() else False
+    
     def refresh_loading_pattern(self):
-        unit=self.unit
-        plant=unit.plant
-        loading_pattern_name="STD_{}_U{}C{}".format(plant.abbrEN, unit.unit,self.cycle)
-        xml_file=self.generate_loading_pattern_xml()
-        
-        try:
-            loading_pattern=self.multipleloadingpattern_set.get(authorized=True)
-            loading_pattern.xml_file.delete()
-            #send a signal to delete the old file
-            del_fieldfile.send(sender=loading_pattern.__class__,pk=loading_pattern.pk)
-            #save the new file
-            loading_pattern.xml_file=File(xml_file)
-            loading_pattern.save()
-        except:
-            #if not exists,create a new one
-            self.multipleloadingpattern_set.create(name=loading_pattern_name,authorized=True,xml_file=File(xml_file),user=User.objects.get(username='admin')) 
-        xml_file.close()
+        if self.completed:
+            unit=self.unit
+            plant=unit.plant
+            loading_pattern_name="STD_{}_U{}C{}".format(plant.abbrEN, unit.unit,self.cycle)
+            xml_file=self.generate_loading_pattern_xml() 
+            try:
+                loading_pattern=self.multipleloadingpattern_set.get(authorized=True)
+                loading_pattern.xml_file.delete()
+                #send a signal to delete the old file
+                del_fieldfile.send(sender=loading_pattern.__class__,pk=loading_pattern.pk)
+                #save the new file
+                loading_pattern.xml_file=File(xml_file)
+                loading_pattern.save()
+            except:
+                #if not exists,create a new one
+                self.multipleloadingpattern_set.create(name=loading_pattern_name,authorized=True,xml_file=File(xml_file),user=User.objects.get(username='admin')) 
+            xml_file.close()
         
     def generate_base_fuel_set(self):
         base_fuel_set=set()
@@ -1039,7 +1257,8 @@ class FuelAssemblyLoadingPattern(BaseModel):
     fuel_assembly=models.ForeignKey('FuelAssemblyRepository',related_name='cycle_positions',default=1)
     rotation_degree=models.CharField(max_length=3,choices=ROTATION_DEGREE_CHOICES,default='0',help_text='anticlokwise')
     burnable_poison_assembly=models.ForeignKey('BurnablePoisonAssembly',related_name="bpa",blank=True,null=True)
-    control_rod_assembly=models.ForeignKey('ControlRodAssembly',related_name="cra",blank=True,null=True)
+    #control_rod_assembly=models.ForeignKey('ControlRodAssembly',related_name="cra",blank=True,null=True)
+    cr_out=models.NullBooleanField()
     class Meta:
         db_table='fuel_assembly_loading_pattern'
         unique_together=(('cycle','reactor_position'),('cycle','fuel_assembly'))
@@ -1080,7 +1299,7 @@ class FuelAssemblyLoadingPattern(BaseModel):
         return True if self.burnable_poison_assembly else False
             
     def if_insert_cra(self):
-        return True if self.control_rod_assembly else False
+        return True if (self.reactor_position.control_rod_cluster and not self.cr_out) else False
             
     def get_grid(self):
         fuel_assembly=self.fuel_assembly
@@ -1118,12 +1337,10 @@ class FuelAssemblyModel(BaseModel):
         db_table='fuel_assembly_model'
     
     def get_water_volume(self,active_height):
-       
         total_volume=self.get_active_volume(active_height)
-
         gt_volume=self.guide_tube.get_active_volume(active_height)
         it_volume=self.guide_tube.get_active_volume(active_height)
-        fe_volume=self.fuel_elements.first().get_active_volume(active_height)
+        fe_volume=self.fuel_elements.first().claddingtube.get_active_volume(active_height)
         
         positions=self.positions.all()
         gt_num=positions.filter(type="guide").count()
@@ -1137,15 +1354,23 @@ class FuelAssemblyModel(BaseModel):
         active_volume=self.get_active_volume(active_height)
         return round(water_volume/active_volume,5)
     
-    def get_wet_frac_rodin(self,control_rod_type):
+    def get_wet_frac_crin(self,control_rod_type):
         active_height=self.active_length
         water_volume=self.get_water_volume(active_height)
-        
         gt_num=self.positions.filter(type="guide").count()
         cr_volume=control_rod_type.get_active_volume(active_height)
-        
         active_volume=self.get_active_volume(active_height)
         return round((water_volume-gt_num*cr_volume)/active_volume,5)
+    
+    def get_wet_frac_bpin(self,get_bp_vol):
+        '''
+        get_bp_vol is function which has one parameter active_height
+        '''
+        active_height=self.active_length
+        water_volume=self.get_water_volume(active_height)
+        bp_vol=get_bp_vol(active_height)
+        active_volume=self.get_active_volume(active_height)
+        return round((water_volume-bp_vol)/active_volume,5)
     
     def get_active_volume(self,active_height):
         assembly_pitch=self.assembly_pitch
@@ -1560,51 +1785,17 @@ class Grid(BaseModel):
         sleeve_material=self.sleeve_material
         mod_material=Material.objects.get(nameEN='MOD')
         return {sleeve_material.prerobin_identifier:volume_percent,mod_material.prerobin_identifier:100-volume_percent}
-    
-#     @classmethod
-#     def get_moderator_material_lst(cls):
-#         moderator_material_lst=[]
-#         for grid in cls.objects.all():
-#             moderator_material=grid.generate_moderator_material()
-#             if moderator_material not in moderator_material_lst:
-#                 
-#                 moderator_material_lst.append(moderator_material)
-#         
-#         return moderator_material_lst
-    
     @property
     def moderator_material_ID(self):
-#         moderator_material_lst=Grid.get_moderator_material_lst()
-#         moderator_material=self.generate_moderator_material()
-#         
-#         return "HOMO_"+ str(moderator_material_lst.index(moderator_material)+1)
         return "HOMO_"+str(self.type_num)
     
-    
-#     @classmethod
-#     def generate_base_mat_lst(cls):
-#         moderator_material_lst=cls.get_moderator_material_lst()
-#         base_mat_lst=[]
-#         index=1
-#         for moderator_material in moderator_material_lst:
-#             moderator_material_ID="HOMO_"+str(index)
-#             index+=1
-#             
-#             base_mat={'ID':moderator_material_ID}
-#             homgenized_mat_lst=list(moderator_material.keys())
-#             percent_lst=[str(moderator_material[key]) for key in homgenized_mat_lst]
-#             base_mat['homgenized_mat']=','.join(homgenized_mat_lst)
-#             base_mat['volume_percent']=','.join(percent_lst)
-#             base_mat_lst.append(base_mat)
-#         return base_mat_lst
-
     def generate_base_mat(self):
         moderator_material_ID=self.moderator_material_ID
         base_mat={'ID':moderator_material_ID}    
         moderator_material=self.generate_moderator_material()
         homgenized_mat_lst=list(moderator_material.keys())
         percent_lst=[str(moderator_material[key]) for key in homgenized_mat_lst]
-        base_mat['homgenized_mat']=','.join(homgenized_mat_lst)
+        base_mat['homogenized_mat']=','.join(homgenized_mat_lst)
         base_mat['volume_percent']=','.join(percent_lst)
         return base_mat
     
@@ -1836,7 +2027,13 @@ class MaterialTransection(BaseModel):
             return "CR_"+str(self.pk)
         else:
             return "BP_"+str(self.pk)
+    @property
+    def radius(self):
+        return self.radial_materials.aggregate(Max('radius'))['radius__max']
     
+    def get_active_volume(self,active_height):
+        radius=self.radius
+        return Decimal(math.pi)*radius**2*active_height
     
     @property
     def if_fuel(self):
@@ -2013,6 +2210,11 @@ class CladdingTube(BaseModel):
     
     class Meta:
         db_table='cladding_tube'
+        
+    
+    def get_active_volume(self,active_height):
+        radius=self.outer_diameter/2
+        return Decimal(math.pi)*radius**2*active_height
         
     def __str__(self):
         return "{}'s cladding tube".format(self.fuel_element)
@@ -2269,10 +2471,16 @@ class NozzlePlugRod(BaseModel):
 class BurnablePoisonRod(BaseModel):
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='bp_rod')
     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm') 
-    bottom_height=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of fuel active part')                 
+    bottom_height=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm based on the bottom of fuel active part') 
+    diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=0.4838)                
     class Meta:
         db_table='burnable_poison_rod'
         #verbose_name='Burnable absorber rod'
+        
+    def get_active_volume(self,active_height):
+        radius=self.diameter/2
+        return Decimal(math.pi)*radius**2*active_height
+    
     @property
     def height_lst(self):
         sections=self.sections.all()
@@ -2545,7 +2753,6 @@ class BurnablePoisonAssemblyMap(BaseModel):
 class ControlRodAssemblyType(BaseModel):
     reactor_model=models.ForeignKey(ReactorModel,related_name='cra_types')
     basez=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
-    #step_size=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     side_pin_num=models.PositiveSmallIntegerField(default=17)
     map=models.ManyToManyField(ControlRodType,through='ControlRodAssemblyMap')
     symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
@@ -2772,69 +2979,30 @@ class ControlRodCluster(BaseModel):
     def __str__(self):
         return '{}'.format(self.cluster_name)
     
-#the following two models describe control rod assembly
-class ControlRodAssembly(BaseModel):
-    cluster=models.ForeignKey(ControlRodCluster,related_name='control_rod_assemblies',blank=True,null=True)
-    
-    class Meta:
-        db_table='control_rod_assembly'
-       
-        verbose_name_plural='Control rod assemblies'
-        
-    @property
-    def cluster_name(self):
-        return self.cluster.cluster_name
-#     @property
-#     def type(self):
-#         return self.cluster.type
-    @property
-    def reactor_model(self):
-        return self.cluster.reactor_model
-    
-    @property
-    def step_size(self):
-        return self.cluster.step_size
-    @property
-    def basez(self):
-        return self.cluster.basez
-    
-    def generate_control_rod_assembly_xml(self):
-        doc=minidom.Document()
-        control_rod_assembly_xml=doc.createElement('control_rod_assembly')
-        control_rod_assembly_xml.appendChild(doc.createTextNode(str(self.pk)))
-        #attributes
-        #basez=self.basez
-        #step_size=self.step_size
-        cluster_name=self.cluster_name
-        #control_rod_assembly_xml.setAttribute('basez', str(basez))
-        #control_rod_assembly_xml.setAttribute('step_size', str(step_size))
-        control_rod_assembly_xml.setAttribute('cluster_name', cluster_name)
-        
-        return control_rod_assembly_xml
-        
-    def __str__(self):
-        return '{} {}'.format(self.pk,self.cluster)
-
-       
-# class ControlRodAssemblyLoadingPattern(BaseModel):
-#     cycle=models.ForeignKey(Cycle,related_name='control_rod_assembly_loading_patterns',blank=True,null=True)
-#     reactor_position=models.ForeignKey(ReactorPosition,related_name='control_rod_assembly_pattern',)
-#     control_rod_assembly=models.ForeignKey(ControlRodAssembly,related_name='loading_patterns',)
-# 
-#     class Meta:
-#         db_table='control_rod_assembly_loading_pattern'
-#         
-#     def clean(self):
-#         if self.cycle.unit.reactor_model !=self.reactor_position.reactor_model:
-#             raise ValidationError({'cycle':_('the cycle and reactor_position are not compatible'),
-#                                    'reactor_position':_('the cycle and reactor_position are not compatible')
-#                                    
-#             })
-#         
+# #the following two models describe control rod assembly
+# class ControlRodAssembly(BaseModel):
+#     cluster=models.ForeignKey(ControlRodCluster,related_name='control_rod_assemblies',blank=True,null=True)
 #     
+#     class Meta:
+#         db_table='control_rod_assembly'
+#         verbose_name_plural='Control rod assemblies'
+#         
+#     @property
+#     def cluster_name(self):
+#         return self.cluster.cluster_name
+#     @property
+#     def reactor_model(self):
+#         return self.cluster.reactor_model
+#     @property
+#     def step_size(self):
+#         return self.cluster.step_size
+#     @property
+#     def basez(self):
+#         return self.cluster.basez
+#         
 #     def __str__(self):
-#         return '{} '.format(self.reactor_position)    
-    
+#         return '{} {}'.format(self.pk,self.cluster)
+
 
 ##############################################################################
 #the following four models combine to describe source assembly 
@@ -2952,13 +3120,7 @@ class OperationDailyParameter(BaseModel):
             rcca_xml.setAttribute('id', item.control_rod_cluster.cluster_name)
             core_state_xml.appendChild(rcca_xml)
         return depl_case_xml
-    
-    @classmethod
-    def generate_cycle_calc_xml(cls,pk_lst):
-        doc = minidom.Document()
-        isq=1
-        cycle_calc_xml=doc.createElement('cycle_calc')
-        
+       
     def __str__(self):
         return '{}'.format(self.date)  
     

@@ -1,36 +1,27 @@
-from tragopan.models import OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,UnitParameter,Plant,FuelAssemblyRepository,FuelAssemblyType,ControlRodCluster,OperationMonthlyParameter
-from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,PlantListSerializer,FuelAssemblyTypeSerializer,FuelAssemblyRepositorySerializer,OperationDailyParameterSerializer
+from tragopan.models import OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,UnitParameter,Plant,FuelAssemblyRepository,ControlRodCluster,OperationMonthlyParameter,FuelAssemblyModel
+from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,PlantListSerializer,FuelAssemblyRepositorySerializer,OperationDailyParameterSerializer,FuelAssemblyModelPlusSerializer,CycleSerializer
 from rest_framework.response import Response
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.parsers import FileUploadParser
 from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from rest_framework.authentication import TokenAuthentication
-#from django.db.models import Q
-@api_view(('GET',))
-def plant_list(request,format=None):
-    
-    if request.method == 'GET':
-        plants=Plant.objects.all()
-        serializer=PlantListSerializer(plants,many=True)
-        return Response(serializer.data)
-    
+from rest_framework import viewsets
 
-    
-# @api_view(('GET',))
-# def fuel_assembly_type_list(request,format=None):
-#     
-#     if request.method == 'GET':
-#         try:
-#             fat=FuelAssemblyType.objects.all()
-#             serializer=FuelAssemblyTypeSerializer(fat,many=True)
-#             return Response(serializer.data)
-#         
-#         except Exception as e:
-#             error_message={'error_message':e}
-#             return Response(data=error_message,status=404)
+class PlantViewSet(viewsets.ModelViewSet):
+    queryset = Plant.objects.all()
+    serializer_class = PlantListSerializer
 
 
+class FuelAssemblyModelViewSet(viewsets.ModelViewSet):
+    queryset = FuelAssemblyModel.objects.all()
+    serializer_class = FuelAssemblyModelPlusSerializer
+    #permission_classes = [IsAccountAdminOrReadOnly]
+    
+class CycleViewSet(viewsets.ModelViewSet):
+    queryset = Cycle.objects.all()
+    serializer_class = CycleSerializer
+    
 @api_view(('GET','PUT'))
 def fuel_assembly_detail(request,format=None):
     if request.method=='GET':

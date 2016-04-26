@@ -1,6 +1,6 @@
 from django.contrib import admin
 from .models import *
-from .forms import UnitForm,ReactorModelForm
+from .forms import UnitForm,ReactorModelForm,EgretDefaultForm
 from .functions import generate_base_core
 from django.conf.urls import url
 from django.core.urlresolvers import reverse
@@ -69,16 +69,6 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
                                         'fields':('max_moderator_temperature','min_moderator_temperature','moderator_temperature_interval')
                                      
                 }),
-#                 ('shutdown cooling branch',{
-#                                  'classes': ('grp-collapse grp-closed',),
-#                                  'fields':('shutdown_cooling_days',)
-#                                      
-#                 }),
-#                 ('xenon branch',{
-#                                  'classes': ('grp-collapse grp-closed',),
-#                                  'fields':('xenon',)
-#                                      
-#                 }),
     )
     list_display=('pk',"__str__",)
 admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
@@ -189,15 +179,24 @@ class PreRobinInputAdmin(admin.ModelAdmin):
                 return redirect(reverse("admin:calculation_prerobininput_changelist"))
     ##########################################################################################      
     def refresh_base_core_link_view(self,request, *args, **kwargs):
-        context={"unit_form":UnitForm}
+        context={"egret_default_form":EgretDefaultForm().as_p()}
         return TemplateResponse(request, "calculation/refresh_base_core.html", context)
     
     def refresh_base_core_view(self,request, *args, **kwargs):
         if request.method == 'POST':
-            form = UnitForm(request.POST)
+            form = EgretDefaultForm(request.POST)
             if form.is_valid():
                 unit=form.cleaned_data['unit']
-                generate_base_core(unit)
+                calc_data={}
+                calc_data['subdivision']=form.cleaned_data['subdivision']
+                calc_data['num_radial_brs']=form.cleaned_data['num_radial_brs']
+                calc_data['bot_br_size']=str(form.cleaned_data['bot_br_size'])
+                calc_data['top_br_size']=str(form.cleaned_data['top_br_size'])
+                calc_data['fold_core']=form.cleaned_data['fold_core']
+                calc_data['axial_df']=form.cleaned_data['axial_df']
+                calc_data['axial_mesh']=str(form.cleaned_data['axial_mesh'])
+                calc_data['cyclen_std_bu']=form.cleaned_data['cyclen_std_bu']
+                generate_base_core(unit,calc_data)
                 self.message_user(request, 'Refresh succeed')
                 return redirect(reverse("admin:calculation_prerobininput_changelist"))
     
@@ -228,8 +227,8 @@ class RobinTaskInline(admin.TabularInline):
     model=RobinTask
     extra=0
     fields = ('name', 'input_file','server', 'task_status','start_time','end_time','logfile_link','outfile_link')
-    #readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time','logfile_link','outfile_link')
-    readonly_fields=('logfile_link','outfile_link')
+    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time','logfile_link','outfile_link')
+    #readonly_fields=('logfile_link','outfile_link')
     def has_add_permission(self,request):
         return False
     
@@ -247,7 +246,7 @@ class RobinTaskInline(admin.TabularInline):
     outfile_link.short_description = 'Get out file'
     
 class PreRobinTaskAdmin(admin.ModelAdmin):
-    add_form_template="calculation/no_action.html"
+    add_form_template="no_action.html"
     change_form_template="calculation/change_form_template.html"
     list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished','table_generated','bp_in',)
     exclude=('remark','user')
@@ -280,7 +279,7 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
         for obj in queryset:
             if obj.robin_finished:  
                 index +=1
-                obj.start_idyll()
+                obj.start_all_idyll()
         left=queryset.count()-index
         self.message_user(request, '{} idyll tasks completed while {} idyll tasks left'.format(index,left))      
             
@@ -363,7 +362,7 @@ admin.site.register(PreRobinTask, PreRobinTaskAdmin)
 
 class RobinTaskAdmin(admin.ModelAdmin):
     list_display=('pk','__str__',"logfile_link","outfile_link","get_burnup","base",'get_base')
-    
+    exclude=('core_baffle_calc',)
     def logfile_link(self, item):
         url = item.get_logfile_url()
         return format_html(u'<a href="{url}">Get log file</a>', url=url)
@@ -376,38 +375,92 @@ class RobinTaskAdmin(admin.ModelAdmin):
     
 admin.site.register(RobinTask, RobinTaskAdmin)
 
-# class IbisAdmin(admin.ModelAdmin):
-#     exclude=('remark','user')
-#     list_display=('__str__','plant','burnable_poison_assembly','ibis_path')
-#     list_editable=('burnable_poison_assembly',)
-#     list_filter=('plant',)
-# admin.site.register(Ibis, IbisAdmin)    
-# 
-# class BaseFuelCompositionInline(admin.TabularInline):
-#     model=BaseFuelComposition
-#     exclude=('remark',)
-# 
-# 
-# class BaseFuelAdmin(admin.ModelAdmin):
-#     exclude=('remark','user')
-#     inlines=(BaseFuelCompositionInline,)
-#     list_display=('__str__','get_ibis_composition','composition_set','if_insert_burnable_fuel','offset',)
-#     list_filter=('plant',)
-#     list_editable=('offset',)
-#     def get_ibis_composition(self,obj):
-#         ibis_composition=obj.composition.all()
-#         result=''
-#         for ibis in ibis_composition:
-#             result = result+' '+ibis.ibis.ibis_name
-#         return  result
-#     get_ibis_composition.short_description='ibis file name'
-#     
-# admin.site.register(BaseFuel, BaseFuelAdmin) 
-#     
+
+class CoreBaffleCalculationAdmin(admin.ModelAdmin):
+    add_form_template="no_action.html"
+    change_form_template="calculation/change_form_template.html"
+    list_display=('__str__','get_idyll_inputs')
+    inlines=[RobinTaskInline]
+    def get_urls(self):
+        urls = super(CoreBaffleCalculationAdmin, self).get_urls()
+        my_urls = [
+            url(r'^(?P<pk>\d+)/start_prerobin/$', self.admin_site.admin_view(self.start_prerobin_view),
+                name='caculation_corebafflecalculation_start_prerobin'),
+                   
+            url(r'^(?P<pk>\d+)/start_robin/$', self.admin_site.admin_view(self.start_robin_view),
+                name='caculation_corebafflecalculation_start_robin'),
+            
+#             url(r'^(?P<pk>\d+)/stop_robin/$', self.admin_site.admin_view(self.stop_robin_view),
+#                 name='caculation_corebafflecalculation_stop_robin'),
+#                 
+            url(r'^(?P<pk>\d+)/delete_robin/$', self.admin_site.admin_view(self.delete_robin_view),
+                name='caculation_corebafflecalculation_delete_robin'),
+            
+            url(r'^(?P<pk>\d+)/start_idyll/$', self.admin_site.admin_view(self.start_idyll_view),
+                name='caculation_corebafflecalculation_start_idyll'),
+        ]
+        return my_urls + urls
+    
+    def start_prerobin_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj = CoreBaffleCalculation.objects.get(pk=pk)
+        if obj.robin_tasks.exists():
+            self.message_user(request, 'Robin tasks already exist, you need to delete all robin tasks if you want to recalculate',messages.WARNING)
+        else:
+            return_code=obj.create_all_tasks()
+            #PreROBIN went wrong
+            if return_code!=0:
+                self.message_user(request, 'PreROBIN failed',messages.ERROR)
+            else:
+                self.message_user(request, 'Calculation completed',)
+            obj.save()
+        return redirect(reverse("admin:calculation_corebafflecalculation_change",args=[pk]))
+    
+    def start_robin_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj = CoreBaffleCalculation.objects.get(pk=pk)
+        obj.start_robin()
+        self.message_user(request, 'all robin tasks are under calculation')
+        return redirect(reverse("admin:calculation_corebafflecalculation_change",args=[pk]))
+    
+    def stop_robin_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj = CoreBaffleCalculation.objects.get(pk=pk)
+        obj.stop_robin()
+        self.message_user(request, 'all robin tasks have been stopped')
+        return redirect(reverse("admin:calculation_corebafflecalculation_change",args=[pk]))
+    
+    def delete_robin_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj = CoreBaffleCalculation.objects.get(pk=pk)
+        robin_tasks=obj.robin_tasks.all()
+        if robin_tasks.filter(task_status=1).exists():
+            self.message_user(request, 'You need to stop ROBIN first',messages.WARNING)
+        else:
+            robin_tasks.delete()
+            #delete prerobin files
+            for model_type in CoreBaffleCalculation.MODEL_TYPES:
+                cwd=obj.get_cwd(model_type)
+                task_name=os.path.basename(cwd)
+                os.chdir(os.path.dirname(cwd))
+                shutil.rmtree(task_name)
+            self.message_user(request, 'all robin tasks have been deleted')
+        return redirect(reverse("admin:calculation_corebafflecalculation_change",args=[pk]))
+    
+    def start_idyll_view(self,request, *args, **kwargs):
+        pk=kwargs['pk']
+        obj = CoreBaffleCalculation.objects.get(pk=pk)
+        if not obj.robin_finished:  
+            self.message_user(request, 'Your need to wait all robin tasks finished',messages.WARNING)
+        else:
+            return_codes=obj.start_all_idyll()
+            self.message_user(request, 'table generated completed,return code set is %s'%return_codes)
+        return redirect(reverse("admin:calculation_corebafflecalculation_change",args=[pk]))
+admin.site.register(CoreBaffleCalculation, CoreBaffleCalculationAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('pk','user','task_name','task_type','start_time','end_time','time_cost','task_status','remark','if_recalculated','locked')
+    list_display=('pk','user','task_name','task_type','start_time','end_time','time_cost','task_status','remark','recalculated','locked','all_input_files','all_result_files')
     list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
     
     def get_queryset(self, request):
@@ -417,11 +470,9 @@ class EgretTaskAdmin(admin.ModelAdmin):
         return qs.filter(user=request.user)
 admin.site.register(EgretTask, EgretTaskAdmin)
 
-
-
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 
-    list_display=('pk','name','authorized','visibility')
+    list_display=('pk','name','authorized','visibility',)
     list_filter=('cycle',)
     def get_queryset(self, request):
         qs = super(MultipleLoadingPatternAdmin, self).get_queryset(request)

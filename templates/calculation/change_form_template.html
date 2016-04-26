@@ -7,8 +7,33 @@
             <li><a href="start_prerobin" class="grp-state-focus">Start PreROBIN</a></li>
             <li><a href="start_robin" class="grp-state-focus">Start ROBIN</a></li>
             <li><a href="stop_robin" class="grp-state-focus">Stop ROBIN</a></li>
-            <li><a href="delete_robin" class="grp-state-focus">Delete ROBIN</a></li>
             <li><a href="start_idyll" class="grp-state-focus">Start IDYLL</a></li>
         {% endblock %}
     </ul>
+{% endblock %}
+
+{% block javascripts %}
+    {{ block.super }}
+    <script type="text/javascript">
+		function delete_robin()
+			{
+				var r=confirm("Do you want to delete all the robin tasks!");
+				if (r==true)
+  					{
+  					window.location = "delete_robin"
+  					alert("All the robin tasks have been deleted!");
+ 				 	}
+				else
+  					{
+  					alert("You have canceled the delete operation!");
+  					}
+			}
+	</script>
+{% endblock %}
+
+{% block page-tools %}
+    <ul>
+        <li><input type="button" onclick="delete_robin()" value="Delete all robin tasks" /></li>
+    </ul>
+    
 {% endblock %}

@@ -1,30 +1,14 @@
 from rest_framework import serializers
-from tragopan.models import FuelAssemblyType,FuelAssemblyModel,Grid,GridPosition,UnitParameter,Cycle,BurnablePoisonAssembly
+from tragopan.models import FuelAssemblyType,UnitParameter,Cycle,BurnablePoisonAssembly
 from calculation.models import EgretTask,MultipleLoadingPattern,PreRobinInput
 from django.contrib.auth.models import User,Group
 
-class GridSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Grid
-        fields = ('sleeve_height','functionality','sleeve_material')   
-        depth=1
-class GridPositionSerializer(serializers.ModelSerializer):
-    grid=GridSerializer()
-    class Meta:
-        model = GridPosition
-        fields = ( 'height','grid')
-
-class FuelAssemblyModelSerializer(serializers.ModelSerializer):
-    grid_positions=GridPositionSerializer(many=True, read_only=True)
-    class Meta:
-        model=FuelAssemblyModel
-        fields=('pk','name','active_length','grid_positions')
-
 class FuelAssemblyTypeSerializer(serializers.ModelSerializer):
-    model=FuelAssemblyModelSerializer()
+    #model=FuelAssemblyModelSerializer()
     class Meta:
         model=FuelAssemblyType
         fields=('pk','model','assembly_enrichment')
+        depth=1
         
 class UnitParameterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -62,7 +46,7 @@ class EgretTaskSerializer(serializers.ModelSerializer):
     #result_path=serializers.FilePathField(path='')
     class Meta:
         model = EgretTask
-        fields = ( 'pk','task_name','task_type','egret_input_file','task_status','remark','user','pre_egret_task','visibility','authorized','start_time','end_time','recalculation_depth','get_input_filename','result_file')       
+        fields = ( 'pk','task_name','task_type','all_input_files','task_status','remark','user','pre_egret_task','visibility','authorized','start_time','end_time','recalculation_depth','get_input_filename','all_result_files')       
    
 class MultipleLoadingPatternSerializer(serializers.ModelSerializer): 
     cycle=EgretCycleSerializer()

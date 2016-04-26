@@ -7,14 +7,13 @@ from calculation.models import EgretTask,RobinTask,Server,get_ip, PreRobinTask
 from ftplib import FTP
 import shutil
 @shared_task
-def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
+def egret_calculation_task(cwd,input_filename,user,pk,version='196'):
     egret_instance=EgretTask.objects.get(pk=pk)
     egret_instance.task_status=1
     egret_instance.save()
     os.chdir(cwd)
     process=Popen(['/opt/nustar/bin/myegret','-i',input_filename,'-s',version,'-u',user])
     return_code=process.wait()
-    
     #if process went wrong
     if return_code!=0:
         egret_instance.task_status=6
@@ -27,8 +26,8 @@ def egret_calculation_task(cwd,input_filename,user,pk,version='195'):
     egret_instance.end_time=end_time
     egret_instance.task_status=4
     egret_instance.save()
-    egret_instance.mv_case_res_file()
-    
+    egret_instance.mv_case_res_lp_file()
+    egret_instance.clear_extra_subtasks()
     #unlock the pre egret task if exists
     pre_egret_task=egret_instance.pre_egret_task
     task_type=egret_instance.task_type

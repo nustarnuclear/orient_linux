@@ -42,6 +42,7 @@ def get_symmetry(fuel_assembly_type,burnable_poison_assembly=None):
     
 def parse_xml_to_lst(src):
     '''src must be a absolute path
+    generate .txt file in current working directory
     '''
     f=open(src)
     line_lst=f.readlines()
@@ -111,33 +112,6 @@ def get_boron_density(assembly_enrichment):
         
     return boron_density
 
-# def get_ibis_upload_path(instance,filename):
-#     plant_name=instance.plant.abbrEN
-#     
-#     return "{}/ibis_files/{}".format(plant_name,filename)
-# 
-# def get_robin_upload_path(instance,filename):
-#     plant_name=instance.plant.abbrEN
-#     file_type=instance.file_type
-#     assembly_name=instance.fuel_assembly_type.model.name
-#     enrichment=instance.fuel_assembly_type.assembly_enrichment
-#     
-#     if instance.burnable_poison_assembly:
-#         str_num=str(instance.burnable_poison_assembly.rod_positions.count())
-#     else:
-#         str_num='00'
-#         
-#     tmp=str(int(enrichment*1000))+str_num
-#     
-#     return "{}/robin_files/{}/{}/{}/{}".format(plant_name,file_type,assembly_name,tmp,filename)
-# 
-# 
-# FILE_TYPE_CHOICES=(
-#                     ('BASE_FUEL','BASE_FUEL'),
-#                     ('BP_OUT','BP_OUT'),
-#                     ('BR','BR'),
-#     )
-
  
 # base model to contain the basic information
 class BaseModel(models.Model):
@@ -176,12 +150,19 @@ class Server(models.Model):
         else:
             return cls.objects.first()
         
-    def next(self):
-        next_servers=Server.objects.exclude(name="Controller").filter(IP__gt=self.IP)
-        if next_servers.exists():
-            return next_servers.first()
+    def next(self,index=1): 
+        if  index==0:
+            return self
         else:
-            return Server.first()
+            next_servers=Server.objects.exclude(name="Controller").filter(IP__gt=self.IP)
+            if next_servers.exists():
+                next_server= next_servers.first()
+            else:
+                next_server= Server.first()
+                
+            return next_server.next(index-1)
+        
+        
         
     def __str__(self):
         return "{} {}".format(self.name, self.IP)
@@ -229,8 +210,8 @@ class PreRobinModel(models.Model):
     polar_azimuth=models.CommaSeparatedIntegerField(max_length=50,default='4,16')
     iter_inner=models.PositiveSmallIntegerField(default=3)
     iter_outer=models.PositiveSmallIntegerField(default=100)
-    eps_keff=models.DecimalField(max_digits=5,decimal_places=5,validators=[MinValueValidator(0)],default=1e-5)
-    eps_flux=models.DecimalField(max_digits=5,decimal_places=5,validators=[MinValueValidator(0)],default=1e-4)
+    eps_keff=models.DecimalField(max_digits=7,decimal_places=7,validators=[MinValueValidator(0)],default=1e-5)
+    eps_flux=models.DecimalField(max_digits=7,decimal_places=7,validators=[MinValueValidator(0)],default=1e-4)
     #fundamental_mode
     leakage_corrector_path=models.PositiveSmallIntegerField(choices=LEAKAGE_PATH_CHOICES,default=2)
     leakage_corrector_method=models.CharField(max_length=2,choices=LEAKAGE_METHOD_CHOICES,default='B1')
@@ -320,7 +301,7 @@ class PreRobinModel(models.Model):
         edit_control_xml.appendChild(num_group_edit_xml)
         
         micro_xs_output_xml=doc.createElement('micro_xs_output')
-        micro_xs_output_xml.appendChild(doc.createTextNode(str(self.micro_xs_output)))
+        micro_xs_output_xml.appendChild(doc.createTextNode(str(int(self.micro_xs_output))))
         edit_control_xml.appendChild(micro_xs_output_xml)
         
         return edit_control_xml
@@ -395,7 +376,6 @@ class PreRobinBranch(models.Model):
             lst.remove(base)
         if max_val not in lst:
             lst.append(max_val)
-        #lst_str=','.join([str(i) for i in lst])
         return lst
         
         
@@ -576,7 +556,7 @@ class PreRobinBranch(models.Model):
         HTF_branch_xml=self.generate_his_branch_xml(boron_density,option='HTF')
         HTM_branch_xml=self.generate_his_branch_xml(boron_density,option='HTM')
         
-        TMO_BOR_xml=self.generate_TMO_BOR_xml(boron_density)
+        #TMO_BOR_xml=self.generate_TMO_BOR_xml(boron_density)
         
         #SDC XEN
         XEN_xml=self.generate_XEN_xml()
@@ -588,7 +568,7 @@ class PreRobinBranch(models.Model):
         databank_xml.appendChild(HCB_branch_xml)
         databank_xml.appendChild(HTF_branch_xml)
         databank_xml.appendChild(HTM_branch_xml)
-        databank_xml.appendChild(TMO_BOR_xml)
+        #databank_xml.appendChild(TMO_BOR_xml)
         databank_xml.appendChild(XEN_xml)
         databank_xml.appendChild(SDC_xml)
         #control rod cluster
@@ -913,25 +893,25 @@ class PreRobinInput(BaseModel):
         
         #control rod xml
         
-        for cycle in cycles:
-            control_rod_assembly_loading_patterns=cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
-            if control_rod_assembly_loading_patterns:
-                control_rod_xml=doc.createElement("control_rod")
-                control_rod_xml.setAttribute("cycle",str(cycle.cycle))
-                loading_pattern_xml.appendChild(control_rod_xml)
-                
-                map_xml=doc.createElement("map")
-                control_rod_xml.appendChild(map_xml)
-                cra_position_lst=[]
-                for reactor_position in reactor_positions:
-                    cra_pattern=control_rod_assembly_loading_patterns.filter(reactor_position=reactor_position)
-                    if cra_pattern:
-                        crat=cra_pattern.get().control_rod_assembly.cluster.control_rod_assembly_type
-                        cra_position_lst.append(crat.cr_id)
-                    else:
-                        cra_position_lst.append('0')
-                        
-                map_xml.appendChild(doc.createTextNode((' '.join(cra_position_lst))))
+#         for cycle in cycles:
+#             control_rod_assembly_loading_patterns=cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
+#             if control_rod_assembly_loading_patterns:
+#                 control_rod_xml=doc.createElement("control_rod")
+#                 control_rod_xml.setAttribute("cycle",str(cycle.cycle))
+#                 loading_pattern_xml.appendChild(control_rod_xml)
+#                 
+#                 map_xml=doc.createElement("map")
+#                 control_rod_xml.appendChild(map_xml)
+#                 cra_position_lst=[]
+#                 for reactor_position in reactor_positions:
+#                     cra_pattern=control_rod_assembly_loading_patterns.filter(reactor_position=reactor_position)
+#                     if cra_pattern:
+#                         crat=cra_pattern.get().control_rod_assembly.cluster.control_rod_assembly_type
+#                         cra_position_lst.append(crat.cr_id)
+#                     else:
+#                         cra_position_lst.append('0')
+#                         
+#                 map_xml.appendChild(doc.createTextNode((' '.join(cra_position_lst))))
         
         #fuel xml
         for cycle in cycles: 
@@ -1226,8 +1206,11 @@ class PreRobinTask(BaseModel):
                     base_mat_lst.append(base_mat)
                     break
         
-        file_name=Material.generate_material_databank_xml(base_mat_lst)   
-        return file_name
+        material_databank_xml=Material.generate_material_databank_xml(base_mat_lst) 
+        f=open("material_databank.xml",'w')
+        material_databank_xml.writexml(f, indent="  ", addindent="  ", newl="\n") 
+        f.close()   
+        return "material_databank.xml"
     
     @property
     def bp_in(self):
@@ -1239,6 +1222,40 @@ class PreRobinTask(BaseModel):
             if mt.if_bp_rod:
                 return True
         return False
+    @property
+    def bp_num(self):
+        lst=self.get_lst()
+        bp_num_outside=0
+        bp_num_inside=0
+        row=1
+        col=1
+        for pk in map(int,lst):
+            if col>row:
+                row+=1
+                col=1
+            if pk!=0:
+                mt=MaterialTransection.objects.get(pk=pk)
+                if mt.if_bp_rod:
+                    if col==1 or row==col:
+                        bp_num_outside+=1
+                    else:
+                        bp_num_inside+=1
+            col+=1
+        return bp_num_outside*4+bp_num_inside*8
+    
+    def get_bp_mt(self):
+        lst=self.get_lst()
+        pk_set=set(lst)
+        pk_set.discard('0')
+        for pk in pk_set:
+            mt=MaterialTransection.objects.get(pk=int(pk))
+            if mt.if_bp_rod:
+                return mt
+    def get_bp_vol(self,active_height):
+        mt=self.get_bp_mt()
+        per_vol=mt.get_active_volume(active_height)
+        bp_num=self.bp_num
+        return per_vol*bp_num
 
     
     #without fuel transection
@@ -1688,9 +1705,14 @@ class PreRobinTask(BaseModel):
                 inputfile_names.append(filename) 
         return inputfile_names
     
-    def create_subdir(self,burnup=0):
+    @property
+    def idyll_dir(self):
         abs_file_path=self.abs_file_path
-        sub_dir=os.path.join(abs_file_path,'IDYLL',str(burnup))
+        return os.path.join(abs_file_path,'IDYLL')
+    
+    def create_subdir(self,burnup=0):
+        idyll_dir=self.idyll_dir
+        sub_dir=os.path.join(idyll_dir,str(burnup))
         if not os.path.exists(sub_dir):
             os.makedirs(sub_dir) 
         return sub_dir
@@ -1708,7 +1730,7 @@ class PreRobinTask(BaseModel):
         segment_ID=self.get_segment_ID(burnup)
         return os.path.join(cwd,"IDYLL_"+segment_ID+".inp")
     
-    def generate_ptc_wet(self):
+    def generate_ptc_wet(self,burnup):
         fuel_assembly_type=self.fuel_assembly_type
         fuel_assembly_model=fuel_assembly_type.model
         f=open("PTC_WET.INP",'w')
@@ -1739,11 +1761,18 @@ class PreRobinTask(BaseModel):
         
         f.write("wet_fraction\n")
         
-        reactor_model=self.plant.reactor_model
-        control_rod_type=reactor_model.control_rod_types.first()
-        
-        wet_frac=fuel_assembly_model.get_wet_frac()
-        wet_frac_rodin=fuel_assembly_model.get_wet_frac_rodin(control_rod_type)
+        if self.bp_in and burnup==0:
+            wet_frac_bpin=fuel_assembly_model.get_wet_frac_bpin(self.get_bp_vol)
+            wet_frac=wet_frac_rodin=wet_frac_bpin
+        else:
+            reactor_model=self.plant.reactor_model
+            control_rod_type=reactor_model.control_rod_types.first()
+            if fuel_assembly_model.name=='AFA3G':
+                factor=Decimal(1.02)
+            else:   
+                factor=Decimal(1)
+            wet_frac=fuel_assembly_model.get_wet_frac()*factor
+            wet_frac_rodin=fuel_assembly_model.get_wet_frac_crin(control_rod_type)*factor
         f.write("{} {} \n".format(wet_frac, wet_frac_rodin))
         
         f.close()
@@ -1761,7 +1790,7 @@ class PreRobinTask(BaseModel):
         except:
             pass
         #generate ptc_wet file
-        self.generate_ptc_wet()
+        self.generate_ptc_wet(burnup)
         #cp idyll into subdir
         shutil.copy(idyll_input,os.path.join(subdir,"IDYLL.INP"))
         #cp out1 into subdir
@@ -1779,6 +1808,10 @@ class PreRobinTask(BaseModel):
         return return_code
     
     def start_all_idyll(self):
+        #check idyll directory if exists
+        idyll_dir=self.idyll_dir
+        if os.path.exists(idyll_dir):
+            shutil.rmtree(idyll_dir)
         #no bp out
         self.start_idyll(burnup=0)
         #bp out
@@ -1864,6 +1897,15 @@ class PreRobinTask(BaseModel):
 
 def get_robintask_upload_path(instance,filename):
     name=instance.name
+    core_baffle_calc=instance.core_baffle_calc
+    #if this is a core baffle task
+    if core_baffle_calc:
+        reactor_model=core_baffle_calc.reactor_model
+        try:
+            base_name=os.path.basename(filename)
+        except:
+            base_name=filename
+        return "robin_task/{}/{}/{}".format(reactor_model.name,name,base_name)
     pre_robin_task=instance.pre_robin_task
     plant=pre_robin_task.plant
     fuel_assembly_type=pre_robin_task.fuel_assembly_type
@@ -1873,12 +1915,13 @@ def get_robintask_upload_path(instance,filename):
 
 class RobinTask(models.Model):
     name=models.CharField(max_length=32)
-    pre_robin_task=models.ForeignKey(PreRobinTask,related_name="robin_tasks")
+    pre_robin_task=models.ForeignKey(PreRobinTask,related_name="robin_tasks",blank=True,null=True)
     input_file=models.FileField(max_length=200,upload_to=get_robintask_upload_path)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
     server=models.ForeignKey(Server,related_name="robin_tasks",default=server_default)
+    core_baffle_calc=models.ForeignKey('CoreBaffleCalculation',related_name="robin_tasks",blank=True,null=True)
     class Meta:
         db_table='robin_task'
         
@@ -1893,20 +1936,20 @@ class RobinTask(models.Model):
     
     def get_output_filename(self):
         input_filename=self.get_input_filename()
-        return input_filename.rstrip(".inp")+".out1"
+        return input_filename.replace(".inp",".out1")
     
     def get_log_filename(self):
         input_filename=self.get_input_filename()
-        return input_filename.rstrip(".inp")+".log"
+        return input_filename.replace(".inp",".log")
 
     def get_logfile_url(self):
         input_fileurl=self.input_file.url
-        url=input_fileurl.rstrip(".inp")+".log"
+        url=input_fileurl.replace(".inp",".log")
         return url
     
     def get_outfile_url(self):
         input_fileurl=self.input_file.url
-        url=input_fileurl.rstrip(".inp")+".out1"
+        url=input_fileurl.replace(".inp",".out1")
         return url
     
     def start_calculation(self):
@@ -1986,117 +2029,309 @@ class RobinTask(models.Model):
     def __str__(self):
         return self.name
     
-# class Ibis(BaseModel):
-#     plant=models.ForeignKey('tragopan.Plant')
-#     ibis_name=models.CharField(max_length=32)
-#     fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')
-#     reactor_model=models.ForeignKey('tragopan.ReactorModel')
-#     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
-#     active_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',default=365.80000)
-#     #ibis_path=models.FilePathField(path=media_root,match=".*\.TAB$",recursive=True,blank=True,null=True,max_length=200)
-# 
-#     class Meta:
-#         db_table='ibis'
-#         order_with_respect_to='reactor_model'
-#         verbose_name_plural='Ibis'
-#         
-#     #validating objects(clean_fields->clean->validate_unique)
-#     def clean(self):
-#         units=self.plant.units.all()
-#         reactor_model=self.reactor_model
-#         reactor_model_lst=[unit.reactor_model for unit in units]
-#         if reactor_model not in reactor_model_lst:
-#             raise ValidationError({'plant':_('plant and reactor model are not compatible'), 
-#                                  'reactor_model':_('plant and reactor model are not compatible'),                          
-#             })
-#     
-#     @property
-#     def ibis_path(self):
-#         ibis_dir=self.plant.ibis_dir
-#         name=self.ibis_name+'.TAB'
-#         ibis_path=os.path.join(ibis_dir,name)
-#         if os.path.isfile(ibis_path):
-#             return ibis_path
-#         
-#     def get_non_bpa_basefuel(self):
-#         basefuels=self.base_fuels.all()
-# 
-#         for basefuel in basefuels:
-#             if not basefuel.if_insert_burnable_fuel():
-#                 return basefuel
-#             
-#     def get_bpa_basefuel(self):
-#         bpa=self.burnable_poison_assembly
-#         if bpa:
-#             basefuel=self.base_fuels.get()
-#             return basefuel
-#         return None
-#         
-#     def __str__(self):
-#         return '{} {}'.format(self.plant,self.ibis_name)
-#     
-# 
-# def fuel_identity_default():
-#     last_fuel_identity=BaseFuel.objects.filter(offset=False).last().fuel_identity
-#     str_num=last_fuel_identity[1:]
-#     try:
-#         num=int(str_num)+1
-#         return 'B'+str(num)
-#     except:
-#         return None
-#         
-#     
-# 
-# class BaseFuel(BaseModel):
-#     plant=models.ForeignKey('tragopan.Plant')
-#     fuel_identity=models.CharField(max_length=32,unique=True,default=fuel_identity_default)
-#     quadrant_one=models.ForeignKey('self',blank=True,null=True,related_name='one')
-#     quadrant_two=models.ForeignKey('self',blank=True,null=True,related_name='two')
-#     quadrant_three=models.ForeignKey('self',blank=True,null=True,related_name='three')
-#     quadrant_four=models.ForeignKey('self',blank=True,null=True,related_name='four')
-#     base_bottom=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',default=0)
-#     axial_composition=models.ManyToManyField(Ibis,through='BaseFuelComposition',related_name='base_fuels')
-#     offset=models.BooleanField(default=False)
-#     
-#     def if_insert_burnable_fuel(self):
-#         composition_set=self.composition_set
-#         
-#         return True if composition_set[1] else False
-#     
-#     @property
-#     def composition_set(self):
-#         fuel_assembly_set=set()
-#         bpa_set=set()
-#         for item in self.axial_composition.all():
-#             fuel_assembly=item.fuel_assembly_type
-#             bpa=item.burnable_poison_assembly 
-#             if fuel_assembly:
-#                 fuel_assembly_set.add(fuel_assembly)
-#             if bpa:
-#                 bpa_set.add(bpa)  
-#             
-#         return (fuel_assembly_set,bpa_set)
-#     
-#     class Meta:
-#         db_table='base_fuel'
-#         
-#         
-#         
-#     def __str__(self):
-#         return '{}'.format(self.fuel_identity)
-#     
-# class BaseFuelComposition(models.Model):
-#     base_fuel=models.ForeignKey(BaseFuel,related_name='composition')
-#     ibis=models.ForeignKey(Ibis,related_name='base_fuel_compositions')
-#     height=models.DecimalField(max_digits=10,decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',)
-#     class Meta:
-#         db_table='base_fuel_composition'
-#         
-#         
-#         
-#     def __str__(self):
-#         return '{}'.format(self.base_fuel)
+class CoreBaffleCalculation(models.Model):
+    reactor_model=models.OneToOneField(ReactorModel)
+    pre_robin_model=models.ForeignKey(PreRobinModel,on_delete=models.PROTECT)  
+    pre_robin_task=models.ForeignKey(PreRobinTask, limit_choices_to={'task_status': 4},on_delete=models.PROTECT)
+    class Meta:
+        db_table='core_baffle_calculation'
+        
+    def clean(self):
+        if self.reactor_model!=self.pre_robin_task.plant.reactor_model:
+            raise  ValidationError({
+                                    'reactor_model':_('reactor_model and pre_robin_task must be matched'), 
+                                    'pre_robin_task':_('reactor_model and pre_robin_task must be matched'),          
+                })
+            
+    def get_cwd(self,model_type):
+        reactor_model=self.reactor_model
+        task_dir=reactor_model.task_dir
+        filepath=os.path.join(task_dir,model_type)
+        if not os.path.exists(filepath):
+            os.makedirs(filepath)
+        return filepath
     
+    def get_material_databank_xml(self):
+        pre_robin_task=self.pre_robin_task
+        #base_segment_ID=pre_robin_task.get_segment_ID()
+        abs_file_path=pre_robin_task.abs_file_path
+        f=os.path.join(abs_file_path,"material_databank.xml")
+        dom=minidom.parse(f)
+        #get material databank xml from pre robin task directory
+        material_databank_xml=dom.documentElement
+        
+        reactor_model=self.reactor_model
+        material_lst=reactor_model.get_reflector_material_lst()
+        for material in material_lst:
+            base_mat_xml=material.generate_base_mat_xml()
+            material_databank_xml.appendChild(base_mat_xml)
+            
+        f=open("material_databank.xml",'w')
+        material_databank_xml.writexml(f, indent="  ", addindent="  ", newl="\n") 
+        f.close()   
+        return "material_databank.xml"
+    
+    def cp_pin_databank_xml(self,cwd):
+        pre_robin_task=self.pre_robin_task
+        #base_segment_ID=pre_robin_task.get_segment_ID()
+        abs_file_path=pre_robin_task.abs_file_path
+        f=os.path.join(abs_file_path,"pin_databank.xml")
+        shutil.copy(f, cwd)
+        return "pin_databank.xml"
+    
+    def generate_branch_databank_xml(self):
+        pre_robin_task=self.pre_robin_task
+        assembly_enrichment=pre_robin_task.fuel_assembly_type.assembly_enrichment
+        boron_density=get_boron_density(assembly_enrichment)
+        branch=pre_robin_task.branch
+        TMO_BOR_xml=branch.generate_TMO_BOR_xml(boron_density)
+        
+        doc=minidom.Document()
+        databank_xml=doc.createElement('branch_calc_databank')
+        databank_xml.appendChild(TMO_BOR_xml)
+        f=open("branch_calc_databank.xml",'w')
+        databank_xml.writexml(f, indent="  ", addindent="  ", newl="\n") 
+        f.close()   
+        return "branch_calc_databank.xml"
+        
+    def get_base_calculation_segment_xml(self):
+        pre_robin_task=self.pre_robin_task
+        #base_segment_ID=pre_robin_task.get_segment_ID()
+        abs_file_path=pre_robin_task.abs_file_path
+        f=os.path.join(abs_file_path,"calculation_segments.xml")
+        dom=minidom.parse(f)
+        base_segment_node=dom.getElementsByTagName('base_segment')[0]
+        return base_segment_node
+    
+    def get_assembly_model_xml(self):
+        base_calculation_segment_xml=self.get_base_calculation_segment_xml()
+        assembly_model_xml=base_calculation_segment_xml.getElementsByTagName('assembly_model')[0]
+        return assembly_model_xml
+    def get_depletion_state_xml(self):
+        base_calculation_segment_xml=self.get_base_calculation_segment_xml()
+        depletion_state_xml=base_calculation_segment_xml.getElementsByTagName('depletion_state')[0]
+        for item in ['burnup_point','burnup_unit','dep_strategy','power_density']:
+            del_xml=depletion_state_xml.getElementsByTagName(item)[0]
+            depletion_state_xml.removeChild(del_xml)
+        return depletion_state_xml
+    
+    
+    def generate_calculation_segment(self,model_type='BR1'):
+        reactor_model=self.reactor_model
+        reflector_model_xml=reactor_model.generate_reflector_model_xml(model_type)
+        pre_robin_model=self.pre_robin_model
+        accuracy_control_xml=pre_robin_model.generate_accuracy_control_xml()
+        fundamental_mode_xml=pre_robin_model.generate_fundamental_mode_xml()
+        energy_condensation_xml=pre_robin_model.generate_energy_condensation_xml()
+        edit_control_xml=pre_robin_model.generate_edit_control_xml()
+        
+        doc=minidom.Document()
+        calculation_segments_xml=doc.createElement('calculation_segments')
+        base_segment_xml=doc.createElement('base_segment')
+        calculation_segments_xml.appendChild(base_segment_xml)
+        segment_ID_xml=doc.createElement('segment_ID')
+        segment_ID_xml.appendChild(doc.createTextNode(model_type))
+        base_segment_xml.appendChild(segment_ID_xml)
+        
+        assembly_model_xml=self.get_assembly_model_xml()
+        depletion_state_xml=self.get_depletion_state_xml()
+        base_segment_xml.appendChild(assembly_model_xml)
+        base_segment_xml.appendChild(depletion_state_xml)
+        
+        branch_calc_ID_xml=doc.createElement('branch_calc_ID')
+        branch_calc_ID_xml.appendChild(doc.createTextNode('BRCH_TMO_BOR'))
+        base_segment_xml.appendChild(branch_calc_ID_xml)
+        
+        base_segment_xml.appendChild(reflector_model_xml)
+        base_segment_xml.appendChild(fundamental_mode_xml)
+        base_segment_xml.appendChild(accuracy_control_xml)
+        base_segment_xml.appendChild(energy_condensation_xml)
+        base_segment_xml.appendChild(edit_control_xml)
+        
+        f=open('calculation_segments.xml','w')
+        calculation_segments_xml.writexml(f, indent='  ', addindent='  ', newl='\n')
+        f.close()
+        return 'calculation_segments.xml'
+    
+    def generate_prerobin_input(self,model_type='BR1'):
+        cwd=self.get_cwd(model_type)
+        os.chdir(cwd)
+        f=open(PreRobinTask.INPUT_FILE_NAME,'w')
+        f.write('& INPUT_FILE_INFO\n')
+        
+        #material_element.lib comes from table BasicMaterial 
+        material_element_lib_path=BasicMaterial.material_element_lib_path
+        if not os.path.exists(material_element_lib_path):
+            BasicMaterial.generate_material_lib()
+        f.write('    material_element_lib    = "%s"\n'%material_element_lib_path)
+        
+        #hydro_table is in the PRE_ROBIN_PATH
+        hydro_table_path=os.path.join(PRE_ROBIN_PATH,'hydro.table')
+        f.write('    hydro_table             = "%s"\n'%hydro_table_path)
+        
+        #generate material databank
+        material_databank_xml=self.get_material_databank_xml()
+        material_databank_path=os.path.join(cwd,material_databank_xml)
+        #convert xml to sread format
+        material_databank=parse_xml_to_lst(material_databank_path)      
+        f.write('    material_databank       = "%s"\n'%material_databank)
+        
+        #cp pin_databank from pre robin task
+        pin_databank_xml=self.cp_pin_databank_xml(cwd)
+        pin_databank_path=os.path.join(cwd,pin_databank_xml)
+        pin_databank=parse_xml_to_lst(pin_databank_path) 
+        f.write('    pin_databank            = "%s"\n'%pin_databank) 
+        
+        #branch file
+        branch_file_xml=self.generate_branch_databank_xml()
+        branch_file_path=os.path.join(cwd,branch_file_xml)
+        branch_file=parse_xml_to_lst(branch_file_path) 
+        f.write('    branch_calculation_info = "%s"\n'%branch_file)
+        
+        #calculation_segments
+        segment_file_xml=self.generate_calculation_segment(model_type)
+        segment_file_path=os.path.join(cwd,segment_file_xml)
+        segment_file=parse_xml_to_lst(segment_file_path) 
+        f.write('    calculation_segments    = "%s"\n'%segment_file)
+        
+        f.write('/\n')
+        f.close()
+        
+    def generate_prerobin_output(self,model_type='BR1'):
+        #self.generate_prerobin_input(burnup=burnup)
+        cwd=self.get_cwd(model_type)
+        os.chdir(cwd)
+        input_file_path=PreRobinTask.INPUT_FILE_NAME
+        process=Popen(['/opt/nustar/bin/myprerobin','-i',input_file_path])
+        return_code=process.wait()
+        return return_code
+    
+    def create_task(self,model_type='BR1'):
+        cwd=self.get_cwd(model_type)
+        filepath=os.path.join(cwd,model_type+'.inp')
+        f=open(filepath)
+        first_server=Server.first()
+        if model_type=='BR1':
+            server=first_server
+        else:
+            model_types=CoreBaffleCalculation.MODEL_TYPES
+            index=model_types.index(model_type)
+            server=first_server.next(index)
+            if server.name=='Node1':
+                server=server.next()
+        RobinTask.objects.get_or_create(name=model_type,core_baffle_calc=self,input_file=File(f),server=server)
+        f.close()
+        
+    MODEL_TYPES=['BR1','BR2','BR3','BR_BOT','BR_TOP']
+    def create_all_tasks(self):
+        for model_type in CoreBaffleCalculation.MODEL_TYPES:
+            self.generate_prerobin_input(model_type)
+            return_code=self.generate_prerobin_output(model_type)
+            self.create_task(model_type)
+            
+        return return_code
+    
+    def start_robin(self):
+        robin_tasks=self.robin_tasks.all()
+        for robin_task in robin_tasks:
+            #if waiting
+            if robin_task.task_status==0:
+                robin_task.start_calculation()
+    
+    def get_idyll_inputs(self,model_type='BR1'):
+        cwd=self.get_cwd(model_type)
+        idyll_inputs=[]
+        for filename in os.listdir(cwd):
+            if filename.startswith('IDYLL_'):
+                new_name=filename.split(sep='_',maxsplit=1)[1].split(sep='.')[0]
+                idyll_inputs.append(new_name)
+        return idyll_inputs
+    
+   
+    def get_idyll_dir(self,model_type):
+        cwd=self.get_cwd(model_type)
+        return os.path.join(cwd,'IDYLL')
+    
+    def create_subdir(self,model_type,idyll_input):
+        idyll_dir=self.get_idyll_dir(model_type)
+        sub_dir=os.path.join(idyll_dir,idyll_input)
+        if not os.path.exists(sub_dir):
+            os.makedirs(sub_dir) 
+        return sub_dir
+    
+    def cp_out_to_subdir(self,subdir):
+        robin_tasks=self.robin_tasks.all()
+        for robin_task in robin_tasks:
+            cwd=robin_task.get_cwd()
+            output_filename=robin_task.get_output_filename()
+            shutil.copy(os.path.join(cwd,output_filename),subdir)
+                
+    def start_idyll(self,model_type,idyll_input): 
+        cwd=self.get_cwd(model_type)
+        subdir=self.create_subdir(model_type,idyll_input)
+        os.chdir(subdir)  
+        #create idyll dirs
+        try:
+            os.mkdir("CHECK_INPUT")
+            os.mkdir("CHECK_POW")
+            os.mkdir("CHECK_TABLE")
+            os.mkdir("TABLE_OUTPUT")   
+        except:
+            pass
+        
+        #cp idyll into subdir
+        idyll_file=os.path.join(cwd,'IDYLL_%s.inp'%idyll_input)
+        shutil.copy(idyll_file,os.path.join(subdir,"IDYLL.INP"))
+        #cp out1 into subdir
+        self.cp_out_to_subdir(subdir)
+        
+        process=Popen(['/opt/nustar/bin/myidyll',"IDYLL.INP"])
+        return_code=process.wait()
+        self.link_table(model_type,idyll_input)
+        return return_code
+        
+    def start_all_idyll(self):
+        return_codes=set()
+        for model_type in CoreBaffleCalculation.MODEL_TYPES:
+            #check if idyll directory exists
+            idyll_dir=self.get_idyll_dir(model_type)
+            if os.path.exists(idyll_dir):
+                shutil.rmtree(idyll_dir)
+            idyll_inputs=self.get_idyll_inputs(model_type)
+            for idyll_input in idyll_inputs:
+                return_code=self.start_idyll(model_type, idyll_input)
+                return_codes.add(return_code)
+        return return_codes
+    
+    @property      
+    def robin_finished(self):
+        if (not self.robin_tasks.exists()) or self.robin_tasks.exclude(task_status=4).exists():
+            return False
+        else:
+            return True
+        
+    def get_table_path(self,model_type,idyll_input):
+        subdir=self.create_subdir(model_type,idyll_input)
+        output_path=os.path.join(subdir,"TABLE_OUTPUT")
+        if not os.path.exists(output_path):
+            return None
+        for filename in os.listdir(output_path):
+            if filename.endswith('.TAB'):
+                return os.path.join(output_path,filename)
+            
+    def link_table(self,model_type,idyll_input):
+        table_path=self.get_table_path(model_type,idyll_input)
+        idyll_dir=self.reactor_model.idyll_dir
+        if not os.path.exists(idyll_dir):
+            os.makedirs(idyll_dir)
+        dest=os.path.join(idyll_dir,idyll_input+".TAB")
+        try:
+            os.symlink(table_path,dest)
+        except:
+            pass
+        
+    def __str__(self):
+        return "{} baffle".format(self.reactor_model)
 
 
 
@@ -2108,11 +2343,9 @@ def get_egret_upload_path(instance,filename):
     plant=unit.plant
     plant_name=plant.abbrEN
     recalculation_depth=instance.recalculation_depth
-    name="upload_{}.xml".format(str(recalculation_depth).zfill(6))
+    file_name="depl_case_{}.xml".format(recalculation_depth+1)
     task_name=instance.task_name
-    return 'egret_task/{}/{}/unit{}/cycle{}/{}/{}'.format(username,plant_name,unit.unit, cycle.cycle,task_name,name) 
-
-
+    return 'egret_task/{}/{}/unit{}/cycle{}/{}/subtask{}/{}'.format(username,plant_name,unit.unit, cycle.cycle,task_name,recalculation_depth+1,file_name) 
 
 VISIBILITY_CHOICES=(
                          (1,'private'),
@@ -2138,19 +2371,19 @@ class EgretTask(BaseModel):
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
     calculation_identity=models.CharField(max_length=128,blank=True)
-    recalculation_depth=models.PositiveSmallIntegerField(default=1)
+    recalculation_depth=models.PositiveSmallIntegerField(default=0)
     locked=models.BooleanField(default=False)
+    min_avail_subtask_num=models.PositiveSmallIntegerField(default=1)
     class Meta:
         db_table='egret_task'
-        #unique_together = ("user", "task_name")
-        
-    def if_recalculated(self):
-        if self.recalculation_depth>1:
+  
+    def recalculated(self):
+        if self.recalculation_depth>0:
             return True
         else:
             return False
-    if_recalculated.boolean=True 
-    if_recalculated.short_description="whether recalculated:True/False"   
+    recalculated.boolean=True 
+    recalculated.short_description="whether recalculated:True/False"   
     #validating objects(clean_fields->clean->validate_unique)
     def clean(self):
         loading_pattern=self.get_loading_pattern()
@@ -2181,6 +2414,29 @@ class EgretTask(BaseModel):
                 })
                 
             
+    MAX_DEPTH_SAVED=5
+    def clear_extra_subtasks(self):
+        depth=self.recalculation_depth
+        base_dir=self.get_base_dir()
+        os.chdir(base_dir)
+        #the subtask num  to be deleted
+        index=depth+1-EgretTask.MAX_DEPTH_SAVED   
+        if index>=1:
+            sub_dir='subtask%d'%index
+            #shutil.rmtree(sub_dir)
+            os.chdir(os.path.join(base_dir,sub_dir))
+            for filename in os.listdir():
+                postfix=filename.split(sep='.')[-1]
+                if postfix in ['RES','CORE_KNT','drwm','NODEBU','LP','CASE']:
+                    os.remove(filename)
+            #rm .NEM
+            os.chdir('.workspace')        
+            os.remove('.NEM')
+            #if rm subtaski you need to set min_avail_subtask_num to i+1
+            self.min_avail_subtask_num=index+1
+            self.save()
+              
+            
     def get_loading_pattern(self):
         if self.task_type=='FOLLOW':
             return self.loading_pattern
@@ -2199,12 +2455,60 @@ class EgretTask(BaseModel):
     @property
     def plant(self):
         return self.unit.plant
-     
+    
+    def get_base_dir(self):
+        '''
+        the dir contains all the subtasks
+        '''
+        abs_file_path=self.egret_input_file.path
+        dir_path=os.path.dirname(abs_file_path)
+        return os.path.dirname(dir_path)
+    
     def get_cwd(self):
         abs_file_path=self.egret_input_file.path
         dir_path=os.path.dirname(abs_file_path)
         return dir_path
     
+    def get_path_by_depth(self,depth):
+        '''
+        get the working directory by recalculation depth
+        '''
+        base_dir=self.get_base_dir()
+        return os.path.join(base_dir,'subtask'+str(depth+1))
+    
+    def get_pre_cwd(self):
+        '''get the previous working directory
+        '''
+        depth=self.recalculation_depth
+        if depth==0:
+            return None
+        else:
+            return self.get_path_by_depth(depth-1)
+        
+    def get_base_url(self):
+        last=self.egret_input_file.url
+        base=os.path.dirname(os.path.dirname(last))
+        return base
+    @property
+    def all_input_files(self):
+        base=self.get_base_url()
+        depth=self.recalculation_depth
+        input_files=[]
+        for i in range(1,depth+2):
+            url=os.path.join(base,'subtask%d'%i,"depl_case_%d.xml"%i)
+            input_files.append(url)
+        return input_files
+    @property
+    def all_result_files(self):
+        base=self.get_base_url()
+        depth=self.recalculation_depth
+        result_files=[]
+        filename=self.get_lp_res_filename()+'.xml'
+        for i in range(1,depth+2):
+            url=os.path.join(base,'subtask%d'%i,'.workspace',filename)
+            result_files.append(url)
+            
+        return result_files
     @property
     def result_file(self):
         cwd=self.get_cwd()
@@ -2221,44 +2525,84 @@ class EgretTask(BaseModel):
         filename="{}_U{}.{}".format(plant.abbrEN,unit.unit,str(cycle.cycle).zfill(3))   
         return filename
     
-    def mv_case_res_file(self):
+    def mv_case_res_lp_file(self):
         if self.task_type=='FOLLOW':
-            '''move the .LP .RES in workspace to the upper directory'''
+            '''move the .CASE .RES in workspace to the upper directory
+            move the .LP to base directory and create a symbolic link in each subtask working directory
+            '''
             name=self.get_lp_res_filename()
-            cwd=self.get_cwd()
-            #if this is not the first calculation,you should rename the .CASE and .RES files that already exist
-            if self.recalculation_depth>1:
-                #depth=str(self.recalculation_depth-1).zfill(6)
-                #rename the previous .CASE and .RES files
-                #os.rename(os.path.join(cwd,name+'.CASE'),os.path.join(cwd,name+'.CASE.'+depth+'.old'))
-                #os.rename(os.path.join(cwd,name+'.RES'),os.path.join(cwd,name+'.RES.'+depth+'.old'))
-                if os.path.isfile(os.path.join(cwd,name+'.CASE')): 
-                    os.remove(os.path.join(cwd,name+'.CASE')) 
-                if os.path.isfile(os.path.join(cwd,name+'.RES')):    
-                    os.remove(os.path.join(cwd,name+'.RES')) 
-                             
+            cwd=self.get_cwd()   
+            base_dir=self.get_base_dir()                  
             #move sub directory to current directory
             sub_cwd=os.path.join(cwd,'.workspace')
-            CASE_path=os.path.join(sub_cwd,name+'.CASE')
-            RES_path=os.path.join(sub_cwd,name+'.RES')
-            shutil.move(CASE_path,cwd)
-            shutil.move(RES_path,cwd)
+            for postfix in ['.CASE','.RES']:
+                path=os.path.join(sub_cwd,name+postfix)
+                #rm if cwd has .CASE and .RES files
+                try:
+                    os.remove(os.path.join(cwd,name+postfix))
+                except:
+                    pass
+                shutil.move(path,cwd)
+            #mv lp to base dir if this the first of your calculation
+            if self.recalculation_depth==0:
+                LP_path=os.path.join(cwd,name+'.LP')
+                shutil.copy(LP_path, base_dir)
             
-            
-        
+########################################################################
+#the following actions are only available when recalculate
+    def link_lp_file(self):
+        if self.recalculation_depth>0: 
+            base_dir=self.get_base_dir()
+            name=self.get_lp_res_filename()
+            cwd=self.get_cwd()  
+            src=os.path.join(base_dir,name+'.LP') 
+            dest=os.path.join(cwd,name+'.LP') 
+            os.symlink(src,dest)
     
+    def cp_case_res_file(self):
+        '''
+        cp the .CASE and .RES from last calculation when recalculated
+        '''
+        if self.recalculation_depth>0:
+            cwd=self.get_cwd()
+            pre_cwd=self.get_pre_cwd()
+            name=self.get_lp_res_filename()
+            for postfix in ['.CASE','.RES']:
+                src=os.path.join(pre_cwd,name+postfix)
+                shutil.copy(src, cwd)
+                
+    def cp_NEM_file(self):
+        '''
+        cp the .NEW in .workspace from last calculation when recalculated
+        '''
+        if self.recalculation_depth>0:
+            cwd=self.get_cwd()
+            pre_cwd=self.get_pre_cwd()
+            src=os.path.join(pre_cwd,'.workspace','.NEM')
+            dst=os.path.join(cwd,'.workspace')
+            try:
+                os.makedirs(dst)
+            except:
+                pass
+            shutil.copy(src, dst)
+            
+##########################################################################  
+        
     def cp_lp_res_file(self):
+        '''
+        cp .LP .RES file from previous cycles
+        '''
         follow_task_chain=self.get_follow_task_chain()
         for follow_task in follow_task_chain:
             cwd=follow_task.get_cwd()
             lp_res_filename=follow_task.get_lp_res_filename()
             lp_file=os.path.join(cwd,lp_res_filename+'.LP')
             res_file=os.path.join(cwd,lp_res_filename+'.RES')
-            os.link(lp_file,lp_res_filename+'.LP' )
-            os.link(res_file,lp_res_filename+'.RES')
+            os.symlink(lp_file,lp_res_filename+'.LP' )
+            os.symlink(res_file,lp_res_filename+'.RES')
             if self.task_type =='SEQUENCE':
                 case_file=os.path.join(cwd,lp_res_filename+'.CASE')
-                os.link(case_file,lp_res_filename+'.CASE')
+                os.symlink(case_file,lp_res_filename+'.CASE')
     
     def get_follow_task_chain(self):
         cur_task=self.pre_egret_task
@@ -2274,7 +2618,7 @@ class EgretTask(BaseModel):
         unit=cycle.unit
         if self.task_type=='FOLLOW':
             recalculation_depth=self.recalculation_depth
-            return 'U{}C{}_{}.xml'.format(unit.unit,cycle.cycle,str(recalculation_depth).zfill(6))
+            return 'U{}C{}_{}.xml'.format(unit.unit,cycle.cycle,str(recalculation_depth+1).zfill(6))
         elif self.task_type=='SEQUENCE':
             return 'U{}C{}_sequence.xml'.format(unit.unit,cycle.cycle)
     
@@ -2305,7 +2649,7 @@ class EgretTask(BaseModel):
         else:
             time_cost=None
         return time_cost
-    def generate_runegret_xml(self,restart=0,export=1):
+    def generate_runegret_xml(self,restart=0,export=1,loading_pattern_path="../loading_pattern.xml"):
         #loading_pattern=self.get_loading_pattern()
         cycle=self.cycle
         cycle_num=cycle.cycle
@@ -2333,7 +2677,7 @@ class EgretTask(BaseModel):
         run_egret_xml.appendChild(base_component_xml)
         #loading pattern is in current working directory
         loading_pattern_xml=doc.createElement('loading_pattern')
-        loading_pattern_xml.appendChild(doc.createTextNode('loading_pattern.xml'))
+        loading_pattern_xml.appendChild(doc.createTextNode(loading_pattern_path))
         run_egret_xml.appendChild(loading_pattern_xml)
         #cycle_depl
         if self.task_type=='FOLLOW':
@@ -2348,8 +2692,6 @@ class EgretTask(BaseModel):
             cycle_sequ_file=os.path.basename(self.egret_input_file.name)
             cycle_sequ_xml.appendChild(doc.createTextNode(cycle_sequ_file))
             run_egret_xml.appendChild(cycle_sequ_xml)
-            
-            
         
         #export_case
         export_case_xml=doc.createElement('export_case')
@@ -2367,19 +2709,29 @@ class EgretTask(BaseModel):
     
     def generate_loading_pattern_xml(self):
         unit=self.unit
+        unit_num=unit.unit
+        plant=unit.plant
+        plant_name=plant.abbrEN
+        basecore_id=plant.reactor_model.name
+        core_id=plant_name+'_U%d'%unit_num
         #egret_input_xml=self.egret_input_xml
         loading_pattern=self.get_loading_pattern()
-        #from database loading pattern xml
-        dividing_point=loading_pattern.get_dividing_point()     
-        custom_fuel_nodes=loading_pattern.get_custom_fuel_nodes()
-        loading_pattern_doc=unit.generate_loading_pattern_doc(max_cycle=dividing_point.cycle.cycle)
-        loading_pattern_node=loading_pattern_doc.documentElement
-       
-        for custom_fuel_node in custom_fuel_nodes:
-            loading_pattern_node.appendChild(custom_fuel_node)
+        #start xml 
+        doc = minidom.Document()
+        loading_pattern_xml = doc.createElement("loading_pattern")
+        loading_pattern_xml.setAttribute("basecore_ID",basecore_id)
+        loading_pattern_xml.setAttribute("core_id",core_id)
+        doc.appendChild(loading_pattern_xml)
+        
+        #fuel
+        fuel_node=loading_pattern.generate_fuel_node()
+        loading_pattern_xml.appendChild(fuel_node)
+        #cra
+        cra_node=loading_pattern.generate_cra_node()
+        loading_pattern_xml.appendChild(cra_node)
         #custom loading pattern xml
         loading_pattern_file=open('loading_pattern.xml','w')
-        loading_pattern_doc.writexml(loading_pattern_file,indent='  ',addindent='  ', newl='\n',)
+        loading_pattern_xml.writexml(loading_pattern_file,indent='  ',addindent='  ', newl='\n',)
         loading_pattern_file.close()
         
     def __str__(self):
@@ -2406,47 +2758,62 @@ class MultipleLoadingPattern(BaseModel):
         db_table='multiple_loading_pattern'
         unique_together=('user','name')
     
+    def clean(self):
+        #handle current cycle
+        if MultipleLoadingPattern.objects.filter(cycle=self.cycle,authorized=True).exists():
+            raise ValidationError({
+                                  'authorized':_('A cycle can not have more than one authorized loading pattern'),                
+            }) 
+        #handle previous cycle
+        pre_loading_pattern=self.pre_loading_pattern
+        if pre_loading_pattern:
+            if not pre_loading_pattern.authorized:
+                raise ValidationError({
+                                  'authorized':_('You can not authorized a loading pattern if his previous loading pattern is not authorized'),                
+                }) 
+        else:
+            pre_cycle=self.cycle.get_pre_cycle
+            if pre_cycle and not MultipleLoadingPattern.objects.filter(cycle=pre_cycle,authorized=True).exists():
+                raise ValidationError({
+                                  'authorized':_('You can not authorized a loading pattern if his previous loading pattern is not authorized'),                
+                })       
+            
+    
     @property
     def FILE(self):
         return self.xml_file
-    
-    def write_to_database(self):
+        
+    def generate_cra_node(self):
         xml_file=self.xml_file
         cycle=self.cycle
         unit=cycle.unit
-        reactor_model=unit.reactor_model
-        reactor_positions=reactor_model.positions.all()
+        reactor_model=unit.plant.reactor_model
+        positions=reactor_model.positions.all()
         f=xml_file.path
-       
         dom=minidom.parse(f)
-        #handle fuel     
-        fuel_node=dom.getElementsByTagName('fuel')[0]
-        position_nodes=fuel_node.getElementsByTagName('position')
-        
+        position_nodes=dom.getElementsByTagName('position')
+        cr_lst=[]
         for position_node in position_nodes:
-            
-            row=position_node.getAttribute('row')
-            column=position_node.getAttribute('column')
-            reactor_position=reactor_positions.get(row=int(row),column=int(column))
-            fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
-        
-            
-            
-            pk=fuel_assembl_node.getAttribute('id')
-            #check if fresh
-            if pk:
-                fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
+            #handle cra 
+            cr_out=True if position_node.hasAttribute('cr_out') else False
+            row=int(position_node.getAttribute('row'))
+            column=int(position_node.getAttribute('column'))
+            position=positions.get(row=row,column=column)
+            control_rod_cluster=position.control_rod_cluster
+            if control_rod_cluster and (not cr_out):
+                cr_id=control_rod_cluster.control_rod_assembly_type.cr_id
+                cr_lst.append(cr_id)
+            else:
+                cr_lst.append('0')
                 
-            else: 
-                type_pk=fuel_assembl_node.childNodes.item(0).data  
-                fuel_assembly_type=FuelAssemblyType.objects.get(pk=type_pk)
-                fuel_assembly=FuelAssemblyRepository.objects.create(type=fuel_assembly_type,unit=unit)
-                
-            falp=FuelAssemblyLoadingPattern.objects.create(reactor_position=reactor_position,fuel_assembly=fuel_assembly,cycle=cycle)
-            print(falp)
-        
-        
-        
+        doc = minidom.Document()
+        control_rod_xml=doc.createElement('control_rod ')
+        control_rod_xml.setAttribute('cycle', str(cycle.cycle))
+        map_xml=doc.createElement('map')
+        control_rod_xml.appendChild(map_xml)
+        map_xml.appendChild(doc.createTextNode(' '.join(cr_lst)))
+        return control_rod_xml
+    
     def generate_fuel_node(self):
         xml_file=self.xml_file
         cycle=self.cycle
@@ -2471,9 +2838,7 @@ class MultipleLoadingPattern(BaseModel):
             if not fuel_assembl_node.hasAttribute('pre_cycle'):
                 try:
                     bpa_node=position_node.getElementsByTagName('burnable_poison_assembly')[0]
-                    print(bpa_node)
                     bpa_pk=int(bpa_node.firstChild.data)
-                    print(bpa_pk)
                     bpa=BurnablePoisonAssembly.objects.get(pk=bpa_pk).get_symmetry_bpa()
                 except:
                     bpa=None
@@ -2552,8 +2917,50 @@ class MultipleLoadingPattern(BaseModel):
                 fuel_node_lst.insert(0, fuel_node)
                 
         return fuel_node_lst
+
+    def write_to_database(self):
+        cycle=self.cycle
+        xml_file=self.xml_file
+        unit=cycle.unit
+        reactor_model=unit.plant.reactor_model
+        positions=reactor_model.positions.all()
+        f=xml_file.path
+        dom=minidom.parse(f)
+        position_nodes=dom.getElementsByTagName('position')
+        for position_node in position_nodes:
+            row=int(position_node.getAttribute('row'))
+            column=int(position_node.getAttribute('column'))
+            position=positions.get(row=row,column=column)
+            fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
+            type_pk=int(fuel_assembl_node.getAttribute('type'))
+            fuel_assembly_type=FuelAssemblyType.objects.get(pk=type_pk)
+            #get if bpa exists
+            try:
+                bpa_node=position_node.getElementsByTagName('burnable_poison_assembly')[0]
+                bpa_pk=int(bpa_node.firstChild.data)
+                bpa=BurnablePoisonAssembly.objects.get(pk=bpa_pk)
+            except:
+                bpa=None
+            #handle cra 
+            if position_node.hasAttribute('cr_out'):
+                cr_out=1
+            else:
+                cr_out=None
+                
+            #fresh
+            if not fuel_assembl_node.hasAttribute('pre_cycle'):
+                fuel_assembly=FuelAssemblyRepository.objects.create(type=fuel_assembly_type,unit=unit)
+            #from previous cycle             
+            else:
+                pre_row=fuel_assembl_node.getAttribute('pre_row')
+                pre_column=fuel_assembl_node.getAttribute('pre_col')
+                pre_position=positions.get(row=pre_row,column=pre_column)
+                pre_cycle_num=int(fuel_assembl_node.getAttribute('pre_cycle'))
+                pre_cycle=unit.cycles.get(cycle=pre_cycle_num)
+                loading_pattern=pre_cycle.loading_patterns.get(reactor_position=pre_position)
+                fuel_assembly= loading_pattern.fuel_assembly
+            FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=position,fuel_assembly=fuel_assembly,burnable_poison_assembly=bpa,cr_out=cr_out)
             
-        
     def __str__(self):
         return self.name
         

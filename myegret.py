@@ -27,7 +27,7 @@ parser.add_argument('--version', '-v',action='version', version='%(prog)s'+str(D
 
 parser.add_argument('--input', '-i',dest='input_file',help='input file of the %(prog)s program')
 
-parser.add_argument('--switch', '-s',type=int,choices=[191,192,193,194,195],dest='custom_version',help='switch EGRET version')
+parser.add_argument('--switch', '-s',type=int,choices=[191,192,193,194,195,196],dest='custom_version',help='switch EGRET version')
 
 parser.add_argument('--user', '-u',type=str,default=sys_user,dest='user',help='designate current user')
 args = parser.parse_args()

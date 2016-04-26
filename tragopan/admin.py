@@ -126,8 +126,11 @@ class MaterialWeightCompositionInline(admin.TabularInline):
     exclude=('remark',)
     extra=0
 
-
-    
+class MaterialVolumeCompositionInline(admin.TabularInline):
+    model=MaterialVolumeComposition
+    exclude=('remark',)
+    extra=0
+    fk_name='mixture'
 class BasicElementCompositionInline(admin.TabularInline):
     model=BasicElementComposition
     extra=3
@@ -151,8 +154,9 @@ class BasicMaterialAdmin(admin.ModelAdmin):
 admin.site.register(BasicMaterial,BasicMaterialAdmin)
 
 class MaterialAdmin(admin.ModelAdmin):
-    inlines=(MaterialWeightCompositionInline,)
+    inlines=(MaterialWeightCompositionInline,MaterialVolumeCompositionInline)
     exclude=('remark',)
+    
     list_display=('pk','__str__','is_correct',)
     
     def get_readonly_fields(self,request, obj=None):
@@ -228,7 +232,7 @@ class ReactorPositionAdmin(admin.ModelAdmin):
     exclude=('remark',)
     search_fields=('=row','=column')
     list_filter=('reactor_model__name',)
-    list_display=('reactor_model','__str__','control_rod_cluster','get_quadrant_symbol')
+    list_display=('reactor_model','__str__','control_rod_cluster','get_quadrant_symbol','in_outermost')
     list_per_page=200
     ordering=('row','column')
     
@@ -320,10 +324,8 @@ class IncoreInstrumentPositionInline(admin.TabularInline):
     
 class ReactorModelAdmin(admin.ModelAdmin):
     exclude=('remark','thermal_couple_position','incore_instrument_position')
-    inlines=[CoreBaffleInline,CoreUpperPlateInline,CoreLowerPlateInline,ThermalShieldInline,PressureVesselInline,PressureVesselInsulationInline,CoreBaffleInline,
-             ]
-    #raw_id_fields=('thermal_couple_position','incore_instrument_position')
-    list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','get_max_row_column']
+    inlines=[CoreBaffleInline,CoreUpperPlateInline,CoreLowerPlateInline,ThermalShieldInline,PressureVesselInline,PressureVesselInsulationInline,CoreBaffleInline,]
+    list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','dimension','middle','start_pos','end_pos','quarter_pos','generate_reflector_line','generate_reflector_index']
     
     def get_formsets_with_inlines(self, request, obj=None):
         for inline in self.get_inline_instances(request, obj):
@@ -371,19 +373,19 @@ class FuelAssemblyLoadingPatternInline(admin.TabularInline):
 
 class FuelAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_filter=['fuel_assembly__type','reactor_position','cycle']
-    list_display=['cycle','reactor_position','fuel_assembly','burnable_poison_assembly','control_rod_assembly','get_previous']
+    list_filter=['fuel_assembly__type','reactor_position','cycle',]
+    list_display=['cycle','reactor_position','fuel_assembly','burnable_poison_assembly','cr_out']
     list_select_related = ('cycle', 'fuel_assembly')
     raw_id_fields = ("fuel_assembly",)
     ordering=('cycle','reactor_position')
-    #list_editable=("fuel_assembly",)
-    list_per_page=121
+    #list_editable=("cr_out",)
+    list_per_page=157
 admin.site.register(FuelAssemblyLoadingPattern, FuelAssemblyLoadingPatternAdmin)
     
 class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
-    list_display=('pk','__str__','get_pre_cycle',)
+    list_display=('pk','__str__',)
     add_form_template="no_action.html"
     change_form_template="tragopan/refresh_loading_pattern.html"
     actions = ['refresh_loading_pattern']
@@ -458,8 +460,8 @@ class FuelAssemblyPositionInline(admin.TabularInline):
     
 class FuelAssemblyModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_fuel_element_num','get_guide_tube_num','get_instrument_tube_num','get_grid_material_lst')
-    inlines=[GridPositionInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline,FuelAssemblyPositionInline]
+    list_display=('__str__','get_fuel_element_num','get_wet_frac',)
+    inlines=[GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline,FuelAssemblyPositionInline]
     add_form_template="no_action.html"
     change_form_template="tragopan/distribute_tube.html"
     def get_urls(self):
@@ -721,7 +723,7 @@ class TransectionMaterialInline(admin.TabularInline):
     
 class MaterialTransectionAdmin(admin.ModelAdmin):
     inlines=[TransectionMaterialInline,]
-    list_display=('pk',"__str__","if_fuel",'if_control_rod','if_bp_rod','material_set')
+    list_display=('pk',"__str__","if_fuel",'if_control_rod','if_bp_rod','material_set','radius')
 admin.site.register(MaterialTransection, MaterialTransectionAdmin)
 
 #fuel pellet type information    
@@ -791,12 +793,6 @@ class ControlRodAssemblyTypeAdmin(admin.ModelAdmin):
     list_display=('pk','reactor_model','black_grey_rod_num','height_lst','start_index','end_index','length_lst','type_lst','get_branch_ID_set')
 admin.site.register(ControlRodAssemblyType, ControlRodAssemblyTypeAdmin)
    
-class ControlRodAssemblyAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    list_display=('__str__','cluster',)
-admin.site.register(ControlRodAssembly, ControlRodAssemblyAdmin)
-
-    
 class ControlRodClusterAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('pk','__str__','control_rod_assembly_type',)

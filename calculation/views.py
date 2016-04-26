@@ -21,6 +21,7 @@ import tempfile
 from tragopan.models import del_fieldfile
 from rest_framework import viewsets
 from django.shortcuts import get_object_or_404
+from orient.settings import MEDIA_URL
 @api_view(('POST','GET','DELETE','PUT'))
 @parser_classes((FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
@@ -97,16 +98,13 @@ def egret_task(request,format=None):
             error_message={'error_message':'the operation type is not supported yet'}
             return Response(data=error_message,status=404)
         
-        
-     
     if request.method == 'GET':
         try:
             query_params=request.query_params
             pk=query_params['pk'] 
             loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
             user=request.user
-            same_group_users=get_same_group_users(user)  
-                 
+            same_group_users=get_same_group_users(user)   
             task_list=EgretTask.objects.filter(Q(user__in=same_group_users)&Q(visibility=2)|Q(user=user)|Q(visibility=3),Q(loading_pattern=loading_pattern)|(Q(task_type='SEQUENCE')&Q(pre_egret_task__loading_pattern=loading_pattern)))
             if task_list is None:
                 return Response(data={})
@@ -153,19 +151,17 @@ def egret_task(request,format=None):
             task_instance.save()
             current_workdirectory=task_instance.get_cwd()
             task_instance.save()
-            
+            base_dir=task_instance.get_base_dir()
+            #loading pattern xml in the upper directory
+            os.chdir(base_dir)
+            task_instance.generate_loading_pattern_xml()
             #change directory to current task directory
             os.chdir(current_workdirectory)
-            
-            #generate loading pattern xml
-            task_instance.generate_loading_pattern_xml()
-           
+         
             #generate myegret xml
             task_instance.generate_runegret_xml()
-       
             #copy the files to current working directory
             task_instance.cp_lp_res_file()
-                
             #begin egret calculation
             task_instance.start_calculation(countdown=countdown)
         
@@ -220,7 +216,10 @@ def egret_task(request,format=None):
             elif int(update_type)==2:
                 
                 assert task_instance.locked==False, 'The task to be recalculated is locked'
-
+                
+                if task_instance.post_egret_tasks.all().exists():
+                    error_message={'error_message':'The task is referenced by other tasks'}
+                    return Response(data=error_message,status=404)
                 data=request.data
                 input_file=data['file']
                 remark=query_params['remark']
@@ -235,10 +234,30 @@ def egret_task(request,format=None):
                 #prepare for calculation
                 current_workdirectory=task_instance.get_cwd()
                 os.chdir(current_workdirectory)
+                #copy the files to current working directory
+                task_instance.cp_lp_res_file()
+                #cp .NEW to current .workspace
+                task_instance.cp_NEM_file()
+                #link LP to cwd
+                task_instance.link_lp_file()
+                #cp .CASE .RES from last calculation
+                task_instance.cp_case_res_file()
                 #generate myegret xml    
                 task_instance.generate_runegret_xml(restart=1)
                 task_instance.start_calculation(countdown=countdown)
                 success_message={'success_message':'your request has been handled successfully','get_input_filename':task_instance.get_input_filename()}
+                success_message['egret_input_file']=task_instance.egret_input_file.url
+                #wait until myegret.log exists
+                myegret_log=os.path.join(current_workdirectory,'myegret.log')
+                log_status=os.path.isfile(myegret_log)    
+                log_index=0
+                max_circle=100
+                while not log_status:
+                    time.sleep(0.1)
+                    log_index +=1
+                    log_status=os.path.isfile(myegret_log)
+                    if log_index==max_circle:
+                        break
                 return Response(data=success_message,status=200,)
                 
             #3 represent that you want to deepcopy the task 
@@ -256,7 +275,27 @@ def egret_task(request,format=None):
                 
                 success_message={'success_message':'your request has been handled successfully',}
                 return Response(data=success_message,status=200,)
-            
+            #4 represent you want to roll back recalculation
+            elif int(update_type)==4:
+                depth=task_instance.recalculation_depth
+                min_num=task_instance.min_avail_subtask_num
+                if depth<min_num:
+                    error_message={'error_message':'can not roll back'}
+                    return Response(data=error_message,status=404)
+                
+                if task_instance.post_egret_tasks.all().exists():
+                    error_message={'error_message':'The task is referenced by other tasks'}
+                    return Response(data=error_message,status=404)
+                cwd=task_instance.get_cwd()
+                shutil.rmtree(cwd)  
+                all_input_files=task_instance.all_input_files
+                new_input_file=all_input_files[-2]
+                prefix=MEDIA_URL
+                task_instance.egret_input_file.name=new_input_file[len(prefix):]
+                task_instance.recalculation_depth=depth-1
+                task_instance.save()
+                success_message={'success_message':'your request has been handled successfully',}
+                return Response(data=success_message,status=200,)
             else:
                 error_message={'error_message':'the updated type is not supported yet'}
                 return Response(data=error_message,status=404)
@@ -264,6 +303,7 @@ def egret_task(request,format=None):
                 
         except Exception as e:
             error_message={'error_message':e}
+            print(error_message)
             return Response(data=error_message,status=404)
             
         
@@ -328,13 +368,21 @@ def multiple_loading_pattern(request,format=None):
             return Response(data={},status=200)
     
     if request.method == 'PUT':
-        
         file=data['file']
         name=request.query_params['name']
         try:
             loading_pattern=MultipleLoadingPattern.objects.get(name=name,cycle=cycle,user=request.user,)
         except Exception as e:
             return Response(data={'error_message':e},status=404)
+        #check if has permission
+        if request.user!=mlp.user and (not request.user.is_superuser) or mlp.authorized:
+            error_message={'error_message':"you have no permission"}
+            return Response(data=error_message,status=550)
+        
+        if loading_pattern.post_loading_patterns.all().exists():
+            error_message={'error_message':'The loading pattern is referenced by other loading patterns'}
+            return Response(data=error_message,status=404)
+        
         loading_pattern.xml_file.delete()
         del_fieldfile.send(sender=MultipleLoadingPattern,pk=loading_pattern.pk)
         loading_pattern.xml_file=file

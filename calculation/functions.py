@@ -5,14 +5,14 @@ from django.conf import settings
 from tragopan.models import ControlRodCluster
 media_root=settings.MEDIA_ROOT
 
-def generate_base_core(unit):
+def generate_base_core(unit,calc_data):
     plant=unit.plant
     plant_name=plant.abbrEN
     reactor_model=unit.reactor_model
     reactor_positions=reactor_model.positions.all()
     basecore_id=reactor_model.name
     core_type=reactor_model.reactor_type 
-    max_row=reactor_model.get_max_row_column()[0]
+    max_row=reactor_model.dimension
     fuel_pitch=reactor_model.fuel_pitch
     active_height=reactor_model.active_height
     #start xml 
@@ -158,22 +158,6 @@ def generate_base_core(unit):
     
     egret_calc_xml=doc.createElement('egret_calc')
     base_core_xml.appendChild(egret_calc_xml)
-    if plant_name=='QNPC_I':
-        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'15.263','top_br_size':'15.263','fold_core':'1','axial_df':'0','axial_mesh':'15.3',
-                   'cyclen_std_bu':'50.0 150.0 500.0 1000.0 2000.0 3000.0 5000.0 7000.0 10000.0 13000.0 16000.0 20000.0 24000.0 28000.0 ',
-        }
-    elif plant_name=='FJS':
-        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20.0',
-                   'cyclen_std_bu':'50.0 150.0 500.0 1000.0 2000.0 3000.0 5000.0 7000.0 10000.0 13000.0 16000.0 20000.0 24000.0 28000.0 ',
-        }  
-    
-    elif plant_name=='QNPC_II':
-        calc_data={'subdivision':'2','num_radial_brs':'2','bot_br_size':'19.251','top_br_size':'19.251','fold_core':'1','axial_df':'1','axial_mesh':'20',
-                   'cyclen_std_bu':'50.0 150.0 500.0 1000.0 2000.0 3000.0 5000.0 7000.0 10000.0 13000.0 16000.0 20000.0 24000.0 28000.0 ',
-        }
-        
-    else:
-        pass
     
     for key,value in calc_data.items():
         key_xml=doc.createElement(key)
@@ -183,55 +167,29 @@ def generate_base_core(unit):
     #reflector
     reflector_xml=doc.createElement('reflector')
     base_core_xml.appendChild(reflector_xml)
+    #bottom
+    bot_br=doc.createElement('bot_br')
+    bot_br.appendChild(doc.createTextNode('BR_BOT'))  
+    reflector_xml.appendChild(bot_br)   
+    #top
+    top_br=doc.createElement('top_br')
+    top_br.appendChild(doc.createTextNode('BR_TOP'))  
+    reflector_xml.appendChild(top_br) 
+    #radial inner part
+    inner_reflector_index=reactor_model.generate_reflector_index(outer=False)
+    inner_reflector_str=['BR'+str(i) for i in inner_reflector_index]
+    inner_radial_br_xml=doc.createElement('radial_br')
+    inner_radial_br_xml.setAttribute('index', '1')
+    inner_radial_br_xml.appendChild(doc.createTextNode(' '.join(inner_reflector_str)))
+    reflector_xml.appendChild(inner_radial_br_xml)
+    #radial outer part
+    outer_reflector_index=reactor_model.generate_reflector_index(outer=True)
+    outer_reflector_str=['BR'+str(i) for i in outer_reflector_index]
+    outer_radial_br_xml=doc.createElement('radial_br')
+    outer_radial_br_xml.setAttribute('index', '2')
+    outer_radial_br_xml.appendChild(doc.createTextNode(' '.join(outer_reflector_str)))
+    reflector_xml.appendChild(outer_radial_br_xml)
     
-    if plant_name=='QNPC_I':
-        reflector_data={'bot_br':'BR_BOT',
-                        'top_br':'BR_TOP',
-                        'radial_br':[('BR3  BR3  BR3  BR9  BR6  BR5  BR7  BR3  BR3  BR9  BR6  BR5  BR7  BR9',{'index':'1'}),
-                                     ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12',{'index':'2'})]
-        }
-    elif plant_name=='FJS':
-        reflector_data={'bot_br':'BR_BOT',
-                        'top_br':'BR_TOP',
-                        'radial_br':[('BR3  BR3  BR3  BR9  BR6  BR5  BR7  BR3  BR3  BR9  BR6  BR5  BR7  BR9  BR6 BR5',{'index':'1'}),
-                                     ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12 BR11 BR8 ',{'index':'2'})]
-        }
-        
-    elif plant_name=='QNPC_II':
-        reflector_data={'bot_br':'BR_BOT',
-                        'top_br':'''BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP
-                        BR_TOP BR_TOP BR_TOP''',
-                        'radial_br':[('BR3  BR3  BR3  BR9  BR6  BR5  BR7  BR3  BR3  BR9  BR6  BR5  BR7  BR9 ',{'index':'1'}),
-                                     ('BR4  BR4  BR4 BR10 BR12 BR11  BR8  BR4  BR4 BR10 BR12 BR11  BR8 BR10 BR12',{'index':'2'})]
-        }  
-    else:
-        pass  
-    
-    for key,value in reflector_data.items():
-        if type(value)==str:
-            key_xml=doc.createElement(key)
-            key_xml.appendChild(doc.createTextNode(value))
-            reflector_xml.appendChild(key_xml)
-        else:
-            for item in value:
-                key_xml=doc.createElement(key)
-                key_xml.appendChild(doc.createTextNode(item[0]))
-                try:
-                    attr_dic=item[1]
-                    for attr_key,attr_value in attr_dic.items():
-                        key_xml.setAttribute(attr_key,attr_value)
-                except:
-                    pass
-                
-                reflector_xml.appendChild(key_xml)
-                
     unit_dir=unit.unit_dir
     file_path=os.path.join(unit_dir,'base_core.xml')
     try:

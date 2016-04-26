@@ -1,27 +1,18 @@
 from rest_framework import serializers
-from tragopan.models import Element,ReactorPosition,FuelAssemblyLoadingPattern,Plant,UnitParameter,BurnablePoisonAssembly,\
-ControlRodAssembly,Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster,OperationDailyParameter,ControlRodAssemblyStep
-
-class ElementSerializer(serializers.ModelSerializer):
-    
-    class Meta:
-        model = Element
-        fields = ('atomic_number', 'symbol', 'nameCH', 'nameEN', 'reference', )
-        
-        
+from tragopan.models import ReactorPosition,FuelAssemblyLoadingPattern,Plant,UnitParameter,BurnablePoisonAssembly,\
+Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster,OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyPosition
+       
 class ReactorPositionSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ReactorPosition
         fields = ( 'row','column', )
-  
-
         
 class PlantSerializer(serializers.ModelSerializer):
     
     class Meta:
         model =  Plant
-        fields = ( 'abbrEN','pk')       
+        fields = ( 'abbrEN','pk','abbrCH')       
         
 class UnitParameterSerializer(serializers.ModelSerializer):
     plant=PlantSerializer()
@@ -35,81 +26,51 @@ class BurnablePoisonAssemblySerializer(serializers.ModelSerializer):
         model = BurnablePoisonAssembly
         fields = ( 'get_poison_rod_num','get_poison_rod_height',)
    
-# class BurnablePoisonAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
-#     reactor_position=ReactorPositionSerializer()
-#     burnable_poison_assembly=BurnablePoisonAssemblySerializer()
-#     class Meta:
-#         model = BurnablePoisonAssemblyLoadingPattern
-#         fields = ( 'reactor_position','burnable_poison_assembly')
-        
-        
+
+         
 class ControlRodClusterSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ControlRodCluster
         fields = ( 'cluster_name',) 
         
-class ControlRodAssemblySerializer(serializers.ModelSerializer):
-    
-    class Meta:
-        model = ControlRodAssembly
-        fields = ( 'cluster','pk')        
-
-# class ControlRodAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
-#     reactor_position=ReactorPositionSerializer()
-#     control_rod_assembly=ControlRodAssemblySerializer()
+# class ControlRodAssemblySerializer(serializers.ModelSerializer):
 #     
 #     class Meta:
-#         model = ControlRodAssemblyLoadingPattern
-#         fields = ( 'reactor_position','control_rod_assembly')       
+#         model = ControlRodAssembly
+#         fields = ( 'cluster','pk')        
 
 
-        
 
-class GridListingField(serializers.RelatedField):
     
-    def to_representation(self, value):
-        
-        return "{}~width~{}".format(value.functionality ,value.sleeve_height)
-
-        
-
-class GridSerializer(serializers.ModelSerializer):
-    
-    class Meta:
-        model = Grid
-        fields = ( 'side_length','sleeve_height','functionality')   
-        
-class GridPositionSerializer(serializers.ModelSerializer):
-    grid=GridListingField(read_only=True,)
-    class Meta:
-        model = GridPosition
-        fields = ( 'height','grid')
-
-class GridPositionListingField(serializers.RelatedField):
-    
-    def to_representation(self, value):
-        
-        return "{}~hight~{}~width~{}".format(value.grid.functionality, value.height,value.grid.sleeve_height)
-         
-        
 class FuelAssemblyModelSerializer(serializers.ModelSerializer): 
-     
-    #grids=GridPositionSerializer(many=True, read_only=True)
-    
     class Meta:
         model = FuelAssemblyModel
         fields = ( 'name','active_length',)     
         
-        
-class BaseFuelAssemblySerializer(serializers.ModelSerializer):
-    model=FuelAssemblyModelSerializer()
-    
+
+class GridSerializer(serializers.ModelSerializer):
     class Meta:
-        model = FuelAssemblyType
-        fields = ( 'assembly_enrichment','model','name')
+        model = Grid
+        fields = ('sleeve_height','functionality','sleeve_material')   
+        depth=1
+        
+class GridPositionSerializer(serializers.ModelSerializer):
+    grid=GridSerializer()
+    class Meta:
+        model = GridPosition
+        fields = ( 'height','grid')
+class FuelAssemblyPositionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model=FuelAssemblyPosition
+        fields = ( 'row','column','type')
 
-
+class FuelAssemblyModelPlusSerializer(serializers.ModelSerializer):
+    grid_positions=GridPositionSerializer(many=True, read_only=True)
+    positions=FuelAssemblyPositionSerializer(many=True, read_only=True)
+    class Meta:
+        model=FuelAssemblyModel
+        fields=('pk','name','active_length','grid_positions','positions')
         
 ################################################# 
 class CycleListSerializer(serializers.ModelSerializer):
@@ -117,11 +78,15 @@ class CycleListSerializer(serializers.ModelSerializer):
         model = Cycle
         fields = ( 'cycle',)
         
+class CycleSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cycle
+        fields = ('unit' ,'cycle',)
 class UnitParameterListSerializer(serializers.ModelSerializer):
     cycles=CycleListSerializer(many=True, read_only=True)
     class Meta:
         model = UnitParameter
-        fields = ( 'unit','cycles')
+        fields = ( 'pk','unit','cycles')
 
  
    
@@ -129,7 +94,7 @@ class PlantListSerializer(serializers.ModelSerializer):
     units=UnitParameterListSerializer(many=True, read_only=True)
     class Meta:
         model =  Plant
-        fields = ( 'abbrEN','units','pk')
+        fields = ( 'abbrEN','units','pk','abbrCH')
         
 class FuelAssemblyTypeSerializer(serializers.ModelSerializer):
     model=FuelAssemblyModelSerializer()

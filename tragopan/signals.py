@@ -13,7 +13,7 @@ def parse_raw_file(sender, instance, created=False, **kwargs):
         plant=unit.plant
         reactor_model=unit.reactor_model
         reactor_positions=reactor_model.positions.all()
-        core_max=reactor_model.get_max_row_column()[0]
+        core_max=reactor_model.dimension
         
         #parse the file
         handler=OperationDataHandler(plant.abbrEN,unit.unit,cycle.cycle,core_max,file_path)
