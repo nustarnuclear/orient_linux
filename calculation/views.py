@@ -205,9 +205,14 @@ def egret_task(request,format=None):
                 if not request.user.is_superuser:
                     error_message={'error_message':"you have no permission"}
                     return Response(data=error_message,status=550)
+                
+                if EgretTask.objects.filter(loading_pattern=task_instance.loading_pattern,authorized=True).exists():
+                    error_message={'error_message':'One loading pattern can only have one authorized task'}
+                    return Response(data=error_message,status=404)
                     
                 task_instance.authorized=int(authorized)
                 task_instance.task_name=task_name
+                task_instance.full_clean()
                 task_instance.save()          
                 success_message={'success_message':'your request has been handled successfully'}
                 return Response(data=success_message,status=200,)
@@ -217,7 +222,7 @@ def egret_task(request,format=None):
                 
                 assert task_instance.locked==False, 'The task to be recalculated is locked'
                 
-                if task_instance.post_egret_tasks.all().exists():
+                if task_instance.post_egret_tasks.filter(task_type='FOLLOW').exists():
                     error_message={'error_message':'The task is referenced by other tasks'}
                     return Response(data=error_message,status=404)
                 data=request.data
@@ -230,6 +235,7 @@ def egret_task(request,format=None):
                 task_instance.task_status=0
                 task_instance.start_time=None
                 task_instance.end_time=None
+                task_instance.full_clean()
                 task_instance.save()
                 #prepare for calculation
                 current_workdirectory=task_instance.get_cwd()
@@ -262,16 +268,17 @@ def egret_task(request,format=None):
                 
             #3 represent that you want to deepcopy the task 
             elif int(update_type)==3: 
-                cwd=task_instance.get_cwd()
+                base_dir=task_instance.get_base_dir()
                 name=task_instance.task_name
                 task_instance.pk=None
+                task_instance.user=request.user
                 new_name=query_params['task_name']
                 task_instance.task_name=new_name
                 task_instance.egret_input_file.name=task_instance.egret_input_file.name.replace(name,new_name)
                 task_instance.save()
                 #copy the files
-                new_cwd=os.path.join(os.path.dirname(cwd),new_name)
-                shutil.copytree(cwd, new_cwd, symlinks=True,)
+                new_cwd=os.path.join(os.path.dirname(base_dir),new_name)
+                shutil.copytree(base_dir, new_cwd, symlinks=True,)
                 
                 success_message={'success_message':'your request has been handled successfully',}
                 return Response(data=success_message,status=200,)
@@ -283,7 +290,7 @@ def egret_task(request,format=None):
                     error_message={'error_message':'can not roll back'}
                     return Response(data=error_message,status=404)
                 
-                if task_instance.post_egret_tasks.all().exists():
+                if task_instance.post_egret_tasks.exclude(task_type='SEQUENCE').exists():
                     error_message={'error_message':'The task is referenced by other tasks'}
                     return Response(data=error_message,status=404)
                 cwd=task_instance.get_cwd()
@@ -346,15 +353,20 @@ def multiple_loading_pattern(request,format=None):
     if request.method == 'POST':
         file=data['file']
         name=request.query_params['name']
-        try:
-            pre_pk=request.query_params['pre_pk']
-            pre_loading_pattern=MultipleLoadingPattern.objects.get(pk=pre_pk)
-            mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle,pre_loading_pattern=pre_loading_pattern)
-        except:
-            mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle)
-        mlp.save()
-        success_message={'success_message':'your request has been handled successfully','pk':mlp.pk}
-        return Response(data=success_message,status=200)
+        try:   
+            if 'pre_pk' in request.query_params:
+                pre_pk=request.query_params['pre_pk']
+                pre_loading_pattern=MultipleLoadingPattern.objects.get(pk=pre_pk)
+                mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle,pre_loading_pattern=pre_loading_pattern)
+            else:
+                mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle)
+            mlp.full_clean()
+            mlp.save()
+            success_message={'success_message':'your request has been handled successfully','pk':mlp.pk}
+            return Response(data=success_message,status=200)
+        except Exception as e:
+            error_message={'error_message':e}
+            return Response(data=error_message,status=404)
     
     if request.method=='GET':
         user=request.user
@@ -386,6 +398,7 @@ def multiple_loading_pattern(request,format=None):
         loading_pattern.xml_file.delete()
         del_fieldfile.send(sender=MultipleLoadingPattern,pk=loading_pattern.pk)
         loading_pattern.xml_file=file
+        loading_pattern.full_clean()
         loading_pattern.save()
         success_message={'success_message':'your request has been handled successfully'}
         return Response(data=success_message,status=200)
@@ -421,8 +434,8 @@ def upload_loading_pattern(request,format=None):
             loading_pattern_xml.setAttribute('plant_name', str(plantname))
             loading_pattern_xml.setAttribute('unit_num', str(unit_num))
             doc.appendChild(loading_pattern_xml)
-            fuel_xml = doc.createElement("fuel")
-            loading_pattern_xml.appendChild(fuel_xml)
+#             fuel_xml = doc.createElement("fuel")
+#             loading_pattern_xml.appendChild(fuel_xml)
             for item in data:
                 [n,row,column,position_or_type]=item.split()
                 
@@ -434,7 +447,7 @@ def upload_loading_pattern(request,format=None):
                     error_message={'error_message':e}
                     return Response(data=error_message,status=404)
             
-                fuel_xml.appendChild(position_node)
+                loading_pattern_xml.appendChild(position_node)
             
             #create a temporary file 
             f = tempfile.TemporaryFile(mode='w+')
@@ -502,7 +515,11 @@ def extra_updating(request,format=None):
                     return Response(data=error_message,status=550)
                 
                 target.authorized=update_value
-                target.save()  
+                target.save() 
+                #write xml file to database
+                if target_type==2:
+                    target.write_to_database()
+                 
             else:
                 error_message={'error_message':'the update type is not supported'}
                 return Response(data=error_message,status=404)

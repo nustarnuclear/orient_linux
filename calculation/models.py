@@ -527,14 +527,14 @@ class PreRobinBranch(models.Model):
         base_lst=self.get_base_lst(boron_density)
         if option=='HCB':
             base=base_lst[0]
-            HCB_lst=[0,500,1000,1500,2000]
+            HCB_lst=[0,500,1000,1500,2000,2400]
             if base in HCB_lst:
                 HCB_lst.remove(base)
             return HCB_lst
         
         elif option=='HTF':
             base=base_lst[1]
-            interval=200
+            interval=150
             
         elif option=='HTM':
             base=base_lst[2]
@@ -1740,7 +1740,7 @@ class PreRobinTask(BaseModel):
         f.write("10 80 150\n")
         f.write("ptc_deltaT(0:N_PTC_BU)\n")
         enrichment=fuel_assembly_type.assembly_enrichment
-        if enrichment>=Decimal(3.1):
+        if enrichment<=Decimal(3.1):
             f.write("292 292 260 260\n")
         else:
             f.write("292 292 292 292\n")
@@ -2217,7 +2217,7 @@ class CoreBaffleCalculation(models.Model):
             model_types=CoreBaffleCalculation.MODEL_TYPES
             index=model_types.index(model_type)
             server=first_server.next(index)
-            if server.name=='Node1':
+            if server.name=='Node4':
                 server=server.next()
         RobinTask.objects.get_or_create(name=model_type,core_baffle_calc=self,input_file=File(f),server=server)
         f.close()
@@ -2412,7 +2412,12 @@ class EgretTask(BaseModel):
                 raise ValidationError({
                                        'loading_pattern':_('you donnot need to provide a loading pattern when processing sequence task'),                
                 })
-                
+        #check the authorize permission
+        if self.authorized:
+            if not self.loading_pattern.authorized:
+                raise ValidationError({
+                                       'authorized':_('you can only authorize a task based on the authorized loading pattern'),                
+                })
             
     MAX_DEPTH_SAVED=5
     def clear_extra_subtasks(self):
@@ -2432,7 +2437,7 @@ class EgretTask(BaseModel):
             #rm .NEM
             os.chdir('.workspace')        
             os.remove('.NEM')
-            #if rm subtaski you need to set min_avail_subtask_num to i+1
+            #if rm subtask you need to set min_avail_subtask_num to i+1
             self.min_avail_subtask_num=index+1
             self.save()
               
@@ -2751,7 +2756,6 @@ class MultipleLoadingPattern(BaseModel):
     pre_loading_pattern=models.ForeignKey('self',related_name='post_loading_patterns',blank=True,null=True)
     cycle=models.ForeignKey('tragopan.Cycle')
     xml_file=models.FileField(upload_to=get_custom_loading_pattern)
-    #from_database=models.BooleanField(default=False)
     authorized=models.BooleanField(default=False)
     visibility=models.PositiveSmallIntegerField(choices=VISIBILITY_CHOICES,default=3)
     class Meta:
@@ -2759,24 +2763,25 @@ class MultipleLoadingPattern(BaseModel):
         unique_together=('user','name')
     
     def clean(self):
-        #handle current cycle
-        if MultipleLoadingPattern.objects.filter(cycle=self.cycle,authorized=True).exists():
-            raise ValidationError({
-                                  'authorized':_('A cycle can not have more than one authorized loading pattern'),                
-            }) 
-        #handle previous cycle
-        pre_loading_pattern=self.pre_loading_pattern
-        if pre_loading_pattern:
-            if not pre_loading_pattern.authorized:
+        if self.authorized:
+            #handle current cycle
+            if MultipleLoadingPattern.objects.filter(cycle=self.cycle,authorized=True).exists():
                 raise ValidationError({
-                                  'authorized':_('You can not authorized a loading pattern if his previous loading pattern is not authorized'),                
+                                      'authorized':_('A cycle can not have more than one authorized loading pattern'),                
                 }) 
-        else:
-            pre_cycle=self.cycle.get_pre_cycle
-            if pre_cycle and not MultipleLoadingPattern.objects.filter(cycle=pre_cycle,authorized=True).exists():
-                raise ValidationError({
-                                  'authorized':_('You can not authorized a loading pattern if his previous loading pattern is not authorized'),                
-                })       
+            #handle previous cycle
+            pre_loading_pattern=self.pre_loading_pattern
+            if pre_loading_pattern:
+                if not pre_loading_pattern.authorized:
+                    raise ValidationError({
+                                      'authorized':_('You can not authorized a loading pattern if his previous loading pattern is not authorized'),                
+                    }) 
+            else:
+                pre_cycle=self.cycle.get_pre_cycle
+                if pre_cycle and not MultipleLoadingPattern.objects.filter(cycle=pre_cycle,authorized=True).exists():
+                    raise ValidationError({
+                                      'authorized':_('You can not authorized a loading pattern if his previous loading pattern is not authorized'),                
+                    })       
             
     
     @property
@@ -2792,7 +2797,7 @@ class MultipleLoadingPattern(BaseModel):
         f=xml_file.path
         dom=minidom.parse(f)
         position_nodes=dom.getElementsByTagName('position')
-        cr_lst=[]
+        cr_dic={}
         for position_node in position_nodes:
             #handle cra 
             cr_out=True if position_node.hasAttribute('cr_out') else False
@@ -2801,11 +2806,14 @@ class MultipleLoadingPattern(BaseModel):
             position=positions.get(row=row,column=column)
             control_rod_cluster=position.control_rod_cluster
             if control_rod_cluster and (not cr_out):
-                cr_id=control_rod_cluster.control_rod_assembly_type.cr_id
-                cr_lst.append(cr_id)
-            else:
-                cr_lst.append('0')
+                cr_id=control_rod_cluster.control_rod_assembly_type.cr_id 
                 
+            else:
+                cr_id='0'
+            cr_dic[(row,column)]=cr_id         
+        key_sorted=sorted(cr_dic)
+        cr_lst=[cr_dic[i] for i in key_sorted]
+              
         doc = minidom.Document()
         control_rod_xml=doc.createElement('control_rod ')
         control_rod_xml.setAttribute('cycle', str(cycle.cycle))
@@ -2920,6 +2928,7 @@ class MultipleLoadingPattern(BaseModel):
 
     def write_to_database(self):
         cycle=self.cycle
+        loading_pattern_name=cycle.loading_pattern_name
         xml_file=self.xml_file
         unit=cycle.unit
         reactor_model=unit.plant.reactor_model
@@ -2960,7 +2969,9 @@ class MultipleLoadingPattern(BaseModel):
                 loading_pattern=pre_cycle.loading_patterns.get(reactor_position=pre_position)
                 fuel_assembly= loading_pattern.fuel_assembly
             FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=position,fuel_assembly=fuel_assembly,burnable_poison_assembly=bpa,cr_out=cr_out)
-            
+        self.name=loading_pattern_name 
+        self.save()
+        
     def __str__(self):
         return self.name
         

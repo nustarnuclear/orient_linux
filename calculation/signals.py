@@ -53,3 +53,7 @@ def del_loading_pattern_xml(sender, **kwargs):
         os.remove(filepath)
     except:
         pass
+    
+   
+    
+    

@@ -260,52 +260,42 @@ def position_node_by_excel(cycle,row,column,position_or_type):
     fuel_assembly_node=doc.createElement("fuel_assembly")
     position_node.appendChild(fuel_assembly_node)
     
-    
     try:
         #fresh
         type_id=int(position_or_type)
-        
         fat=FuelAssemblyType.objects.get(pk=type_id)
-        #first node
-        first_node=doc.createElement("first")
-        first_node.setAttribute('row', str(row))
-        first_node.setAttribute('column', str(column))
-        first_node.appendChild(doc.createTextNode(str(cycle.cycle)))
+        first_row=row
+        first_col=column
+        first_cycle=cycle.cycle
+
+        
+
     except ValueError:
         [pre_row,pre_column]=position_or_type.split(sep='_')
-       
-        pre_falp=cycle.get_loading_pattern_by_pos(int(pre_row),int(pre_column))
-       
-        #previous node 
-        previous_node=doc.createElement("previous")
-        previous_node.setAttribute('row', pre_row)
-        previous_node.setAttribute('column', pre_column)
-        previous_node.appendChild(doc.createTextNode(str(cycle.cycle)))
-        position_node.appendChild(previous_node)
-       
-        fa=pre_falp.fuel_assembly
+        fuel_assembly_node.setAttribute('pre_cycle',str(cycle.cycle))
+        fuel_assembly_node.setAttribute('pre_row',str(pre_row))
+        fuel_assembly_node.setAttribute('pre_col',str(pre_column))
         
-            
+        pre_falp=cycle.get_loading_pattern_by_pos(int(pre_row),int(pre_column))
+        fa=pre_falp.fuel_assembly
+        fat=fa.type
+        type_id=fat.pk   
+  
         first_loading_pattern=fa.get_first_loading_pattern()
         first_positon=first_loading_pattern.reactor_position
         first_cycle=first_loading_pattern.cycle
-        #firt node
-        first_node=doc.createElement("first")
-        first_node.setAttribute('row', str(first_positon.row))
-        first_node.setAttribute('column', str(first_positon.column))
-        first_node.appendChild(doc.createTextNode(str(first_cycle.cycle)))
-        
-        id=fa.pk
-        
-        fuel_assembly_node.setAttribute('id', str(id))
-        fat=fa.type
-        type_id=fat.pk
-    
-    position_node.appendChild(first_node)
-    
-    enrichment=fat.assembly_enrichment
-    fuel_assembly_node.setAttribute('enrichment', str(enrichment))
-    fuel_assembly_node.appendChild(doc.createTextNode(str(type_id)))
+        first_row=first_positon.row
+        first_col=first_positon.column
+        first_cycle=first_cycle.cycle
+
+        fuel_assembly_node.appendChild(doc.createTextNode(str(fa.pk)))
+
+    fuel_assembly_node.setAttribute('first_cycle',str(first_cycle))
+    fuel_assembly_node.setAttribute('first_row',str(first_row))
+    fuel_assembly_node.setAttribute('first_col',str(first_col))
+    fuel_assembly_node.setAttribute('type',str(type_id))
+    fuel_assembly_node.setAttribute('name',fat.model.name)
+    fuel_assembly_node.setAttribute('enrichment',str(fat.assembly_enrichment))
     
     return position_node
     

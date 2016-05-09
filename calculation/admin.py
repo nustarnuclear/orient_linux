@@ -9,11 +9,6 @@ from django.contrib import messages
 from django.utils.html import format_html
 from django.template.response import TemplateResponse
 # Register your models here.
-
-class ServerAdmin(admin.ModelAdmin):
-    list_display=("name","IP","queue",'next')
-admin.site.register(Server,ServerAdmin)
-
 class PreRobinModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
     
@@ -98,6 +93,7 @@ class PreRobinInputAdmin(admin.ModelAdmin):
     inlines=[AssemblyLaminationInline,]
     list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already',)
     list_filter=("unit",'fuel_assembly_type','burnable_poison_assembly',)
+    actions=['auto_cut_selected_inputs']
     def get_urls(self):
         urls = super(PreRobinInputAdmin, self).get_urls()
         my_urls = [
@@ -151,6 +147,14 @@ class PreRobinInputAdmin(admin.ModelAdmin):
                 num+=1
         self.message_user(request, '%s base fuels(s) auto cut successfully'%num)
         return redirect(reverse("admin:calculation_prerobininput_changelist"))
+    
+    def auto_cut_selected_inputs(self, request, queryset):
+        num=0
+        for obj in queryset:
+            if not obj.cut_already():
+                obj.create_task()
+                num+=1
+        self.message_user(request, '%s base fuels(s) auto cut successfully'%num)
     #########################################################################################
     def refresh_base_component_link_view(self,request, *args, **kwargs):
         context={"reactor_model_form":ReactorModelForm}
@@ -227,8 +231,9 @@ class RobinTaskInline(admin.TabularInline):
     model=RobinTask
     extra=0
     fields = ('name', 'input_file','server', 'task_status','start_time','end_time','logfile_link','outfile_link')
-    readonly_fields=('name','pre_robin_task','input_file','task_status','start_time','end_time','logfile_link','outfile_link')
+    readonly_fields=('name','pre_robin_task','input_file','start_time','end_time','logfile_link','outfile_link')
     #readonly_fields=('logfile_link','outfile_link')
+    list_editable=('task_status',)
     def has_add_permission(self,request):
         return False
     
@@ -253,7 +258,7 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
     actions = ['auto_start_prerobin','del_all_robin_tasks','auto_start_robin','auto_start_idyll']
-    list_filter=("plant",)
+    list_filter=("plant","task_status")
     def auto_start_prerobin(self, request, queryset):
         index=0
         for obj in queryset.exclude(task_status=4):
@@ -460,7 +465,7 @@ admin.site.register(CoreBaffleCalculation, CoreBaffleCalculationAdmin)
 
 class EgretTaskAdmin(admin.ModelAdmin):  
     exclude=('remark',)
-    list_display=('pk','user','task_name','task_type','start_time','end_time','time_cost','task_status','remark','recalculated','locked','all_input_files','all_result_files')
+    list_display=('pk','user','task_name','task_type','start_time','end_time','time_cost','task_status','remark','recalculated','locked','get_base_dir')
     list_filter=('loading_pattern__cycle','loading_pattern__cycle__unit','loading_pattern__cycle__unit__plant')
     
     def get_queryset(self, request):
@@ -469,6 +474,11 @@ class EgretTaskAdmin(admin.ModelAdmin):
             return qs
         return qs.filter(user=request.user)
 admin.site.register(EgretTask, EgretTaskAdmin)
+
+class ServerAdmin(admin.ModelAdmin):
+    list_display=("name","IP","queue",'next')
+    inlines=[RobinTaskInline,]
+admin.site.register(Server,ServerAdmin)
 
 class MultipleLoadingPatternAdmin(admin.ModelAdmin): 
     exclude=('remark',) 

@@ -21,47 +21,130 @@ class CustomIndexDashboard(Dashboard):
     def init_with_context(self, context):
         site_name = get_admin_site_name(context)
         
-        # append a group for "Administration" & "Applications"
         self.children.append(modules.Group(
-            _('Group: Administration & Applications'),
+            _('ROBIN & EGRET'),
             column=1,
             collapsible=True,
             children = [
-                modules.AppList(
-                    _('Administration'),
-                    collapsible=True,
-                    models=('django.contrib.*',),
+                modules.ModelList(
+                    _('ROBIN'),
+                    css_classes=('grp-background-color grp-yellow',),
+                    models=('calculation.models.*Robin*','calculation.models.Server','calculation.models.CoreBaffleCalculation'),
                 ),
-                modules.AppList(
-                    _('Applications'),
-                    css_classes=('collapse closed',),
-                    exclude=('django.contrib.*','rest_framework.authtoken.*',),
+                modules.ModelList(
+                    _('EGRET'),
+                    css_classes=('grp-collapse grp-closed',),
+                    models=('calculation.models.*Egret*','calculation.models.MultipleLoadingPattern',),
                 ),
+                         
             ]
         ))
         
-        # append an app list module for "Applications"
-        #self.children.append(modules.AppList(
-        #    _('AppList: Applications'),
-        #    collapsible=True,
-        #    column=1,
-        #    css_classes=('collapse closed',),
-        #    exclude=('django.contrib.*',),
-        #))
-        
+#         # append a group for "Administration" & "Applications"
 #         self.children.append(modules.Group(
-#             _('Group: ROBIN & EGRET'),
+#             _('Group: Administration'),
 #             column=2,
 #             collapsible=True,
 #             children = [
 #                 modules.AppList(
-#                     _('ROBIN'),
-#                         css_classes=('collapse closed',),
-#                     models=('calculation.models.*',),
+#                     _('Administration'),
+#                     collapsible=True,
+#                     models=('django.contrib.*',),
 #                 ),
-#                         
+# #                 modules.AppList(
+# #                     _('Applications'),
+# #                     css_classes=('collapse closed',),
+# #                     exclude=('django.contrib.*','rest_framework.authtoken.*',),
+# #                 ),
 #             ]
 #         ))
+
+        self.children.append(modules.Group(
+            _('FUEL ASSEMBLY MODELING'),
+            column=1,
+            collapsible=True,
+            css_classes=('grp-collapse grp-closed',),
+            children = [
+                modules.ModelList(
+                                  title='MATERIAL',
+                                  column=1,
+                                  models=('tragopan.models.Material','tragopan.models.BasicMaterial'),
+                ),  
+                modules.ModelList(
+                                  title='FUEL PELLET',
+                                  column=1,
+                                  models=('tragopan.models.*Pellet*',),
+                ), 
+                modules.ModelList(
+                                  title='FUEL ELEMENT',
+                                  column=1,
+                                  models=('tragopan.models.FuelElement','tragopan.models.FuelElementType'),
+                ),
+                modules.ModelList(
+                                  title='FUEL ASSEMBLY',
+                                  column=1,
+                                  models=('tragopan.models.FuelAssemblyModel','tragopan.models.FuelAssemblyType','tragopan.models.FuelAssemblyRepository',),
+                ),    
+                              
+            ],
+        ))
+        
+        self.children.append(modules.Group(
+            _('COMPONENT ASSEMBLY MODELING'),
+            column=1,
+            collapsible=True,
+            css_classes=('grp-collapse grp-closed',),
+            children = [
+                modules.ModelList(
+                                  title='BURNABLE POISON ASSEMBLY',
+                                  column=1,
+                                  models=('tragopan.models.BurnablePoisonRod','tragopan.models.BurnablePoisonAssembly'),
+                   
+                ),
+                modules.ModelList(
+                                  title='CONTROL ROD ASSEMBLY',
+                                  column=1,
+                                  models=('tragopan.models.ControlRodType','tragopan.models.ControlRodAssemblyType','tragopan.models.ControlRodCluster'),
+                   
+                )      
+            ],
+        ))
+        
+        self.children.append(modules.Group(
+            _('PLANT INFO'),
+            column=1,
+            collapsible=True,
+            css_classes=('grp-collapse grp-closed',),
+            children = [
+                modules.ModelList(
+                                  title='BASIC INFO',
+                                  column=1,
+                                  models=('tragopan.models.Plant','tragopan.models.ReactorModel','tragopan.models.UnitParameter',),
+                   
+                ),
+                modules.ModelList(
+                                  title='OPERATION INFO',
+                                  column=1,
+                                  models=('tragopan.models.Cycle','tragopan.models.FuelAssemblyLoadingPattern','tragopan.models.OperationMonthlyParameter','tragopan.models.OperationDailyParameter',),
+                   
+                ),       
+            ],
+        ))
+        
+        self.children.append(modules.ModelList(
+            css_classes=('grp-collapse grp-closed',),
+            title='User Administration',
+            column=2,
+            models=('django.contrib.*',)
+        ))
+        
+        # append a recent actions module
+        self.children.append(modules.RecentActions(
+            _('Recent Actions'),
+            limit=5,
+            collapsible=True,
+            column=2,
+        ))
         
         # append another link list module for "support".
         self.children.append(modules.LinkList(
@@ -82,43 +165,19 @@ class CustomIndexDashboard(Dashboard):
             column=3,
             children=[
                 {
-                    'title': _('PreRobin Documentation'),
-                    'url': 'http://docs.djangoproject.com/',
-                    'external': True,
-                },
-                {
-                    'title': _('Robin Documentation'),
-                    'url': 'http://packages.python.org/django-grappelli/',
-                    'external': True,
-                },
-                {
-                    'title': _('Egret Documentation'),
-                    'url': 'http://code.google.com/p/django-grappelli/',
-                    'external': True,
-                },
-                {
-                    'title': _('Grappelli Template System'),
-                    'url': '/grappelli/grp-doc/',
+                    'title': _('OASIS Management'),
+                    'url': '/admin/tragopan/',
                     'external': False,
-                },      
+                },
+
+#                 {
+#                     'title': _('Grappelli Template System'),
+#                     'url': '/grappelli/grp-doc/',
+#                     'external': False,
+#                 },      
                       
             ]
         ))
         
-        # append a feed module
-        #self.children.append(modules.Feed(
-        #    _('Latest Django News'),
-        #    column=2,
-        #    feed_url='http://www.djangoproject.com/rss/weblog/',
-        #    limit=5
-        #))
-        
-        # append a recent actions module
-        self.children.append(modules.RecentActions(
-            _('Recent Actions'),
-            limit=5,
-            collapsible=True,
-            column=3,
-        ))
 
 

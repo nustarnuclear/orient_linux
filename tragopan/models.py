@@ -16,7 +16,6 @@ from decimal import Decimal
 from django.core.files import File
 from django.contrib.auth.models import User
 import django.dispatch
-from celery.worker.strategy import default
 #define some signals
 del_fieldfile=django.dispatch.Signal(providing_args=["pk",])
 
@@ -370,7 +369,7 @@ class Material(BaseModel):
         if self.enrichment:
             return 'FUEL_'+str(self.pk)
         elif self.HOMO:
-            return 'HOMO_'+str(self.pk+10)
+            return 'HOMO_'+str(self.pk)
         else:
             return self.nameEN
     @property
@@ -599,6 +598,13 @@ class ReactorModel(BaseModel):
     def in_core(self,row,col):
         return self.positions.filter(row=row,column=col).exists()
     
+    
+    def in_outer(self,row,col):
+        if self.in_core(row-1, col) and self.in_core(row+1, col) and self.in_core(row, col-1) and self.in_core(row, col+1):
+            return False
+        else:
+            return True
+    
     @property
     def start_pos(self):
         '''
@@ -644,21 +650,29 @@ class ReactorModel(BaseModel):
                 return i
         
         
+   
+        
     
     def generate_pos_index(self,row,col,outer=True):
         '''
         only apply for the lower right part of the core(1/8 core)
         return ((inner index),(outer index))
         '''
+        
+        left_in_core=self.in_core(row,col-1)
+        up_in_core=self.in_core(row-1,col)
+        
         if self.in_core(row,col):
             return None
         #locate at the quarter line
         elif row==col:
-            result= ([9,],[10,12,10]) 
+            if up_in_core:
+                result=([6,5,6],[8,])
+            else:
+                result= ([9,],[10,12,10]) 
         #in the 1/8 core
         else:
-            left_in_core=self.in_core(row,col-1)
-            up_in_core=self.in_core(row-1,col)
+            
             if left_in_core and up_in_core:
                 result= ([6,5,7],[8,])
             elif left_in_core or up_in_core:
@@ -685,8 +699,14 @@ class ReactorModel(BaseModel):
             pos_index=self.generate_pos_index(row,col,outer)
             index +=pos_index
         index.pop(0)
-        if outer:
-            index.pop(-1)
+        quarter_pos=self.quarter_pos
+        if self.in_outer(quarter_pos, quarter_pos):
+            if outer:
+                index.pop(-1)
+        else:
+            if not outer:
+                index.pop(-1)
+                
         return index
     
     def generate_reflector_model_xml(self,model_type):
@@ -1151,23 +1171,6 @@ class Cycle(BaseModel):
         except:
             return None
         
-#     def get_cra_cycle(self):
-#         this_cycle=self
-#         while this_cycle:
-#             cra=this_cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
-#             if cra.exists():
-#                 return this_cycle
-#             this_cycle=this_cycle.get_pre_cycle()
-#         return None
-#     
-#     def get_cra_dic(self):
-#         cra_cycle=self.get_cra_cycle()
-#         cra_dic={}
-#         for loading_pattern in cra_cycle.loading_patterns.all():
-#             position=loading_pattern.reactor_position
-#             cra_dic[(position.row,position.column)]=1 if loading_pattern.control_rod_assembly else 0
-#         return cra_dic
-    
     def generate_loading_pattern_xml(self):
         unit=self.unit
         plant=unit.plant
@@ -1209,12 +1212,15 @@ class Cycle(BaseModel):
     @property
     def completed(self):
         return True if self.loading_patterns.exists() else False
+    @property
+    def loading_pattern_name(self):
+        unit=self.unit
+        plant=unit.plant
+        return "STD_{}_U{}C{}".format(plant.abbrEN, unit.unit,self.cycle)
     
     def refresh_loading_pattern(self):
         if self.completed:
-            unit=self.unit
-            plant=unit.plant
-            loading_pattern_name="STD_{}_U{}C{}".format(plant.abbrEN, unit.unit,self.cycle)
+            loading_pattern_name=self.loading_pattern_name
             xml_file=self.generate_loading_pattern_xml() 
             try:
                 loading_pattern=self.multipleloadingpattern_set.get(authorized=True)
@@ -1348,6 +1354,13 @@ class FuelAssemblyModel(BaseModel):
         fe_num=positions.filter(type="fuel").count()
         return total_volume-gt_volume*gt_num-it_volume*it_num-fe_volume*fe_num
     
+    def get_water_in_guide_tube(self,active_height):
+        positions=self.positions.all()
+        gt_num=positions.filter(type="guide").count()
+        it_num=positions.filter(type="instrument").count()
+        gt_volume=self.guide_tube.get_water_volume(active_height)
+        return (gt_num+it_num)*gt_volume
+    
     def get_wet_frac(self):
         active_height=self.active_length
         water_volume=self.get_water_volume(active_height)
@@ -1385,10 +1398,10 @@ class FuelAssemblyModel(BaseModel):
         
         
         grid_xml=doc.createElement('spacer_grid_mat')
-        fix_grid=self.grids.filter(functionality='fix').first()
+        fix_grid=self.grids.first()
         grid_xml.appendChild(doc.createTextNode(fix_grid.sleeve_material.prerobin_identifier))
         assembly_model_xml.appendChild(grid_xml)
-        
+          
         symmetry_xml=doc.createElement('symmetry')
         #default 1/8
         symmetry_xml.appendChild(doc.createTextNode(str(symmetry)))
@@ -1417,10 +1430,10 @@ class FuelAssemblyModel(BaseModel):
         grids=self.grids.all()
         material_lst=[]
         for grid in grids:
-            material_pk=grid.sleeve_material.pk
-            if material_pk  not in material_lst:
-                material_lst.append(material_pk)
-        return sorted(material_lst)
+            material=grid.generate_moderator_material()
+            if material  not in material_lst:
+                material_lst.append(material)
+        return material_lst
     
     def distribute_tube(self):
         if self.positions.all().exists():
@@ -1743,10 +1756,11 @@ class Grid(BaseModel):
     name=models.CharField(max_length=50)
     fuel_assembly_model=models.ForeignKey(FuelAssemblyModel,related_name='grids')
     sleeve_volume=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm3')
-    spring_volume=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm3')
+    spring_volume=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm3',blank=True,null=True)
     side_length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm',blank=True,null=True)
     sleeve_height=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='cm')
-    sleeve_material=models.ForeignKey(Material,related_name='grid_sleeves',related_query_name='grid_sleeve',blank=True,null=True)
+    sleeve_material=models.ForeignKey(Material,related_name='grid_sleeves',related_query_name='grid_sleeve',null=True)
+    spring_material=models.ForeignKey(Material,related_name='grid_springs',related_query_name='grid_spring',blank=True,null=True)
     functionality=models.CharField(max_length=5,choices=FUCTIONALITY_CHOICS,default='fix')
 
     class Meta:
@@ -1757,12 +1771,30 @@ class Grid(BaseModel):
     def type_num(self):
         fuel_assembly_model=self.fuel_assembly_model
         grid_material_lst=fuel_assembly_model.get_grid_material_lst()
-        material_pk=self.sleeve_material.pk
-        return grid_material_lst.index(material_pk)+1
+        material=self.generate_moderator_material()
+        return grid_material_lst.index(material)+1
     
+#     @property
+#     def grid_material(self):
+#         sleeve_material=self.sleeve_material
+#         spring_material=self.spring_material
+#         if sleeve_material==spring_material:
+#             return {sleeve_material:100}
+#         else:
+#             sleeve_percent=round(self.sleeve_volume/self.grid_volume*100,5)
+#             spring_percent=100-sleeve_percent
+#             return {sleeve_material:sleeve_percent,spring_material:spring_percent}
+    
+#     @property
+#     def grid_material_ID(self):
+#         if self.sleeve_material==self.spring_material:
+#             return self.sleeve_material.prerobin_identifier
+#         else:
+#             return 'HOMO_grid'+str(self.type_num)
+        
     @property
     def grid_volume(self):
-        return self.sleeve_volume+self.spring_volume
+        return self.sleeve_volume+self.spring_volume if self.spring_volume else self.sleeve_volume
     
     @property   
     def volume_fraction(self):
@@ -1774,20 +1806,30 @@ class Grid(BaseModel):
     @property
     def water_volume(self):
         active_height=self.sleeve_height
-        water_volume= self.fuel_assembly_model.get_water_volume(active_height)
+        fuel_assembly_model=self.fuel_assembly_model
+        water_volume= fuel_assembly_model.get_water_volume(active_height)-self.grid_volume-fuel_assembly_model.get_water_in_guide_tube(active_height)
         return round(water_volume,5)
    
    
     def generate_moderator_material(self):
-        grid_volume=self.grid_volume
         water_volume=self.water_volume
-        volume_percent=round(100*grid_volume/(grid_volume+water_volume),5)
+        sleeve_volume=self.sleeve_volume
+        spring_volume=self.spring_volume if self.spring_volume else Decimal(0)
+        total_volume=water_volume+sleeve_volume+spring_volume
+        sleeve_percent=round(sleeve_volume/total_volume*100,5)
+        spring_percent=round(spring_volume/total_volume*100,5)
+        grid_percent=sleeve_percent+spring_percent
         sleeve_material=self.sleeve_material
-        mod_material=Material.objects.get(nameEN='MOD')
-        return {sleeve_material.prerobin_identifier:volume_percent,mod_material.prerobin_identifier:100-volume_percent}
+        spring_material=self.spring_material
+        mod_material=Material.objects.get(nameEN='MOD')   
+        if (not spring_material) or sleeve_material==spring_material:
+            return {sleeve_material.prerobin_identifier:grid_percent,mod_material.prerobin_identifier:100-grid_percent}
+        else:
+            return {sleeve_material.prerobin_identifier:sleeve_percent,spring_material.prerobin_identifier:spring_percent,mod_material.prerobin_identifier:100-grid_percent}
+        
     @property
     def moderator_material_ID(self):
-        return "HOMO_"+str(self.type_num)
+        return "HOMO_moderator"+str(self.type_num)
     
     def generate_base_mat(self):
         moderator_material_ID=self.moderator_material_ID
@@ -1826,6 +1868,10 @@ class GuideTube(BaseModel):
         outer_radius=self.upper_outer_diameter/2
         inner_radius=self.upper_inner_diameter/2
         return Decimal(math.pi)*(outer_radius**2-inner_radius**2)*active_height
+    
+    def get_water_volume(self,active_height):
+        inner_radius=self.upper_inner_diameter/2
+        return Decimal(math.pi)*(inner_radius**2)*active_height
     
     def generate_base_pin_xml(self):
         doc=minidom.Document()
@@ -2027,9 +2073,9 @@ class MaterialTransection(BaseModel):
             return "CR_"+str(self.pk)
         else:
             return "BP_"+str(self.pk)
-    @property
-    def radius(self):
-        return self.radial_materials.aggregate(Max('radius'))['radius__max']
+#     @property
+#     def radius(self):
+#         return self.radial_materials.aggregate(Max('radius'))['radius__max']
     
     def get_active_volume(self,active_height):
         radius=self.radius

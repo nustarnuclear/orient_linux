@@ -415,6 +415,7 @@ admin.site.register(Cycle, CycleAdmin)
 class GridAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('__str__','grid_volume','water_volume','type_num')
+    list_filter=('fuel_assembly_model',)
 admin.site.register(Grid, GridAdmin)
 
 
@@ -431,11 +432,11 @@ class GridPositionInline(admin.TabularInline):
     exclude=('remark',)
     extra=0
     model=GridPosition
-    def formfield_for_foreignkey(self, db_field,request, **kwargs):
-        if db_field.name=='grid':
-            obj=self.get_obj(request,FuelAssemblyModel)
-            kwargs["queryset"] = Grid.objects.filter(fuel_assembly_model=obj)
-        return super(GridPositionInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
+#     def formfield_for_foreignkey(self, db_field,request, **kwargs):
+#         if db_field.name=='grid':
+#             obj=self.get_obj(request,FuelAssemblyModel)
+#             kwargs["queryset"] = Grid.objects.filter(fuel_assembly_model=obj)
+#         return super(GridPositionInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 
 class UpperNozzleInline(admin.TabularInline):
     exclude=('remark',)
@@ -461,7 +462,7 @@ class FuelAssemblyPositionInline(admin.TabularInline):
 class FuelAssemblyModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('__str__','get_fuel_element_num','get_wet_frac',)
-    inlines=[GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline,FuelAssemblyPositionInline]
+    inlines=[GridPositionInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline,FuelAssemblyPositionInline]
     add_form_template="no_action.html"
     change_form_template="tragopan/distribute_tube.html"
     def get_urls(self):
