@@ -3,7 +3,7 @@ from datetime import datetime
 from celery import shared_task
 import os
 from subprocess import Popen
-from calculation.models import EgretTask,RobinTask,Server,get_ip, PreRobinTask
+from calculation.models import EgretTask,RobinTask,Server,get_ip
 from ftplib import FTP
 import shutil
 @shared_task
@@ -59,7 +59,8 @@ def robin_calculation_task(pk):
     start_time=datetime.now()
     robin_instance.start_time=start_time
     robin_instance.task_status=1
-    robin_instance.save(update_fields=['start_time','task_status'])
+    robin_instance.server=myhost
+    robin_instance.save(update_fields=['start_time','task_status','server'])
     process=Popen(['/opt/nustar/bin/myrobin','-i',input_filename]) 
     return_code=process.wait()
     end_time=datetime.now()

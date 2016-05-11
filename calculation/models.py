@@ -1629,19 +1629,19 @@ class PreRobinTask(BaseModel):
     
     def generate_robin_tasks(self,postfix=None,burnup=0):
         inputfile_names=self.find_inputfile_names(postfix,burnup)
-        #get server
-        last=RobinTask.objects.last()
-        if last:
-            server=last.server.next()
-        else:
-            server=Server.first()
+#         #get server
+#         last=RobinTask.objects.last()
+#         if last:
+#             server=last.server.next()
+#         else:
+#             server=Server.first()
             
         for inputfile_name in inputfile_names:
             f=open(inputfile_name)
             name=inputfile_name.split(sep='.')[0]
-            obj=RobinTask.objects.create(name=name,pre_robin_task=self,input_file=File(f),server=server)
+            obj=RobinTask.objects.create(name=name,pre_robin_task=self,input_file=File(f))
             f.close()
-            obj.change_server()
+            #obj.change_server()
     
     def generate_all_robin_tasks(self,burnup=0):
         #base
@@ -1682,7 +1682,7 @@ class PreRobinTask(BaseModel):
     def stop_robin(self): 
         robin_tasks=self.robin_tasks.all()
         for robin_task in robin_tasks: 
-            queue=robin_task.server.queue+"_control"
+            queue=robin_task.server.queue
             s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
             s.freeze()
             s.apply_async(queue=queue) 
@@ -1737,7 +1737,7 @@ class PreRobinTask(BaseModel):
         f.write("N_PTC_BU\n")
         f.write("3\n")
         f.write("ptc_bu(1:N_PTC_BU)\n")
-        f.write("10 80 150\n")
+        f.write("10 15 80\n")
         f.write("ptc_deltaT(0:N_PTC_BU)\n")
         enrichment=fuel_assembly_type.assembly_enrichment
         if enrichment<=Decimal(3.1):
@@ -1920,7 +1920,7 @@ class RobinTask(models.Model):
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
-    server=models.ForeignKey(Server,related_name="robin_tasks",default=server_default)
+    server=models.ForeignKey(Server,related_name="robin_tasks",blank=True,null=True)
     core_baffle_calc=models.ForeignKey('CoreBaffleCalculation',related_name="robin_tasks",blank=True,null=True)
     class Meta:
         db_table='robin_task'
@@ -1953,8 +1953,9 @@ class RobinTask(models.Model):
         return url
     
     def start_calculation(self):
-        server=self.server
-        queue=server.queue
+#         server=self.server
+#         queue=server.queue
+        queue='queue_robin'
         s=signature('calculation.tasks.robin_calculation_task', args=(self.pk,))
         s.freeze()
         s.apply_async(queue=queue,task_id=str(self.pk))
@@ -2641,7 +2642,8 @@ class EgretTask(BaseModel):
         self.calculation_identity=s.id
         self.save()
         #s.delay()
-        queue=Server.objects.get(name="Controller").queue
+#         queue=Server.objects.get(name="Controller").queue
+        queue='queue_egret'
         s.apply_async(queue=queue)
         
     
