@@ -1681,12 +1681,15 @@ class PreRobinTask(BaseModel):
     
     def stop_robin(self): 
         robin_tasks=self.robin_tasks.all()
-        for robin_task in robin_tasks: 
-            queue=robin_task.server.queue
+        for robin_task in robin_tasks.filter(task_status=0): 
             s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
             s.freeze()
+            s.apply_async()
+            
+        for robin_task in robin_tasks.filter(task_status=1):   
+            s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
+            queue=robin_task.server.queue 
             s.apply_async(queue=queue) 
-        
             
     def find_inputfile_names(self,postfix=None,burnup=0):
         base_segment_ID=self.get_segment_ID(burnup)
