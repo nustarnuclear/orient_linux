@@ -518,6 +518,11 @@ class Plant(BaseModel):
     def __str__(self):
         return self.abbrEN  
     
+def get_drwm_file_path(instance,filename):
+    
+    return 'pre_robin/{}/{}'.format(instance.name,filename)
+    
+    
 class ReactorModel(BaseModel):
     MODEL_CHOICES=(
         ('CP600','CP600'),
@@ -552,6 +557,10 @@ class ReactorModel(BaseModel):
         ('W','West'),
         ('N', 'North'),
     )
+    DRWM_FILE_FORMAT_CHOICES=(
+        (0,'Decimal'),
+        (1,'Binary'),
+    )
     name = models.CharField(max_length=50,choices=MODEL_CHOICES)
     generation = models.CharField(max_length=2, choices=GENERATION_CHOICES)
     reactor_type = models.CharField(max_length=3, choices=TYPE_CHOICES)
@@ -574,22 +583,30 @@ class ReactorModel(BaseModel):
     max_step=models.PositiveSmallIntegerField(default=228)
     set_zero_to_direction=models.CharField(max_length=1, choices=DIRECTION_CHOICES,default='E')
     clockwise_increase=models.BooleanField(default=True)
-    
+    drwm_file_format=models.SmallIntegerField(default=1,choices=DRWM_FILE_FORMAT_CHOICES)
+    drwm_file=models.FileField(upload_to=get_drwm_file_path,blank=True,null=True)
     class Meta:
         db_table = 'reactor_model'
         
+    @property
+    def control_rod_clusters(self):
+        return ControlRodCluster.objects.filter(control_rod_assembly_type__reactor_model=self)
         
+    @property
+    def reactor_model_dir(self):
+        return os.path.join(PRE_ROBIN_PATH,self.name)
     
     @property
     def idyll_dir(self):
-        return os.path.join(PRE_ROBIN_PATH,self.name,'IDYLL')
+        return os.path.join(self.reactor_model_dir,'IDYLL')
     @property
     def task_dir(self):
-        return os.path.join(PRE_ROBIN_PATH,self.name,'task')
+        return os.path.join(self.reactor_model_dir,'task')
+    
     @property    
     def base_component_path(self):
-        return os.path.join(PRE_ROBIN_PATH,self.name,'base_component.xml')
-        
+        return os.path.join(self.reactor_model_dir,'base_component.xml')
+    
     @property
     def middle(self):
         return math.ceil(self.dimension/2)
@@ -771,6 +788,7 @@ class ReactorModel(BaseModel):
             else:
                 material_lst.insert(0, item)
         return material_lst
+    
     def __str__(self):
         return '{}'.format(self.name)  
     
@@ -954,13 +972,13 @@ class PressureVesselInsulation(BaseModel):
     
 
 def bottom_material_default():
-    mod=Material.objects.get(NameEN='MOD')
-    fe=Material.objects.get(NameEN='Fe')
-    obj= Material.objects.filter(volume_mixtures__material=mod).filter(volume_mixtures__percent=10).filter(volume_mixtures__basic_material=fe).filter(volume_mixtures__percent=90).first()
+    mod=Material.objects.get(nameEN='MOD')
+    fe=Material.objects.get(nameEN='Fe')
+    obj= Material.objects.filter(volume_mixtures__material=mod).filter(volume_mixtures__percent=10).filter(volume_mixtures__material=fe).filter(volume_mixtures__percent=90).first()
     return obj.pk
 def top_material_default():
-    mod=Material.objects.get(NameEN='MOD')
-    fe=Material.objects.get(NameEN='Fe')
+    mod=Material.objects.get(nameEN='MOD')
+    fe=Material.objects.get(nameEN='Fe')
     obj= Material.objects.filter(volume_mixtures__material=mod).filter(volume_mixtures__percent=30).filter(volume_mixtures__material=fe).filter(volume_mixtures__percent=58).first()
     return obj.pk
 class CoreBaffle(BaseModel):
@@ -1035,6 +1053,8 @@ class UnitParameter(BaseModel):
     HFP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
     HFP_core_ave_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
     mid_power_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
+    num_signal=models.PositiveSmallIntegerField(default=1)
+    num_dsf=models.PositiveSmallIntegerField(default=1)
 #     boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
 #     fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
 #     moderator_temperature=models.PositiveSmallIntegerField(default=577,help_text='K')
@@ -1119,6 +1139,21 @@ class UnitParameter(BaseModel):
             base_fuel_set.update(cycle.generate_base_fuel_set())
         return base_fuel_set
     
+    def generate_drwm_imp_file_xml(self):
+        doc=minidom.Document()
+        drwm_imp_file_xml=doc.createElement('drwm_imp_file')
+        fmt=self.reactor_model.drwm_file_format
+        drwm_file_path=self.reactor_model.drwm_file.path
+        nsignal=self.num_signal
+        ndsf=self.num_dsf
+        
+        drwm_imp_file_xml.setAttribute('fmt', str(fmt))
+        drwm_imp_file_xml.setAttribute('nsignal', str(nsignal))
+        drwm_imp_file_xml.setAttribute('ndsf', str(ndsf))
+        drwm_imp_file_xml.appendChild(doc.createTextNode(drwm_file_path))
+        
+        return drwm_imp_file_xml
+        
     def __str__(self):
         return '{} U{}'.format(self.plant, self.unit)
  
@@ -1327,7 +1362,7 @@ class FuelAssemblyLoadingPattern(BaseModel):
 #################################################  
 
 class FuelAssemblyModel(BaseModel):
-    name=models.CharField(max_length=20)
+    name=models.CharField(max_length=5)
     active_length=models.DecimalField(max_digits=10, decimal_places=5,default=365.8,validators=[MinValueValidator(0)],help_text='unit:cm')
     side_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     assembly_pitch=models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm')
@@ -3133,7 +3168,7 @@ class OperationDailyParameter(BaseModel):
     delta_time=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:day',blank=True,null=True)
     relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
     critical_boron_density=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm')
-    axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
+    axial_power_offset=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
     control_rod_step=models.ManyToManyField(ControlRodCluster,through='ControlRodAssemblyStep')
     
     class Meta:
@@ -3200,7 +3235,7 @@ class OperationMonthlyParameter(BaseModel):
     avg_burnup=models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:MWd/tU',blank=True,null=True)
     relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],blank=True,null=True)
     boron_concentration=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:ppm',blank=True,null=True)
-    axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
+    axial_power_offset=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
     #FDH=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:')
     FQ=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:',blank=True,null=True)
     raw_file=models.FileField(upload_to=get_monthly_data_upload_path,)
@@ -3215,29 +3250,37 @@ class OperationMonthlyParameter(BaseModel):
         return "{}".format(self.cycle,)
     
 class OperationBankPosition(BaseModel):
-    operation=models.ForeignKey(OperationMonthlyParameter)
+    operation=models.ForeignKey(OperationMonthlyParameter,related_name='cluster_steps')
     control_rod_cluster=models.ForeignKey(ControlRodCluster)
     step=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)])
     
     class Meta:
         db_table='operation_bank_position'
         order_with_respect_to = 'operation'
-        
+    @property
+    def cluster_name(self):
+        return self.control_rod_cluster.cluster_name
+      
     def __str__(self):
         return "{}".format(self.operation,)
     
     
     
 class OperationDistributionData(BaseModel):
-    operation=models.ForeignKey(OperationMonthlyParameter)
+    operation=models.ForeignKey(OperationMonthlyParameter,related_name='distribution_data')
     reactor_position=models.ForeignKey(ReactorPosition)
     relative_power=models.DecimalField(max_digits=10, decimal_places=9,validators=[MinValueValidator(0),MaxValueValidator(1)],)
     FDH=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:')
-    axial_power_shift=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
+    axial_power_offset=models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(-100)],help_text=r"unit:%FP",blank=True,null=True)
     
     class Meta:
         db_table='operation_distribution_data'
         order_with_respect_to = 'operation'
+        
+    def position(self):
+        reactor_position=self.reactor_position
+        return "{}_{}".format(reactor_position.row,reactor_position.column)
+        
     def __str__(self):
         return "{}".format(self.operation,)
     

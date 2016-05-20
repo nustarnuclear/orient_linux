@@ -355,7 +355,7 @@ admin.site.register(ReactorModel,ReactorModelAdmin)
 
 class UnitParameterAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('__str__','get_current_cycle','base_core_path','loading_pattern_path',)
+    list_display=('__str__','get_current_cycle','base_core_path',)
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
             return ('plant','unit','reactor_model','electric_power','thermal_power','heat_fraction_in_fuel','primary_system_pressure',
@@ -812,22 +812,36 @@ class ControlRodAssemblyStepInline(admin.TabularInline):
 class OperationDailyParameterAdmin(admin.ModelAdmin):
 
     exclude=('remark',)
-    list_display=('cycle','date','burnup','relative_power','critical_boron_density','axial_power_shift',)
+    list_display=('cycle','date','burnup','relative_power','critical_boron_density',)
     inlines=[ControlRodAssemblyStepInline,]
 admin.site.register(OperationDailyParameter, OperationDailyParameterAdmin)
 
 class OperationDistributionDataInline(admin.TabularInline):
     exclude=('remark',)
+    raw_id_fields=('reactor_position',)
     model=OperationDistributionData
-    
+    extra=0
+    readonly_fields=('reactor_position','relative_power','FDH',)
+    def has_add_permission(self,request):
+        return False
+    def has_delete_permission(self,request, obj=None):
+        return False
 class OperationBankPositionInline(admin.TabularInline):
     exclude=('remark',)
     extra=0
+    raw_id_fields=('control_rod_cluster',)
     model=OperationBankPosition
-
+    readonly_fields=('control_rod_cluster','step')
+    def has_add_permission(self,request):
+        return False
+    def has_delete_permission(self,request, obj=None):
+        return False
+    
 class OperationMonthlyParameterAdmin(admin.ModelAdmin):
-    list_display=('cycle','avg_burnup','relative_power','boron_concentration','axial_power_shift','FQ','date',)
-    inlines=[OperationBankPositionInline,]
+    exclude=('remark',)
+    list_display=('cycle','avg_burnup','relative_power','boron_concentration','axial_power_offset','FQ','date',)
+    inlines=[OperationBankPositionInline,OperationDistributionDataInline]
+    readonly_fields=('date','avg_burnup','relative_power','boron_concentration','axial_power_offset','FQ',)
 admin.site.register(OperationMonthlyParameter,OperationMonthlyParameterAdmin)
 
         

@@ -95,7 +95,7 @@ DATABASES = {
         'NAME': 'oasis',
         'USER': 'root',
         'PASSWORD': 'NuStar_Orient123',
-        'HOST': '192.168.1.139',
+        'HOST': '192.168.1.105',
         'PORT': '3306',
     },
     

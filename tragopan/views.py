@@ -1,5 +1,5 @@
 from tragopan.models import OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyLoadingPattern,Cycle,UnitParameter,Plant,FuelAssemblyRepository,ControlRodCluster,OperationMonthlyParameter,FuelAssemblyModel
-from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,PlantListSerializer,FuelAssemblyRepositorySerializer,OperationDailyParameterSerializer,FuelAssemblyModelPlusSerializer,CycleSerializer
+from tragopan.serializers import FuelAssemblyLoadingPatternSerializer,PlantListSerializer,FuelAssemblyRepositorySerializer,OperationDailyParameterSerializer,FuelAssemblyModelPlusSerializer,CycleSerializer,OperationMonthlyParameterSerializer
 from rest_framework.response import Response
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.parsers import FileUploadParser
@@ -7,6 +7,7 @@ from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from rest_framework.authentication import TokenAuthentication
 from rest_framework import viewsets
+from decimal import Decimal
 
 class PlantViewSet(viewsets.ModelViewSet):
     queryset = Plant.objects.all()
@@ -97,21 +98,19 @@ def operation_data(request,format=None):
         cycle=Cycle.objects.get_or_create(unit=unit,cycle=cycle_num)[0]
     except Exception as e:
         error_message={'error_message':e}
-        print(error_message)
         return Response(data=error_message,status=404)
     
     if request.method=='GET':
-        try:
-            #start_date=query_params['start_date']
-            #end_date=query_params['end_date']
-            
+        try:  
             #get daily data
             if operation_type==1:
                 op_daily_pr=OperationDailyParameter.objects.filter(cycle=cycle,)
                 serializer=OperationDailyParameterSerializer(op_daily_pr,many=True)
                 return Response(serializer.data)
-            
-            
+            elif operation_type==2:
+                op_monthly_pr=OperationMonthlyParameter.objects.filter(cycle=cycle)
+                serializer=OperationMonthlyParameterSerializer(op_monthly_pr,many=True)
+                return Response(serializer.data)
             
         except Exception as e:
             error_message={'error_message':e}
@@ -136,7 +135,7 @@ def operation_data(request,format=None):
                     P_rel=item['P_rel']
                     Date=item['Date']
                     
-                    op=OperationDailyParameter.objects.create(cycle=cycle,date=Date,burnup=Bu,relative_power=P_rel,critical_boron_density=CB,axial_power_shift=AO)
+                    op=OperationDailyParameter.objects.create(cycle=cycle,date=Date,burnup=Bu,relative_power=P_rel,critical_boron_density=CB,axial_power_offset=AO)
                     for cluster in cluster_lst:
                         cra=ControlRodCluster.objects.get(reactor_model=reactor_model,cluster_name=cluster[0])
                         ControlRodAssemblyStep.objects.create(operation=op,control_rod_cluster=cra,step=cluster[1])       
@@ -153,7 +152,6 @@ def operation_data(request,format=None):
             
             else:
                 error_message={'error_message':'the operation type is not supported yet'}
-                print(error_message)
                 return Response(data=error_message,status=404)
             
         

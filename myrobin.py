@@ -60,33 +60,33 @@ if input_file.endswith('.inp'):
     
 #if present -i or --input option
 if input_file:
-    log_file=open(logfile,mode='a',buffering=1) 
-    log_file.write('----------------------------------------------------------------------------------------------------------\n')
-    log_file.write('Hello %s! Have a good time!!!\n'%user)
-    log_file.write('ROBIN version is %s\n'%DEFAULT_ROBIN_VERSION)
-    log_file.write('Current working directory is %s\n'%cwd)
-    start_time=datetime.now()
-    log_file.write('ROBIN starts at %s\n'%start_time)
+#     log_file=open(logfile,mode='a',buffering=1) 
+#     log_file.write('----------------------------------------------------------------------------------------------------------\n')
+#     log_file.write('Hello %s! Have a good time!!!\n'%user)
+#     log_file.write('ROBIN version is %s\n'%DEFAULT_ROBIN_VERSION)
+#     log_file.write('Current working directory is %s\n'%cwd)
+#     start_time=datetime.now()
+#     log_file.write('ROBIN starts at %s\n'%start_time)
     
     #Begin ROBIN calculation
     
-    with Popen(['/opt/nustar/bin/ROBIN%d'%DEFAULT_ROBIN_VERSION,'-i',input_file,'-lib',lib,'-omp',omp],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
+    with Popen(['/opt/nustar/bin/ROBIN%d'%DEFAULT_ROBIN_VERSION,'-i',input_file,'-lib',lib,'-omp',omp],stderr=PIPE,universal_newlines=True) as proc:
         pidfile=open(pidfile,'w')
         pidfile.write(str(proc.pid))
         pidfile.close()
         outs,errs=proc.communicate()
         if errs:
-            wrong_time=datetime.now() 
-            log_file.write('ROBIN went wrong at %s\n'%wrong_time)
-            log_file.write('ERROR code is %s\n'%errs)
-            log_file.close()
+#             wrong_time=datetime.now() 
+#             log_file.write('ROBIN went wrong at %s\n'%wrong_time)
+#             log_file.write('ERROR code is %s\n'%errs)
+#             log_file.close()
             raise AssertionError('A ROBIN error happened,code is %s'%errs)
             
             
     end_time=datetime.now()   
-    log_file.write('ROBIN ends at %s\n'%end_time)
-    log_file.write('Time costs  %s\n'%(end_time-start_time))
-    log_file.write('Bye %s! see you next time!!!\n'%user)
-    log_file.close()
+#     log_file.write('ROBIN ends at %s\n'%end_time)
+#     log_file.write('Time costs  %s\n'%(end_time-start_time))
+#     log_file.write('Bye %s! see you next time!!!\n'%user)
+#     log_file.close()
 
 

@@ -344,7 +344,7 @@ class OperationDataHandler:
             AO_start_pattern=re.compile('RADIAL MAP OF ASSEMBLIES MEAN POWER \(PDH\) AND AXIAL OFFSET')
             FDH_start_pattern=re.compile('RADIAL MAP OF THE MAXIMUM ESTIMATED FUEL ROD POWER AND THE C/R DEVIATIONS')
             date_pattern=re.compile('created on')
-            bank_position_pattern=re.compile('Banks position')
+            bank_position_pattern=re.compile('The Banks positions may also have been modified by the user. Final positions are given below :')
             core_FQ_pattern=re.compile('LOCAL MAXIMUM POWER LEVEL')
             core_AO_pattern=re.compile('AND AN AXIAL-OFFSET OF')
             
@@ -459,23 +459,32 @@ class OperationDataHandler:
         #handle bankposition   
         line_lst=self.line_lst
         bank_position_result={} 
+        line_index=0
         bank_position_pattern=self.start_index_pattern[5] 
         if self.plant_name in ('FJS','QNPC_II'):
             for line in line_lst:
                 if bank_position_pattern.search(line):
-                    line_splitted_lst=[]
-                    for item in line.split(sep=':'):
-                        line_splitted_lst +=item.split()
-                        
-                    for i in range(len(line_splitted_lst)):
-                        try:
-                            step=Decimal(line_splitted_lst[i])
-                            name=line_splitted_lst[i-1]
-                            bank_position_result[name]=step
-                        except InvalidOperation:
-                            pass  
-            
-            
+                    step_line=line_lst[line_index+1]
+                    name_line=line_lst[line_index+2]
+                    name_lst=name_line.split()
+                    if 'XX' in name_lst:
+                        name_lst.remove('XX')
+                    step_lst=step_line.split()[:len(name_lst)]
+                    bank_position_result=dict(zip(name_lst,step_lst))
+                    break
+                    
+#                     line_splitted_lst=[]
+#                     for item in line.split(sep=':'):
+#                         line_splitted_lst +=item.split()
+#                         
+#                     for i in range(len(line_splitted_lst)):
+#                         try:
+#                             step=Decimal(line_splitted_lst[i])
+#                             name=line_splitted_lst[i-1]
+#                             bank_position_result[name]=step
+#                         except InvalidOperation:
+#                             pass  
+                line_index+=1
         elif self.plant_name=='QNPC_I':
             for line in line_lst:
                 if bank_position_pattern.search(line):

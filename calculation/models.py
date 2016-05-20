@@ -752,7 +752,10 @@ class PreRobinInput(BaseModel):
             pin_lst=[str(item) for item in self.get_lst(height, fuel=False)]
             fuel_map=",".join(fuel_lst)
             pin_map=",".join(pin_lst)
-            obj,created=PreRobinTask.objects.get_or_create(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,pre_robin_model=model,depletion_state=depletion_state)
+            try:
+                obj=PreRobinTask.objects.get(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,depletion_state=depletion_state)
+            except:  
+                obj=PreRobinTask.objects.create(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,pre_robin_model=model,depletion_state=depletion_state)
             AssemblyLamination.objects.create(pre_robon_input=self,height=height,pre_robin_task=obj)
             
     def generate_base_fuel_xml(self):
@@ -833,10 +836,11 @@ class PreRobinInput(BaseModel):
         pre_robin_inputs=cls.objects.filter(unit__plant__reactor_model=reactor_model)
         
         for pre_robin_input in pre_robin_inputs:
-            base_fuel_xml,BX_base_fuel_xml=pre_robin_input.generate_base_fuel_xml()
-            base_component_xml.appendChild(base_fuel_xml)
-            if BX_base_fuel_xml:
-                base_component_xml.appendChild(BX_base_fuel_xml)
+            if pre_robin_input.robin_finished:
+                base_fuel_xml,BX_base_fuel_xml=pre_robin_input.generate_base_fuel_xml()
+                base_component_xml.appendChild(base_fuel_xml)
+                if BX_base_fuel_xml:
+                    base_component_xml.appendChild(BX_base_fuel_xml)
                 
         cra_types=reactor_model.cra_types.all()
         for cra_type in cra_types:
@@ -863,6 +867,12 @@ class PreRobinInput(BaseModel):
         return True  if self.layers.exists() else False 
     cut_already.boolean=True 
     
+    @property
+    def robin_finished(self):
+        for task in self.task.all():
+            if not task.robin_finished:
+                return False
+        return True
      
     @classmethod
     def auto_add(cls,unit):
@@ -1045,7 +1055,7 @@ class DepletionState(models.Model):
     
     #depletion state
     system_pressure=models.DecimalField(max_digits=7,decimal_places=5,default=15.51,validators=[MinValueValidator(0)],help_text='MPa')
-    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=65,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
+    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=66,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
     burnup_unit=models.CharField(max_length=9,default='GWd/tU',choices=BURNUP_UNIT_CHOICES)
     fuel_temperature=models.PositiveSmallIntegerField(help_text='K',)
     moderator_temperature=models.PositiveSmallIntegerField(help_text='K',)
@@ -1095,6 +1105,9 @@ class DepletionState(models.Model):
         depletion_state_xml.appendChild(TFU_xml)
         
         return depletion_state_xml
+    def get_task_num(self):
+        return self.prerobintask_set.count()
+    
     def __str__(self):
         return "{} {}".format(self.pk,self.system_pressure)
     
@@ -1683,12 +1696,14 @@ class PreRobinTask(BaseModel):
         robin_tasks=self.robin_tasks.all()
         for robin_task in robin_tasks.filter(task_status=0): 
             s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
+            queue=Server.objects.first().queue
             s.freeze()
             s.apply_async()
             
         for robin_task in robin_tasks.filter(task_status=1):   
             s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
             queue=robin_task.server.queue 
+            s.freeze()
             s.apply_async(queue=queue) 
             
     def find_inputfile_names(self,postfix=None,burnup=0):
@@ -2676,6 +2691,7 @@ class EgretTask(BaseModel):
         doc.appendChild(run_egret_xml)
         run_egret_xml.setAttribute('core_id', core_id)
         run_egret_xml.setAttribute('cycle',str(cycle_num))
+    
         #xml path
         base_core_path=unit.base_core_path
         base_component_path=reactor_model.base_component_path
@@ -2702,7 +2718,13 @@ class EgretTask(BaseModel):
             cycle_sequ_file=os.path.basename(self.egret_input_file.name)
             cycle_sequ_xml.appendChild(doc.createTextNode(cycle_sequ_file))
             run_egret_xml.appendChild(cycle_sequ_xml)
-        
+            
+            #add drwm function
+            try:
+                drwm_imp_file_xml=unit.generate_drwm_imp_file_xml()
+                run_egret_xml.appendChild(drwm_imp_file_xml)
+            except:
+                pass
         #export_case
         export_case_xml=doc.createElement('export_case')
         export_case_xml.appendChild(doc.createTextNode(str(export)))
@@ -2871,6 +2893,10 @@ class MultipleLoadingPattern(BaseModel):
         doc = minidom.Document()
         fuel_xml=doc.createElement('fuel')
         fuel_xml.setAttribute('cycle', str(cycle.cycle))
+        #add shut down cooling days
+        sdc=30
+        fuel_xml.setAttribute('sdc', str(sdc))
+        
         map_xml=doc.createElement('map')
         fuel_xml.appendChild(map_xml)
         map_xml.appendChild(doc.createTextNode(' '.join(fuel_lst)))
@@ -2881,7 +2907,9 @@ class MultipleLoadingPattern(BaseModel):
             cycle_xml.setAttribute('row', str(item[0]))
             cycle_xml.setAttribute('col', str(item[1]))
             cycle_xml.appendChild(doc.createTextNode(str(item[2])))
-        
+            #add shut down cooling days
+            cycle_sdc=400*(cycle.cycle-item[2]-1)
+            cycle_xml.setAttribute('sdc', str(cycle_sdc))
         return fuel_xml
      
      

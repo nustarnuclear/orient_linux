@@ -39,7 +39,7 @@ def parse_raw_file(sender, instance, created=False, **kwargs):
         instance.avg_burnup=basic_core_state[3]
         instance.relative_power=basic_core_state[4]
         instance.boron_concentration=basic_core_state[5]
-        instance.axial_power_shift=core_AO
+        instance.axial_power_offset=core_AO
         instance.FQ=core_FQ
         instance.save()
         
@@ -48,20 +48,26 @@ def parse_raw_file(sender, instance, created=False, **kwargs):
             #create bank position
             control_rod_clusters=reactor_model.control_rod_clusters
             for bank_name,bank_position in bank_position.items():
-                control_rod_cluster=control_rod_clusters.get(cluster_name=bank_name)
-                OperationBankPosition.objects.create(operation=instance,control_rod_cluster=control_rod_cluster,step=bank_position)
-            
+                try:
+                    control_rod_cluster=control_rod_clusters.get(cluster_name=bank_name)
+                    OperationBankPosition.objects.create(operation=instance,control_rod_cluster=control_rod_cluster,step=bank_position)
+                except:
+                    pass
+                
         
         
         print(len(reactor_positions),len(power_distribution),len(AO_distribution),len(FDH_distribution))
-        assert(len(reactor_positions)==len(power_distribution)==len(AO_distribution)==len(FDH_distribution))
+        assert(len(reactor_positions)==len(power_distribution)==len(FDH_distribution))
  
         for i in range(len(reactor_positions)):
             reactor_position=reactor_positions[i]
             power=power_distribution[i]
-            AO=AO_distribution[i]
+            try:
+                AO=AO_distribution[i]
+            except:
+                AO=None
             FDH=FDH_distribution[i]
-            OperationDistributionData.objects.create(operation=instance,reactor_position=reactor_position,relative_power=power,FDH=FDH,axial_power_shift=AO)
+            OperationDistributionData.objects.create(operation=instance,reactor_position=reactor_position,relative_power=power,FDH=FDH,axial_power_offset=AO)
         
    
 

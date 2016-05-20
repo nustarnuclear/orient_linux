@@ -91,7 +91,7 @@ class PreRobinInputAdmin(admin.ModelAdmin):
     change_list_template="calculation/prerobin_changlist.html"
     exclude=('remark','user')
     inlines=[AssemblyLaminationInline,]
-    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already',)
+    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already','robin_finished')
     list_filter=("unit",'fuel_assembly_type','burnable_poison_assembly',)
     actions=['auto_cut_selected_inputs']
     def get_urls(self):
@@ -224,7 +224,7 @@ class PreRobinInputAdmin(admin.ModelAdmin):
 admin.site.register(PreRobinInput, PreRobinInputAdmin)   
 
 class DepletionStateAdmin(admin.ModelAdmin):
-    pass
+    list_display=['__str__','get_task_num']
 admin.site.register(DepletionState, DepletionStateAdmin)
 
 class RobinTaskInline(admin.TabularInline):

@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from tragopan.models import ReactorPosition,FuelAssemblyLoadingPattern,Plant,UnitParameter,BurnablePoisonAssembly,\
-Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster,OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyPosition
-       
+Grid,GridPosition,FuelAssemblyType,Cycle,FuelAssemblyModel,FuelAssemblyRepository,ControlRodCluster,OperationDailyParameter,ControlRodAssemblyStep,FuelAssemblyPosition,\
+OperationMonthlyParameter,OperationBankPosition,OperationDistributionData
+     
 class ReactorPositionSerializer(serializers.ModelSerializer):
     
     class Meta:
@@ -34,13 +35,6 @@ class ControlRodClusterSerializer(serializers.ModelSerializer):
         model = ControlRodCluster
         fields = ( 'cluster_name',) 
         
-# class ControlRodAssemblySerializer(serializers.ModelSerializer):
-#     
-#     class Meta:
-#         model = ControlRodAssembly
-#         fields = ( 'cluster','pk')        
-
-
 
     
 class FuelAssemblyModelSerializer(serializers.ModelSerializer): 
@@ -123,8 +117,24 @@ class OperationDailyParameterSerializer(serializers.ModelSerializer):
     control_rods=ControlRodAssemblyStepSerializer(many=True, read_only=True)
     class Meta:
         model = OperationDailyParameter
-        exclude = ('time_inserted','last_modified','remark')
+        exclude = ('time_inserted','last_modified','remark')       
+
+
+class OperationBankPositionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OperationBankPosition
+        fields = ('cluster_name','step')
         
-    
-    
+class OperationDistributionDataSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = OperationDistributionData
+        fields = ('position','relative_power','FDH','axial_power_offset')
+        
+class OperationMonthlyParameterSerializer(serializers.ModelSerializer):
+    cluster_steps=OperationBankPositionSerializer(many=True, read_only=True)
+    distribution_data=OperationDistributionDataSerializer(many=True, read_only=True)
+    class Meta:
+        model = OperationMonthlyParameter
+        exclude = ('time_inserted','last_modified','remark','raw_file','bank_position','distribution')       
+        
         

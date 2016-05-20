@@ -4,6 +4,7 @@ from celery import shared_task
 import os
 from subprocess import Popen
 from calculation.models import EgretTask,RobinTask,Server,get_ip
+import socket
 # from ftplib import FTP
 # import shutil
 @shared_task
@@ -39,11 +40,12 @@ def egret_calculation_task(cwd,input_filename,user,pk,version='196'):
 @shared_task
 def robin_calculation_task(pk):
 #     mainhost=Server.objects.get(name="Controller")
-    myip=get_ip()
-    myhost=Server.objects.get(IP=myip)
+#     myip=get_ip()
+#     myhost=Server.objects.get(IP=myip)
     
+    hostname=socket.gethostname()
+    myhost=Server.objects.get(name=hostname)
     robin_instance=RobinTask.objects.get(pk=pk)
-    
     cwd=robin_instance.get_cwd()
     os.makedirs(cwd, exist_ok=True)
     os.chdir(cwd)
