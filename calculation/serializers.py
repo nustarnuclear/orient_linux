@@ -7,7 +7,7 @@ class FuelAssemblyTypeSerializer(serializers.ModelSerializer):
     #model=FuelAssemblyModelSerializer()
     class Meta:
         model=FuelAssemblyType
-        fields=('pk','model','assembly_enrichment')
+        fields=('pk','model','assembly_enrichment','Gd_num')
         depth=1
         
 class UnitParameterSerializer(serializers.ModelSerializer):

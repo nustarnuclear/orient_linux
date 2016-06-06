@@ -12,6 +12,7 @@ from django.shortcuts import redirect
 #################################################
 #basic information 
 #################################################
+
 def get_obj(request,model):
     path=request.path
     pk=path.split('/')[-2]
@@ -324,7 +325,7 @@ class IncoreInstrumentPositionInline(admin.TabularInline):
     
 class ReactorModelAdmin(admin.ModelAdmin):
     exclude=('remark','thermal_couple_position','incore_instrument_position')
-    inlines=[CoreBaffleInline,CoreUpperPlateInline,CoreLowerPlateInline,ThermalShieldInline,PressureVesselInline,PressureVesselInsulationInline,CoreBaffleInline,]
+    inlines=[ReactorPositionInline,CoreBaffleInline,]
     list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','dimension','middle','start_pos','end_pos','quarter_pos','generate_reflector_line','generate_reflector_index']
     
     def get_formsets_with_inlines(self, request, obj=None):
@@ -386,6 +387,7 @@ class CycleAdmin(admin.ModelAdmin):
     exclude=('remark',)
     extra=0
     list_display=('pk','__str__',)
+    list_filter=('unit',)
     add_form_template="no_action.html"
     change_form_template="tragopan/refresh_loading_pattern.html"
     actions = ['refresh_loading_pattern']
@@ -418,11 +420,14 @@ class GridAdmin(admin.ModelAdmin):
     list_filter=('fuel_assembly_model',)
 admin.site.register(Grid, GridAdmin)
 
-
+class GridInline(admin.TabularInline):
+    exclude=('remark',)
+    model=Grid
+    extra=0
 class GuideTubeInline(admin.TabularInline):
     exclude=('remark',)
     model=GuideTube
-
+    extra=0
 class InstrumentTubeInline(admin.TabularInline):
     exclude=('remark',)
     model=InstrumentTube
@@ -432,11 +437,14 @@ class GridPositionInline(admin.TabularInline):
     exclude=('remark',)
     extra=0
     model=GridPosition
-#     def formfield_for_foreignkey(self, db_field,request, **kwargs):
-#         if db_field.name=='grid':
-#             obj=self.get_obj(request,FuelAssemblyModel)
-#             kwargs["queryset"] = Grid.objects.filter(fuel_assembly_model=obj)
-#         return super(GridPositionInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
+    def formfield_for_foreignkey(self, db_field,request, **kwargs):
+        if db_field.name=='grid':
+            try:
+                obj=get_obj(request,FuelAssemblyModel)
+                kwargs["queryset"] = Grid.objects.filter(fuel_assembly_model=obj)
+            except:
+                kwargs["queryset"] = Grid.objects.all()
+        return super(GridPositionInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 
 class UpperNozzleInline(admin.TabularInline):
     exclude=('remark',)
@@ -462,7 +470,7 @@ class FuelAssemblyPositionInline(admin.TabularInline):
 class FuelAssemblyModelAdmin(admin.ModelAdmin):
     exclude=('remark',)
     list_display=('__str__','get_fuel_element_num','get_wet_frac',)
-    inlines=[GridPositionInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline,FuelAssemblyPositionInline]
+    inlines=[GridInline,GridPositionInline,GuideTubeInline,InstrumentTubeInline,FuelElementInline,FuelPelletInline,FuelAssemblyPositionInline]
     add_form_template="no_action.html"
     change_form_template="tragopan/distribute_tube.html"
     def get_urls(self):
@@ -634,7 +642,7 @@ admin.site.register(FuelElementTypePosition, FuelElementTypePositionAdmin)
     
 class FuelAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('pk','assembly_enrichment','model',)
+    list_display=('pk','assembly_enrichment','model','Gd_num','get_other_fet')
     inlines=[FuelElementTypePositionInline]
     add_form_template="no_action.html"
     change_form_template="tragopan/insert_fuel.html"
@@ -821,7 +829,7 @@ class OperationDistributionDataInline(admin.TabularInline):
     raw_id_fields=('reactor_position',)
     model=OperationDistributionData
     extra=0
-    readonly_fields=('reactor_position','relative_power','FDH',)
+    readonly_fields=('reactor_position','relative_power','FDH','axial_power_offset')
     def has_add_permission(self,request):
         return False
     def has_delete_permission(self,request, obj=None):

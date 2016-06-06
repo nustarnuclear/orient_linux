@@ -341,7 +341,7 @@ class OperationDataHandler:
         if self.plant_name in ('FJS','QNPC_II'):
             basic_core_state_pattern=re.compile('Power Plant')
             power_start_pattern=re.compile('RADIAL MAP OF 3D POWER INTEGRATED OVER THE ACTIVE CORE HEIGHT AND ESTIMATED BY')
-            AO_start_pattern=re.compile('RADIAL MAP OF ASSEMBLIES MEAN POWER \(PDH\) AND AXIAL OFFSET')
+            AO_start_pattern=re.compile('RADIAL MAP OF ESTIMATED INTEGRATED ACTIVITIES AND AXIAL-OFFSETS')
             FDH_start_pattern=re.compile('RADIAL MAP OF THE MAXIMUM ESTIMATED FUEL ROD POWER AND THE C/R DEVIATIONS')
             date_pattern=re.compile('created on')
             bank_position_pattern=re.compile('The Banks positions may also have been modified by the user. Final positions are given below :')

@@ -447,9 +447,12 @@ class Material(BaseModel):
         
             
     def __str__(self):
-        if self.enrichment:
+        if self.nameEN:
+            return self.nameEN
+        elif self.enrichment:
             return "UO2_"+str(self.enrichment)
-        return self.prerobin_identifier
+        else:
+            return self.prerobin_identifier
         
 class MaterialWeightComposition(BaseModel):
     mixture=models.ForeignKey(Material,related_name='weight_mixtures',)
@@ -570,10 +573,10 @@ class ReactorModel(BaseModel):
     column_symbol = models.CharField(max_length=6, choices=SYMBOL_CHOICES)
     letter_order=models.CharField(max_length=32,default='A B C D E F G H J K L M N')
     num_loops = models.PositiveSmallIntegerField(blank=True,null=True)
-    fuel_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
+    fuel_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm',null=True)
     core_equivalent_diameter = models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
     active_height= models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    vendor = models.ForeignKey(Vendor)  
+    vendor = models.ForeignKey(Vendor,blank=True,null=True)  
     thermal_couple_position=models.ManyToManyField('ReactorPosition',related_name='thermal_couple_position',db_table='thermal_couple_map',blank=True,)
     incore_instrument_position=models.ManyToManyField('ReactorPosition',related_name='incore_instrument_position',db_table='incore_instrument_map',blank=True,)
     fuel_temperature=models.PositiveSmallIntegerField(default=903,help_text='K')
@@ -1045,8 +1048,8 @@ class UnitParameter(BaseModel):
     ave_vol_power_density = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:KW/L', blank=True, null=True)
     ave_mass_power_density = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:W/g (fuel)')
     best_estimated_cool_vol_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3/h', blank=True, null=True)
-    best_estimated_cool_mass_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:kg/h', blank=True, null=True)
-    coolant_volume=models.DecimalField(max_digits=20, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3', blank=True, null=True)
+    best_estimated_cool_mass_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:kg/h', null=True)
+    coolant_volume=models.DecimalField(max_digits=20, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3', null=True)
     bypass_flow_fraction = models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%", blank=True, null=True)
     cold_state_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
     HZP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
@@ -1259,13 +1262,17 @@ class Cycle(BaseModel):
             xml_file=self.generate_loading_pattern_xml() 
             try:
                 loading_pattern=self.multipleloadingpattern_set.get(authorized=True)
-                loading_pattern.xml_file.delete()
-                #send a signal to delete the old file
-                del_fieldfile.send(sender=loading_pattern.__class__,pk=loading_pattern.pk)
+                try:
+                    loading_pattern.xml_file.delete()
+                    #send a signal to delete the old file
+                    del_fieldfile.send(sender=loading_pattern.__class__,pk=loading_pattern.pk)
+                except:
+                    pass
                 #save the new file
                 loading_pattern.xml_file=File(xml_file)
                 loading_pattern.save()
-            except:
+            except Exception as e:
+                print(e)
                 #if not exists,create a new one
                 self.multipleloadingpattern_set.create(name=loading_pattern_name,authorized=True,xml_file=File(xml_file),user=User.objects.get(username='admin')) 
             xml_file.close()
@@ -1364,15 +1371,15 @@ class FuelAssemblyLoadingPattern(BaseModel):
 class FuelAssemblyModel(BaseModel):
     name=models.CharField(max_length=5)
     active_length=models.DecimalField(max_digits=10, decimal_places=5,default=365.8,validators=[MinValueValidator(0)],help_text='unit:cm')
-    side_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    side_length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],blank=True,null=True, help_text='unit:cm')
     assembly_pitch=models.DecimalField(max_digits=7, decimal_places=4,validators=[MinValueValidator(0)],help_text='unit:cm')
     pin_pitch=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    lower_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
-    upper_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    lower_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm')
+    upper_gap=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm')
     side_pin_num=models.PositiveSmallIntegerField(default=17)
     licensed_max_discharge_BU =models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='MWd/tU',blank=True,null=True)
     licensed_pin_discharge_BU =models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='MWd/tU',blank=True,null=True)
-    vendor=models.ForeignKey(Vendor)
+    vendor=models.ForeignKey(Vendor,blank=True,null=True)
     
     class Meta:
         db_table='fuel_assembly_model'
@@ -1496,6 +1503,7 @@ class FuelAssemblyType(BaseModel):
     assembly_enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0)],help_text='meaningful only if using the one unique enrichment fuel',blank=True,null=True)
     map=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
     symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
+    Gd_num=models.PositiveSmallIntegerField(default=0)
     class Meta:
         db_table='fuel_assembly_type'
         
@@ -1582,6 +1590,13 @@ class FuelAssemblyType(BaseModel):
         for fuel_element_type in fuel_element_types:
             if fuel_element_type.enrichment==enrichment:
                 return fuel_element_type
+    def get_other_fet(self):
+        fet=self.get_fuel_element_type()
+        rod_positions=self.rod_positions.exclude(fuel_element_type=fet)
+        if rod_positions.exists():
+            return (rod_positions.count(),rod_positions.first().fuel_element_type)
+        else:
+            return None
             
     def insert_fuel(self):
         '''only available if all fuel element is the same 
@@ -1595,12 +1610,27 @@ class FuelAssemblyType(BaseModel):
                 num+=1
             except:
                 pass
+        #insert gd
+        if self.Gd_num!=0:
+            try:
+                fat=FuelAssemblyType.objects.filter(model=self.model,symmetry=self.symmetry,Gd_num=self.Gd_num,).exclude(assembly_enrichment=self.assembly_enrichment).first()
+                fet=fat.get_fuel_element_type()
+                for rod_position in fat.rod_positions.exclude(fuel_element_type=fet):
+                    position=rod_position.fuel_assembly_position
+                    gd_fet=rod_position.fuel_element_type
+                    rp=self.rod_positions.get(fuel_assembly_position=position)
+                    rp.fuel_element_type=gd_fet
+                    rp.save()
+            except:
+                pass
         return num
         
     def __str__(self):
-        return "{} {} {}".format(self.pk,self.model,self.assembly_enrichment)  
-    
-
+        if self.Gd_num!=0:
+            return "{} {} {} {}Gd".format(self.pk,self.model,self.assembly_enrichment,self.Gd_num)  
+        else:
+            return "{} {} {}".format(self.pk,self.model,self.assembly_enrichment)
+        
     
 class FuelAssemblyRepository(BaseModel):
     PN=models.CharField(max_length=50,blank=True,null=True)
@@ -1608,10 +1638,12 @@ class FuelAssemblyRepository(BaseModel):
     batch_number=models.PositiveSmallIntegerField(blank=True,null=True)
     manufacturing_date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True)
     arrival_date=models.DateField(help_text='Please use <b>YYYY-MM-DD<b> to input the date',blank=True,null=True)
-    vendor=models.ForeignKey(Vendor,default=1)
+    vendor=models.ForeignKey(Vendor,blank=True,null=True)
     availability=models.BooleanField(default=True)
     broken=models.BooleanField(default=False)
-    unit=models.ForeignKey(UnitParameter,related_name='fuel_assemblies',blank=True,null=True)
+    broken_cycle=models.ForeignKey(Cycle,related_name='broken_assemblies',blank=True,null=True)
+    unavailable_cycle=models.ForeignKey(Cycle,related_name='unavailable_assemblies',blank=True,null=True)
+    unit=models.ForeignKey(UnitParameter,related_name='fuel_assemblies',null=True)
     
     class Meta:
         db_table='fuel_assembly_repository'
@@ -1621,7 +1653,22 @@ class FuelAssemblyRepository(BaseModel):
     def autocomplete_search_fields():
         return ("pk__iexact", "PN__icontains",)
     
+    def fresh(self,cycle):
+        first_loading_pattern=self.get_first_loading_pattern()
+        if first_loading_pattern.cycle==cycle:
+            return True
+        else:
+            return False
     
+    @property
+    def broken_cycle_num(self):
+        if self.broken_cycle:
+            return self.broken_cycle.cycle
+        
+    @property
+    def unavailable_cycle_num(self):
+        if self.unavailable_cycle:
+            return self.unavailable_cycle.cycle
         
     def get_first_loading_pattern(self):
         cycle_positions=self.cycle_positions.all()
@@ -2420,7 +2467,7 @@ class ControlRodType(BaseModel):
     radius=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     class Meta:
         db_table='control_rod_type'
-        #verbose_name='Control rod'
+        verbose_name='Control rod'
     
     
     def get_active_volume(self,active_height):
@@ -2841,7 +2888,7 @@ class ControlRodAssemblyType(BaseModel):
     class Meta:
         db_table='control_rod_assembly_type'
         order_with_respect_to = 'reactor_model'
-        
+        verbose_name='Control rod assembly'
     @property
     def cr_id(self):
         return "CR"+str(self.pk)
@@ -3174,7 +3221,8 @@ class OperationDailyParameter(BaseModel):
     class Meta:
         db_table='operation_daily_parameter'
         order_with_respect_to = 'cycle'
-        
+        verbose_name='Daily operation history'
+        verbose_name_plural='Daily operation history'
     def generate_depl_case_node(self):
         doc = minidom.Document()
         depl_case_xml=doc.createElement('depl_case')
@@ -3245,7 +3293,7 @@ class OperationMonthlyParameter(BaseModel):
     class Meta:
         db_table='operation_monthly_parameter'
         order_with_respect_to = 'cycle'
-             
+        verbose_name='Incore flux mapping result'    
     def __str__(self):
         return "{}".format(self.cycle,)
     

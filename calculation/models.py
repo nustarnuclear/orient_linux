@@ -104,8 +104,8 @@ def parse_xml_to_lst(src):
     return new_filename
 
 def get_boron_density(assembly_enrichment):
-    crt=Decimal(3.7)
-    if assembly_enrichment>crt:
+    crt=Decimal('3.700000')
+    if assembly_enrichment>=crt:
         boron_density=Decimal(800)
     else:
         boron_density=Decimal(500)
@@ -420,8 +420,9 @@ class PreRobinBranch(models.Model):
             cra_branch_set=set()
             for cra_type in cra_types:
                 cra_branch_set.update(cra_type.get_branch_ID_set())
-                
-            for cra_branch in cra_branch_set:
+            cra_branch_list=sorted(list(cra_branch_set))
+            print(cra_branch_list)
+            for cra_branch in cra_branch_list:
                 base_branch_ID_lst.append(cra_branch)
             base_branch_ID_lst.extend(["SET_XEN_ZERO","SHUT_DOWN_COOLING"])
         return base_branch_ID_lst
@@ -2792,7 +2793,7 @@ class MultipleLoadingPattern(BaseModel):
     def clean(self):
         if self.authorized:
             #handle current cycle
-            if MultipleLoadingPattern.objects.filter(cycle=self.cycle,authorized=True).exists():
+            if MultipleLoadingPattern.objects.filter(cycle=self.cycle,authorized=True).count()>=2:
                 raise ValidationError({
                                       'authorized':_('A cycle can not have more than one authorized loading pattern'),                
                 }) 
@@ -2879,6 +2880,8 @@ class MultipleLoadingPattern(BaseModel):
                     bpa=None
                 pre_robin_input=PreRobinInput.objects.get(unit=unit,fuel_assembly_type=fuel_assembly_type, burnable_poison_assembly=bpa)
                 basefuel_ID=pre_robin_input.basefuel_ID
+                if bpa and (not bpa.symmetry):
+                    basefuel_ID=basefuel_ID.replace("B",'BX')
                 fuel_lst.append(basefuel_ID)
             else:
                 previous_row=fuel_assembl_node.getAttribute('pre_row')

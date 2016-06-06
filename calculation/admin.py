@@ -1,6 +1,7 @@
 from django.contrib import admin
 from .models import *
-from .forms import UnitForm,ReactorModelForm,EgretDefaultForm
+from .forms import UnitForm,ReactorModelForm,EgretDefaultForm,PowerTemperatureForm
+from django.forms import formset_factory
 from .functions import generate_base_core
 from django.conf.urls import url
 from django.core.urlresolvers import reverse
@@ -183,13 +184,15 @@ class PreRobinInputAdmin(admin.ModelAdmin):
                 return redirect(reverse("admin:calculation_prerobininput_changelist"))
     ##########################################################################################      
     def refresh_base_core_link_view(self,request, *args, **kwargs):
-        context={"egret_default_form":EgretDefaultForm().as_p()}
+        context={"egret_default_form":EgretDefaultForm().as_p(),"formset":formset_factory(PowerTemperatureForm,extra=3)}
         return TemplateResponse(request, "calculation/refresh_base_core.html", context)
     
     def refresh_base_core_view(self,request, *args, **kwargs):
+        PowerTemperatureFormSet = formset_factory(PowerTemperatureForm)
         if request.method == 'POST':
             form = EgretDefaultForm(request.POST)
-            if form.is_valid():
+            formset=PowerTemperatureFormSet(request.POST)
+            if form.is_valid() and formset.is_valid():
                 unit=form.cleaned_data['unit']
                 calc_data={}
                 calc_data['subdivision']=form.cleaned_data['subdivision']
@@ -200,7 +203,8 @@ class PreRobinInputAdmin(admin.ModelAdmin):
                 calc_data['axial_df']=form.cleaned_data['axial_df']
                 calc_data['axial_mesh']=str(form.cleaned_data['axial_mesh'])
                 calc_data['cyclen_std_bu']=form.cleaned_data['cyclen_std_bu']
-                generate_base_core(unit,calc_data)
+                power_temperature=formset.cleaned_data
+                generate_base_core(unit,calc_data,power_temperature)
                 self.message_user(request, 'Refresh succeed')
                 return redirect(reverse("admin:calculation_prerobininput_changelist"))
     
@@ -253,12 +257,12 @@ class RobinTaskInline(admin.TabularInline):
 class PreRobinTaskAdmin(admin.ModelAdmin):
     add_form_template="no_action.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','branch','depletion_state','pre_robin_model','task_status','robin_finished','table_generated','bp_in',)
+    list_display=("__str__","plant",'fuel_assembly_type','task_status','robin_finished','table_generated','bp_num')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)
     actions = ['auto_start_prerobin','del_all_robin_tasks','auto_start_robin','auto_start_idyll']
-    list_filter=("plant","task_status")
+    list_filter=("plant","task_status",'fuel_assembly_type')
     def auto_start_prerobin(self, request, queryset):
         index=0
         for obj in queryset.exclude(task_status=4):

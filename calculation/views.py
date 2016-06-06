@@ -519,7 +519,7 @@ def extra_updating(request,format=None):
                 #write xml file to database
                 if target_type==2:
                     target.write_to_database()
-                 
+                    target.cycle.refresh_loading_pattern()
             else:
                 error_message={'error_message':'the update type is not supported'}
                 return Response(data=error_message,status=404)

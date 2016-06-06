@@ -59,7 +59,7 @@ urlpatterns = [
     url(r'^api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     url(r'^api-token-auth/', authtokenviews.obtain_auth_token),
     url(r'^change_password/', views.change_password),
-    #url(r'^o/', include('oauth2_provider.urls', namespace='oauth2_provider')),
+    url(r'^admin_log/',views.LogEntryViewSet.as_view({'get': 'list'})),
       
 ]+ static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
 

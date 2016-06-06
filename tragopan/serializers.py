@@ -101,7 +101,7 @@ class FuelAssemblyRepositorySerializer(serializers.ModelSerializer):
     type=FuelAssemblyTypeSerializer()
     class Meta:
         model = FuelAssemblyRepository
-        fields = ( 'type','remark','broken','availability')  
+        fields = ( 'id','type','remark','broken','availability','broken_cycle_num','unavailable_cycle_num')  
         
 class FuelAssemblyLoadingPatternSerializer(serializers.ModelSerializer):
     

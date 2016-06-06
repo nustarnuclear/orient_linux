@@ -1,4 +1,4 @@
-from django.db.models.signals import pre_delete
+from django.db.models.signals import pre_delete,post_save
 from django.dispatch import receiver
 from calculation.models import EgretTask,MultipleLoadingPattern,PreRobinTask,RobinTask
 from tragopan.models import del_fieldfile
@@ -54,6 +54,14 @@ def del_loading_pattern_xml(sender, **kwargs):
     except:
         pass
     
+# @receiver(post_save,sender=MultipleLoadingPattern)
+# def refresh_loading_pattern_xml(sender, **kwargs):
+#     pk=kwargs['pk']
+#     obj=sender.objects.get(pk=pk)
+#     if obj.authorized:
+#         cycle=obj.cycle
+#         cycle.refresh_loading_pattern()
+#     
    
     
     

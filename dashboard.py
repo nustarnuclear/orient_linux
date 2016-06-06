@@ -22,20 +22,20 @@ class CustomIndexDashboard(Dashboard):
         site_name = get_admin_site_name(context)
         
         self.children.append(modules.Group(
-            _('ROBIN & EGRET'),
+            _('ASSEMBLY CALCULATION'),
             column=1,
             collapsible=True,
             children = [
                 modules.ModelList(
-                    _('ROBIN'),
+#                     _('ROBIN'),
                     css_classes=('grp-background-color grp-yellow',),
-                    models=('calculation.models.*Robin*','calculation.models.Server','calculation.models.CoreBaffleCalculation'),
+                    models=('calculation.models.PreRobinInput','calculation.models.PreRobinTask','calculation.models.CoreBaffleCalculation'),
                 ),
-                modules.ModelList(
-                    _('EGRET'),
-                    css_classes=('grp-collapse grp-closed',),
-                    models=('calculation.models.*Egret*','calculation.models.MultipleLoadingPattern',),
-                ),
+#                 modules.ModelList(
+#                     _('EGRET'),
+#                     css_classes=('grp-collapse grp-closed',),
+#                     models=('calculation.models.*Egret*','calculation.models.MultipleLoadingPattern',),
+#                 ),
                          
             ]
         ))
@@ -68,12 +68,12 @@ class CustomIndexDashboard(Dashboard):
                 modules.ModelList(
                                   title='MATERIAL',
                                   column=1,
-                                  models=('tragopan.models.Material','tragopan.models.BasicMaterial'),
+                                  models=('tragopan.models.BasicMaterial','tragopan.models.Material','tragopan.models.MaterialTransection'),
                 ),  
                 modules.ModelList(
                                   title='FUEL PELLET',
                                   column=1,
-                                  models=('tragopan.models.*Pellet*',),
+                                  models=('tragopan.models.FuelPellet','tragopan.models.FuelPelletType'),
                 ), 
                 modules.ModelList(
                                   title='FUEL ELEMENT',
@@ -119,13 +119,13 @@ class CustomIndexDashboard(Dashboard):
                 modules.ModelList(
                                   title='BASIC INFO',
                                   column=1,
-                                  models=('tragopan.models.Plant','tragopan.models.ReactorModel','tragopan.models.UnitParameter',),
+                                  models=('tragopan.models.ReactorModel','tragopan.models.Plant','tragopan.models.UnitParameter',),
                    
                 ),
                 modules.ModelList(
                                   title='OPERATION INFO',
                                   column=1,
-                                  models=('tragopan.models.Cycle','tragopan.models.FuelAssemblyLoadingPattern','tragopan.models.OperationMonthlyParameter','tragopan.models.OperationDailyParameter',),
+                                  models=('tragopan.models.Cycle','tragopan.models.FuelAssemblyLoadingPattern',),
                    
                 ),       
             ],
@@ -169,13 +169,12 @@ class CustomIndexDashboard(Dashboard):
                     'url': '/admin/tragopan/',
                     'external': False,
                 },
+                {
+                    'title': _('ADMIN log'),
+                    'url': '/admin_log/',
+                    'external': False,
+                },
 
-#                 {
-#                     'title': _('Grappelli Template System'),
-#                     'url': '/grappelli/grp-doc/',
-#                     'external': False,
-#                 },      
-                      
             ]
         ))
         

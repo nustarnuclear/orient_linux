@@ -7,8 +7,7 @@ from rest_framework_xml.renderers import XMLRenderer
 from rest_framework.decorators import api_view,renderer_classes,parser_classes,authentication_classes
 from rest_framework.authentication import TokenAuthentication
 from rest_framework import viewsets
-from decimal import Decimal
-
+from django.db.models import Q
 class PlantViewSet(viewsets.ModelViewSet):
     queryset = Plant.objects.all()
     serializer_class = PlantListSerializer
@@ -23,20 +22,22 @@ class CycleViewSet(viewsets.ModelViewSet):
     queryset = Cycle.objects.all()
     serializer_class = CycleSerializer
     
+class AbnormalFuelAssembly(viewsets.ModelViewSet):
+    queryset = FuelAssemblyRepository.objects.filter(Q(availability=False)|Q(broken=True))
+    serializer_class = FuelAssemblyRepositorySerializer
+    
 @api_view(('GET','PUT'))
 def fuel_assembly_detail(request,format=None):
+    plant_name=request.query_params['plant']
+    unit_num=request.query_params['unit']
+    cycle_num=request.query_params['cycle']
+    pk=request.query_params['pk']
+    plant=Plant.objects.get(abbrEN=plant_name)
+    unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
+    cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
+    fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
     if request.method=='GET':
         try:
-            plant_name=request.query_params['plant']
-            unit_num=request.query_params['unit']
-            cycle_num=request.query_params['cycle']
-            pk=request.query_params['pk']
-        
-            plant=Plant.objects.get(abbrEN=plant_name)
-            unit=UnitParameter.objects.get(plant=plant,unit=unit_num)
-            cycle=Cycle.objects.get(unit=unit,cycle=cycle_num)
-            fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
-            
             if request.method == 'GET':
                 serializer1=FuelAssemblyRepositorySerializer(fuel_assembly)
                 data=serializer1.data
@@ -44,7 +45,6 @@ def fuel_assembly_detail(request,format=None):
                     falp=FuelAssemblyLoadingPattern.objects.get(cycle=cycle,fuel_assembly=fuel_assembly)
                     serializer2=FuelAssemblyLoadingPatternSerializer(falp)
                     data.update(serializer2.data)
-                    
                 return Response(data,status=200)
         except Exception as e:
             error_message={'error_message':e}
@@ -54,20 +54,20 @@ def fuel_assembly_detail(request,format=None):
         if not request.user.is_superuser:
             error_message={'error_message':'you have no permission'}
             return Response(data=error_message,status=550)
-            
         query_params=request.query_params
         try:
-            pk=query_params['pk']
             remark=query_params['remark']
-            fuel_assembly=FuelAssemblyRepository.objects.get(pk=pk)
-            fuel_assembly.remark="{} {}:{}".format(fuel_assembly.remark,request.user,remark)
+            #fuel_assembly.remark="{} {}:{}".format(fuel_assembly.remark,request.user,remark)
+            fuel_assembly.remark=remark
             if 'broken' in query_params:
                 broken=query_params['broken']
                 fuel_assembly.broken=int(broken)
-                 
+                fuel_assembly.broken_cycle=cycle
+                
             if 'availability' in query_params:
                 availability=query_params['availability']
                 fuel_assembly.availability=int(availability)
+                fuel_assembly.unavailable_cycle=cycle
             fuel_assembly.save()
             success_message={'success_message':'your request has been handled successfully'}
             return Response(data=success_message,status=200,)

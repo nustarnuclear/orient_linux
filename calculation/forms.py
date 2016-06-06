@@ -5,7 +5,7 @@ Created on Mar 16, 2016
 '''
 from django import forms
 from tragopan.models import UnitParameter,ReactorModel
-
+from django.core.validators import MinValueValidator,MaxValueValidator
 class UnitForm(forms.Form):
     unit=forms.ModelChoiceField(label='Select Unit',queryset=UnitParameter.objects.all(), empty_label=None)
 
@@ -35,3 +35,7 @@ class EgretDefaultForm(forms.Form):
     axial_df=forms.ChoiceField(choices=axial_df_CHOICES)
     axial_mesh=forms.DecimalField(initial=20)
     cyclen_std_bu=forms.CharField(max_length=128,initial='50.0 150.0 500.0 1000.0 2000.0 3000.0 5000.0 7000.0 10000.0 13000.0 16000.0 20000.0 24000.0 28000.0',widget=forms.Textarea)
+    
+class PowerTemperatureForm(forms.Form):
+    relative_power=forms.DecimalField(validators=[MinValueValidator(0),MaxValueValidator(1)])
+    inlet_temperature=forms.DecimalField()

@@ -5,7 +5,7 @@ from django.conf import settings
 from tragopan.models import ControlRodCluster
 media_root=settings.MEDIA_ROOT
 
-def generate_base_core(unit,calc_data):
+def generate_base_core(unit,calc_data,power_temperature):
     plant=unit.plant
     plant_name=plant.abbrEN
     reactor_model=unit.reactor_model
@@ -52,24 +52,31 @@ def generate_base_core(unit,calc_data):
     inlet_temperature_xml = doc.createElement("inlet_temperature")
     plant_data_xml.appendChild(inlet_temperature_xml)
     #tin xml
-    HZP_tin_xml = doc.createElement("tin")
-    HZP_tin_xml.appendChild(doc.createTextNode(str(HZP_cool_inlet_temp)))
-    HZP_tin_xml.setAttribute('power', '0.0')
-    inlet_temperature_xml.appendChild(HZP_tin_xml)
-    
-    mid_tin_xml = doc.createElement("tin")
-    #handle QNPC_I specially
-    if plant_name=='QNPC_I':
-        mid_tin_xml.appendChild(doc.createTextNode('556.05'))
-        mid_tin_xml.setAttribute('power', '0.15')
-    else:  
-        mid_tin_xml.appendChild(doc.createTextNode(str(mid_power_cool_inlet_temp)))
-        mid_tin_xml.setAttribute('power', '0.5')
-    inlet_temperature_xml.appendChild(mid_tin_xml)
-    HFP_tin_xml = doc.createElement("tin")
-    HFP_tin_xml.appendChild(doc.createTextNode(str(HFP_cool_inlet_temp)))
-    HFP_tin_xml.setAttribute('power', '1.0')
-    inlet_temperature_xml.appendChild(HFP_tin_xml)
+    for data in power_temperature:
+        rel_power=data['relative_power']
+        inlet_temp=data['inlet_temperature']
+        tin_xml = doc.createElement("tin")
+        tin_xml.appendChild(doc.createTextNode(str(inlet_temp)))
+        tin_xml.setAttribute('power', str(rel_power))
+        inlet_temperature_xml.appendChild(tin_xml)
+#     HZP_tin_xml = doc.createElement("tin")
+#     HZP_tin_xml.appendChild(doc.createTextNode(str(HZP_cool_inlet_temp)))
+#     HZP_tin_xml.setAttribute('power', '0.0')
+#     inlet_temperature_xml.appendChild(HZP_tin_xml)
+#     
+#     mid_tin_xml = doc.createElement("tin")
+#     #handle QNPC_I specially
+#     if plant_name=='QNPC_I':
+#         mid_tin_xml.appendChild(doc.createTextNode('556.05'))
+#         mid_tin_xml.setAttribute('power', '0.15')
+#     else:  
+#         mid_tin_xml.appendChild(doc.createTextNode(str(mid_power_cool_inlet_temp)))
+#         mid_tin_xml.setAttribute('power', '0.5')
+#     inlet_temperature_xml.appendChild(mid_tin_xml)
+#     HFP_tin_xml = doc.createElement("tin")
+#     HFP_tin_xml.appendChild(doc.createTextNode(str(HFP_cool_inlet_temp)))
+#     HFP_tin_xml.setAttribute('power', '1.0')
+#     inlet_temperature_xml.appendChild(HFP_tin_xml)
     #core geometry
     core_geo_xml = doc.createElement("core_geo")
     zero_direction=reactor_model.set_zero_to_direction
