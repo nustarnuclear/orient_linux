@@ -137,7 +137,7 @@ def operation_data(request,format=None):
                     
                     op=OperationDailyParameter.objects.create(cycle=cycle,date=Date,burnup=Bu,relative_power=P_rel,critical_boron_density=CB,axial_power_offset=AO)
                     for cluster in cluster_lst:
-                        cra=ControlRodCluster.objects.get(reactor_model=reactor_model,cluster_name=cluster[0])
+                        cra=ControlRodCluster.objects.get(control_rod_assembly_type__reactor_model=reactor_model,cluster_name=cluster[0])
                         ControlRodAssemblyStep.objects.create(operation=op,control_rod_cluster=cra,step=cluster[1])       
                     
                 success_message={'success_message':'your request has been handled successfully',}

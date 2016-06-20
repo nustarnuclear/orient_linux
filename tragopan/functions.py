@@ -405,7 +405,7 @@ class OperationDataHandler:
             elif self.plant_name=='QNPC_I':
                 if date_pattern.search(line):
                     date=line.split(sep=':')[1].split(sep='.')[0].strip()
-                
+                    date=date[:4]+'-'+date[4:6]+'-'+date[6:]
                 unit_num=1
                 
                 avg_burnup=None

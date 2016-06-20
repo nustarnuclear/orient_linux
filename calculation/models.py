@@ -2860,9 +2860,14 @@ class MultipleLoadingPattern(BaseModel):
         fuel_lst=[]
         #num_lst=[]
         pre_fuel_lst=[]
+        rotation_lst=[]
         for position_node in position_nodes:
             row=int(position_node.getAttribute('row'))
             column=int(position_node.getAttribute('column'))
+            rotation=int(position_node.getAttribute('rotation'))
+            #1 represent no rotation
+            if rotation!=1:
+                rotation_lst.append([row,column,rotation])
             #num_lst.append(100*row+column)
             fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
             
@@ -2913,6 +2918,14 @@ class MultipleLoadingPattern(BaseModel):
             #add shut down cooling days
             cycle_sdc=400*(cycle.cycle-item[2]-1)
             cycle_xml.setAttribute('sdc', str(cycle_sdc))
+        #rotation
+        for item in rotation_lst:
+            rotation_xml=doc.createElement('rotation')
+            fuel_xml.appendChild(rotation_xml)
+            rotation_xml.setAttribute('row', str(item[0]))
+            rotation_xml.setAttribute('col', str(item[1]))
+            rotation_xml.appendChild(doc.createTextNode(str(item[2])))
+            
         return fuel_xml
      
      
@@ -2975,6 +2988,7 @@ class MultipleLoadingPattern(BaseModel):
         for position_node in position_nodes:
             row=int(position_node.getAttribute('row'))
             column=int(position_node.getAttribute('column'))
+            rotation=int(position_node.getAttribute('rotation'))
             position=positions.get(row=row,column=column)
             fuel_assembl_node=position_node.getElementsByTagName('fuel_assembly')[0]
             type_pk=int(fuel_assembl_node.getAttribute('type'))
@@ -3004,7 +3018,7 @@ class MultipleLoadingPattern(BaseModel):
                 pre_cycle=unit.cycles.get(cycle=pre_cycle_num)
                 loading_pattern=pre_cycle.loading_patterns.get(reactor_position=pre_position)
                 fuel_assembly= loading_pattern.fuel_assembly
-            FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=position,fuel_assembly=fuel_assembly,burnable_poison_assembly=bpa,cr_out=cr_out)
+            FuelAssemblyLoadingPattern.objects.create(cycle=cycle,reactor_position=position,fuel_assembly=fuel_assembly,burnable_poison_assembly=bpa,cr_out=cr_out,rotation_degree=rotation)
         self.name=loading_pattern_name 
         self.save()
         

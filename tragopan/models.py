@@ -182,7 +182,9 @@ class WimsNuclideData(BaseModel):
     nf=models.PositiveSmallIntegerField(choices=NF_CHOICES)
     material_type= models.CharField(max_length=4,choices=MATERIAL_TYPE_CHOICES)
     descrip= models.CharField(max_length=50)
-   
+    class Meta:
+        db_table='wims_nuclide_data'
+        verbose_name_plural='wims nuclide data'
     @staticmethod
     def autocomplete_search_fields():
         return ("element__symbol",'id_wims','id_self_defined')
@@ -191,22 +193,16 @@ class WimsNuclideData(BaseModel):
     def res_trig(self):
         return 0 if self.nf in (0,4) else 1
 
-    
     @property
     def dep_trig(self):
         return 1 if self.material_type in ('FP','A','B','B/FP') else 0
- 
-    
+  
     @classmethod
     def generate_nuclide_lib(cls):
         data=cls.objects.exclude(material_type='D')
         for item in data:
             id_wims=item.id_wims if item.id_wims else 0
-            yield (item.id_self_defined,id_wims,item.amu,item.res_trig,item.dep_trig)
-    
-    class Meta:
-        db_table='wims_nuclide_data'
-        
+            yield (item.id_self_defined,id_wims,item.amu,item.res_trig,item.dep_trig)  
             
     def __str__(self):
         return "{}".format(self.nuclide_name)
@@ -214,16 +210,14 @@ class WimsNuclideData(BaseModel):
 class WmisElementData(BaseModel):
     element_name=models.CharField(max_length=30,)
     composition=models.ManyToManyField(WimsNuclideData,through='WmisElementComposition')
-    
+    class Meta:
+        db_table='wmis_element_data'
+        verbose_name_plural='wmis element data'
     @staticmethod
     def autocomplete_search_fields():
         return ("element_name__icontains",)
     def get_nuclide_num(self):  
         return self.composition.count()
-    
-    class Meta:
-        db_table='wmis_element_data'
-        
     def __str__(self):
         return self.element_name
     
@@ -807,6 +801,12 @@ class ReactorPosition(BaseModel):
         db_table='reactor_position'
         unique_together=('reactor_model','row','column')
         ordering=['row','column']  
+    
+    def get_rotate_pos(self):
+        dimension=self.reactor_model.dimension
+        col=self.row
+        row=dimension-self.column+1
+        return ReactorPosition.objects.get(reactor_model=self.reactor_model,row=row,column=col)
         
     def get_quadrant_symbol(self):
         '''
@@ -1229,6 +1229,9 @@ class Cycle(BaseModel):
             position_xml=doc.createElement('position')
             position_xml.setAttribute('row', str(row))
             position_xml.setAttribute('column', str(column))
+            #rotation
+            rotation_degree=loading_pattern.rotation_degree
+            position_xml.setAttribute('rotation', str(rotation_degree))
             #fuel assembly
             fuel_assembly=loading_pattern.fuel_assembly
             fuel_assembly_xml=fuel_assembly.generate_fuel_assembly_xml(loading_pattern)
@@ -1295,15 +1298,15 @@ class Cycle(BaseModel):
     
 class FuelAssemblyLoadingPattern(BaseModel):
     ROTATION_DEGREE_CHOICES=(
-        ('0','0'),
-        ('90','90'),
-        ('180','180'),
-        ('270','270'),
+        (1,'0'),
+        (2,'90'),
+        (3,'180'),
+        (4,'270'),
     )
     cycle=models.ForeignKey(Cycle,related_name='loading_patterns')
     reactor_position=models.ForeignKey(ReactorPosition)
     fuel_assembly=models.ForeignKey('FuelAssemblyRepository',related_name='cycle_positions',default=1)
-    rotation_degree=models.CharField(max_length=3,choices=ROTATION_DEGREE_CHOICES,default='0',help_text='anticlokwise')
+    rotation_degree=models.PositiveSmallIntegerField(choices=ROTATION_DEGREE_CHOICES,default=1,help_text='anticlokwise')
     burnable_poison_assembly=models.ForeignKey('BurnablePoisonAssembly',related_name="bpa",blank=True,null=True)
     #control_rod_assembly=models.ForeignKey('ControlRodAssembly',related_name="cra",blank=True,null=True)
     cr_out=models.NullBooleanField()
@@ -2889,6 +2892,7 @@ class ControlRodAssemblyType(BaseModel):
         db_table='control_rod_assembly_type'
         order_with_respect_to = 'reactor_model'
         verbose_name='Control rod assembly'
+        verbose_name_plural='Control rod assemblies'
     @property
     def cr_id(self):
         return "CR"+str(self.pk)
@@ -3324,7 +3328,7 @@ class OperationDistributionData(BaseModel):
     class Meta:
         db_table='operation_distribution_data'
         order_with_respect_to = 'operation'
-        
+        verbose_name_plural='operation_distribution_data'
     def position(self):
         reactor_position=self.reactor_position
         return "{}_{}".format(reactor_position.row,reactor_position.column)

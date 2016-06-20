@@ -263,7 +263,7 @@ def position_node_by_excel(cycle,row,column,position_or_type):
     position_node = doc.createElement("position")
     position_node.setAttribute('row', str(row))
     position_node.setAttribute('column', str(column))
-    
+    position_node.setAttribute('rotation', '1')
     fuel_assembly_node=doc.createElement("fuel_assembly")
     position_node.appendChild(fuel_assembly_node)
     

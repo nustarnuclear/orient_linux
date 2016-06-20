@@ -17,6 +17,7 @@ def get_obj(request,model):
     path=request.path
     pk=path.split('/')[-2]
     return model.objects.get(pk=int(pk))
+   
 #element information
 
 class NuclideInline(admin.TabularInline):
@@ -374,7 +375,7 @@ class FuelAssemblyLoadingPatternInline(admin.TabularInline):
 
 class FuelAssemblyLoadingPatternAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_filter=['fuel_assembly__type','reactor_position','cycle',]
+    list_filter=['fuel_assembly__type','reactor_position__row','reactor_position__column','cycle',]
     list_display=['cycle','reactor_position','fuel_assembly','burnable_poison_assembly','cr_out']
     list_select_related = ('cycle', 'fuel_assembly')
     raw_id_fields = ("fuel_assembly",)
@@ -669,8 +670,11 @@ class FuelElementPelletLoadingSchemeInline(admin.TabularInline):
     model=FuelElementPelletLoadingScheme
     def formfield_for_foreignkey(self, db_field,request, **kwargs):
         if db_field.name=='fuel_pellet_type':
-            obj=get_obj(request,FuelElementType)
-            kwargs["queryset"] = FuelPelletType.objects.filter(model__fuel_assembly_model=obj.model.fuel_assembly_model)
+            try:
+                obj=get_obj(request,FuelElementType)
+                kwargs["queryset"] = FuelPelletType.objects.filter(model__fuel_assembly_model=obj.model.fuel_assembly_model)
+            except:
+                kwargs["queryset"] = FuelPelletType.objects.all()
             return super(FuelElementPelletLoadingSchemeInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 class FuelElementTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)

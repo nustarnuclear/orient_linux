@@ -380,29 +380,29 @@ def multiple_loading_pattern(request,format=None):
             return Response(data={},status=200)
     
     if request.method == 'PUT':
-        file=data['file']
-        name=request.query_params['name']
         try:
+            file=data['file']
+            name=request.query_params['name']
             loading_pattern=MultipleLoadingPattern.objects.get(name=name,cycle=cycle,user=request.user,)
+       
+            #check if has permission
+            if request.user!=loading_pattern.user and (not request.user.is_superuser) or loading_pattern.authorized:
+                error_message={'error_message':"you have no permission"}
+                return Response(data=error_message,status=550)
+            
+            if loading_pattern.post_loading_patterns.all().exists():
+                error_message={'error_message':'The loading pattern is referenced by other loading patterns'}
+                return Response(data=error_message,status=404)
+            
+            loading_pattern.xml_file.delete()
+            del_fieldfile.send(sender=MultipleLoadingPattern,pk=loading_pattern.pk)
+            loading_pattern.xml_file=file
+            loading_pattern.full_clean()
+            loading_pattern.save()
+            success_message={'success_message':'your request has been handled successfully'}
+            return Response(data=success_message,status=200)
         except Exception as e:
             return Response(data={'error_message':e},status=404)
-        #check if has permission
-        if request.user!=mlp.user and (not request.user.is_superuser) or mlp.authorized:
-            error_message={'error_message':"you have no permission"}
-            return Response(data=error_message,status=550)
-        
-        if loading_pattern.post_loading_patterns.all().exists():
-            error_message={'error_message':'The loading pattern is referenced by other loading patterns'}
-            return Response(data=error_message,status=404)
-        
-        loading_pattern.xml_file.delete()
-        del_fieldfile.send(sender=MultipleLoadingPattern,pk=loading_pattern.pk)
-        loading_pattern.xml_file=file
-        loading_pattern.full_clean()
-        loading_pattern.save()
-        success_message={'success_message':'your request has been handled successfully'}
-        return Response(data=success_message,status=200)
-    
 @api_view(('POST',))
 @parser_classes((XMLParser,))
 @renderer_classes((XMLRenderer,)) 

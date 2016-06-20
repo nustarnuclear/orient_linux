@@ -66,6 +66,9 @@ def parse_raw_file(sender, instance, created=False, **kwargs):
                 AO=AO_distribution[i]
             except:
                 AO=None
+            #rotate
+            if plant.abbrEN=='QNPC_II':
+                reactor_position=reactor_position.get_rotate_pos()
             FDH=FDH_distribution[i]
             OperationDistributionData.objects.create(operation=instance,reactor_position=reactor_position,relative_power=power,FDH=FDH,axial_power_offset=AO)
         
