@@ -104,8 +104,11 @@ def egret_task(request,format=None):
             pk=query_params['pk'] 
             loading_pattern=MultipleLoadingPattern.objects.get(pk=pk)
             user=request.user
-            same_group_users=get_same_group_users(user)   
-            task_list=EgretTask.objects.filter(Q(user__in=same_group_users)&Q(visibility=2)|Q(user=user)|Q(visibility=3),Q(loading_pattern=loading_pattern)|(Q(task_type='SEQUENCE')&Q(pre_egret_task__loading_pattern=loading_pattern)))
+            same_group_users=get_same_group_users(user)  
+            if user.is_superuser:
+                task_list=EgretTask.objects.filter(loading_pattern=loading_pattern)
+            else:
+                task_list=EgretTask.objects.filter(Q(user__in=same_group_users)&Q(visibility=2)|Q(user=user)|Q(visibility=3),Q(loading_pattern=loading_pattern)|(Q(task_type='SEQUENCE')&Q(pre_egret_task__loading_pattern=loading_pattern)))
             if task_list is None:
                 return Response(data={})
             
