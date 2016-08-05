@@ -1904,7 +1904,12 @@ class PreRobinTask(BaseModel):
         idyll_dir=self.plant.reactor_model.idyll_dir
         if not os.path.exists(idyll_dir):
             os.makedirs(idyll_dir)
+            
         dest=os.path.join(idyll_dir,self.get_segment_ID(burnup)+".TAB")
+        try:
+            os.remove(dest)
+        except:
+            pass
         try:
             os.symlink(table_path,dest)
         except:
