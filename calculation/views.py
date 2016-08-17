@@ -35,12 +35,6 @@ def egret_task(request,format=None):
         task=EgretTask.objects.get(pk=task_pk)
         #stop operation
         if operation_type==1:
-            
-            #from orient.celery import app
-            #calculation_identity=query_params['calculation_identity']
-            pid=int(query_params['pid'])
-            #app.control.revoke(calculation_identity,terminate=True)
-            os.kill(pid,signal.SIGKILL)
             try:
                 
                 task=EgretTask.objects.get(pk=task_pk)
@@ -53,15 +47,19 @@ def egret_task(request,format=None):
             except Exception as e:
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
-            while True:
-                if task.task_status==4:
-                    task.task_status=3
-                    task.save()
-                    break
-                else:
-                    time.sleep(1)
-                    task.refresh_from_db()
-                    
+            
+#             pid=int(query_params['pid'])
+#             os.kill(pid,signal.SIGKILL)
+#             
+#             while True:
+#                 if task.task_status==4:
+#                     task.task_status=3
+#                     task.save()
+#                     break
+#                 else:
+#                     time.sleep(1)
+#                     task.refresh_from_db()
+            task.stop()
             return Response(data={'sucess_message':'stop operation finished'},status=200)
             
             
@@ -83,11 +81,12 @@ def egret_task(request,format=None):
         # cancel operation
         elif operation_type==3:
             try:
-                calculation_identity=task.calculation_identity
-                app.control.revoke(calculation_identity)  # @UndefinedVariable
-                task.task_status=5
-                task.end_time=datetime.now()
-                task.save()
+#                 calculation_identity=task.calculation_identity
+#                 app.control.revoke(calculation_identity)  # @UndefinedVariable
+#                 task.task_status=5
+#                 task.end_time=datetime.now()
+#                 task.save()
+                task.stop()
                 return Response(data={'sucess_message':'cancel operation finished'},status=200)
             
             except Exception as e:

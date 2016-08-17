@@ -248,12 +248,12 @@ admin.site.register(ReactorPosition, ReactorPositionAdmin)
 class ReactorPositionInline(admin.TabularInline):
     model=ReactorPosition
     exclude=('remark',)
-    
-    def get_extra(self, request, obj=None, **kwargs):
-        extra = 121
-        if obj:
-            extra -= obj.positions.count()
-        return extra
+    #sortable_field_name = "row"
+#     def get_extra(self, request, obj=None, **kwargs):
+#         extra = 121
+#         if obj:
+#             extra -= obj.positions.count()
+#         return extra
     
     def get_readonly_fields(self,request, obj=None):
         if not request.user.is_superuser:
@@ -327,7 +327,7 @@ class IncoreInstrumentPositionInline(admin.TabularInline):
 class ReactorModelAdmin(admin.ModelAdmin):
     exclude=('remark','thermal_couple_position','incore_instrument_position')
     inlines=[ReactorPositionInline,CoreBaffleInline,]
-    list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','dimension','middle','start_pos','end_pos','quarter_pos','generate_reflector_line','generate_reflector_index']
+    list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','dimension','middle','start_pos','quarter_pos','generate_reflector_line','generate_reflector_index']
     
     def get_formsets_with_inlines(self, request, obj=None):
         for inline in self.get_inline_instances(request, obj):
@@ -643,7 +643,7 @@ admin.site.register(FuelElementTypePosition, FuelElementTypePositionAdmin)
     
 class FuelAssemblyTypeAdmin(admin.ModelAdmin):
     exclude=('remark',)
-    list_display=('pk','assembly_enrichment','model','Gd_num','get_other_fet')
+    list_display=('pk','name','assembly_enrichment','model','Gd_num','get_rob_pk_dic','get_fuel_element_type')
     inlines=[FuelElementTypePositionInline]
     add_form_template="no_action.html"
     change_form_template="tragopan/insert_fuel.html"
@@ -677,7 +677,6 @@ class FuelElementPelletLoadingSchemeInline(admin.TabularInline):
                 kwargs["queryset"] = FuelPelletType.objects.all()
             return super(FuelElementPelletLoadingSchemeInline, self).formfield_for_foreignkey(db_field, request, **kwargs)
 class FuelElementTypeAdmin(admin.ModelAdmin):
-    exclude=('remark',)
     list_display=('__str__','enrichment')
     inlines=[FuelElementPelletLoadingSchemeInline,]
 admin.site.register(FuelElementType, FuelElementTypeAdmin)
@@ -685,8 +684,7 @@ admin.site.register(FuelElementType, FuelElementTypeAdmin)
 
 
 class FuelPelletTypeAdmin(admin.ModelAdmin):
-    exclude=('remark',)
-    list_display=['model','material','enrichment',]
+    list_display=['__str__','model','material','enrichment',]
 admin.site.register(FuelPelletType, FuelPelletTypeAdmin)
 #the position information of fuel assembly model
 
@@ -725,7 +723,6 @@ class FuelElementSectionInline(admin.TabularInline):
     exclude=('remark',)
     
 class FuelElementAdmin(admin.ModelAdmin):
-    exclude=('remark',) 
     inlines=[CladdingTubeInline,FuelElementSectionInline]
 admin.site.register(FuelElement, FuelElementAdmin)
 
@@ -741,8 +738,7 @@ admin.site.register(MaterialTransection, MaterialTransectionAdmin)
 
 #fuel pellet type information    
 class FuelPelletAdmin(admin.ModelAdmin):
-    exclude=('remark',) 
-    list_display=('fuel_assembly_model','factor')
+    list_display=('__str__','fuel_assembly_model','factor')
 admin.site.register(FuelPellet, FuelPelletAdmin)
 #########################################################################################
 #component assembly rod
@@ -785,7 +781,6 @@ class BurnablePoisonAssemblyMapInline(admin.TabularInline):
     
     
 class BurnablePoisonAssemblyAdmin(admin.ModelAdmin):
-    exclude=('remark',)
     inlines=[BurnablePoisonAssemblyMapInline,]
     list_display=['pk','__str__','get_poison_rod_num','get_quadrant_symbol','height_lst','symmetry','get_symmetry_bpa']
     def get_rod_num(self,obj):

@@ -1,7 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
 from django.core.validators import MinValueValidator
-from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter,PRE_ROBIN_PATH,BasicMaterial,Material,ReactorModel
+from tragopan.models import FuelAssemblyType, BurnablePoisonAssembly,FuelAssemblyRepository, FuelAssemblyLoadingPattern,MaterialTransection,UnitParameter,PRE_ROBIN_PATH,BasicMaterial,Material,ReactorModel,\
+    FuelPellet
 from django.conf import settings
 import os,signal
 from xml.dom import minidom 
@@ -165,7 +166,7 @@ class Server(models.Model):
         
         
     def __str__(self):
-        return "{} {}".format(self.name, self.IP)
+        return "{} {} {}".format(self.name, self.IP,self.queue)
     
 
     
@@ -604,6 +605,9 @@ class PreRobinInput(BaseModel):
     unit=models.ForeignKey(UnitParameter)
     fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')  
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
+    boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
+    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=32,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
+    bp=models.BooleanField(default=True,verbose_name="calculate bp out?")
     task=models.ManyToManyField('PreRobinTask',through='AssemblyLamination')
     class Meta:
         db_table='pre_robin_input'
@@ -645,9 +649,9 @@ class PreRobinInput(BaseModel):
         height_set=set(fuel_height_lst)|set(pin_height_lst)
         height_lst=sorted(list(height_set))
         return height_lst
-    def generate_transection(self,height,fuel=False):
+    def generate_transection(self,height,fuel=False,pellet=False):
         fuel_assembly_type=self.fuel_assembly_type
-        fuel_transection=fuel_assembly_type.generate_transection(height,fuel=fuel)
+        fuel_transection=fuel_assembly_type.generate_transection(height,fuel=fuel,pellet=pellet)
         if fuel:
             return fuel_transection
         transection=fuel_transection
@@ -668,8 +672,8 @@ class PreRobinInput(BaseModel):
         return auto_transection
     
         
-    def get_lst(self,height,fuel=False):
-        transection=self.generate_transection(height,fuel=fuel)
+    def get_lst(self,height,fuel=False,pellet=False):
+        transection=self.generate_transection(height,fuel=fuel,pellet=pellet)
         side_num=self.side_pin_num
         half=int(side_num/2)+1
         lst=[]
@@ -724,20 +728,23 @@ class PreRobinInput(BaseModel):
         return self.fuel_assembly_type.model.instrument_tube.generate_base_pin_xml()
     
     def create_depletion_state(self):
+        burnup_point=self.burnup_point
         unit=self.unit
         lst=unit.depletion_state_lst
         assembly_enrichment=self.fuel_assembly_type.assembly_enrichment
-        boron_density=get_boron_density(assembly_enrichment)
-        obj,created=DepletionState.objects.get_or_create(system_pressure=lst[0],fuel_temperature=lst[1],moderator_temperature=lst[2],power_density=lst[3],boron_density=boron_density)
+        #boron_density=get_boron_density(assembly_enrichment)
+        boron_density=self.boron_density
+        obj,created=DepletionState.objects.get_or_create(burnup_point=burnup_point,system_pressure=lst[0],fuel_temperature=lst[1],moderator_temperature=lst[2],power_density=lst[3],boron_density=boron_density)
         return obj
 
-    @property
-    def default_model(self):
-        return PreRobinModel.objects.get(default=True)
+#     @property
+#     def default_model(self):
+#         return PreRobinModel.objects.get(default=True)
     
     def create_branch(self):
+        burnup_point=self.burnup_point
         reactor_model=self.unit.reactor_model
-        obj,created=PreRobinBranch.objects.get_or_create(reactor_model=reactor_model)
+        obj,created=PreRobinBranch.objects.get_or_create(reactor_model=reactor_model,max_burnup_point=burnup_point)
         return obj
     def create_task(self):
         if self.task.exists():
@@ -746,17 +753,26 @@ class PreRobinInput(BaseModel):
         plant=self.unit.plant
         total_height_lst=self.total_height_lst
         branch=self.create_branch()
-        model=self.default_model
+        model=PreRobinModel.objects.get(default=True)
         depletion_state=self.create_depletion_state()
         for height in total_height_lst:
             fuel_lst=[str(item) for item in self.get_lst(height, fuel=True)]
+            pellet_lst=[str(item) for item in self.get_lst(height, fuel=True,pellet=True)]
             pin_lst=[str(item) for item in self.get_lst(height, fuel=False)]
             fuel_map=",".join(fuel_lst)
+            pellet_map=",".join(pellet_lst)
             pin_map=",".join(pin_lst)
             try:
-                obj=PreRobinTask.objects.get(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,depletion_state=depletion_state)
-            except:  
-                obj=PreRobinTask.objects.create(plant=plant,fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,fuel_map=fuel_map,branch=branch,pre_robin_model=model,depletion_state=depletion_state)
+                obj=PreRobinTask.objects.get(fuel_assembly_type=fuel_assembly_type,pin_map=pin_map,
+                                             pellet_map=pellet_map,fuel_map=fuel_map,depletion_state=depletion_state)
+            except:
+                if "13" in pin_lst:
+                    model=PreRobinModel.objects.get(model_name="IFBA")
+                    
+                obj=PreRobinTask.objects.create(plant=plant,fuel_assembly_type=fuel_assembly_type,
+                                                pin_map=pin_map,pellet_map=pellet_map,fuel_map=fuel_map,
+                                                branch=branch,pre_robin_model=model,depletion_state=depletion_state,bp=self.bp)
+            
             AssemblyLamination.objects.create(pre_robon_input=self,height=height,pre_robin_task=obj)
             
     def generate_base_fuel_xml(self):
@@ -901,28 +917,6 @@ class PreRobinInput(BaseModel):
         loading_pattern_xml.setAttribute("basecore_ID",basecore_id)
         loading_pattern_xml.setAttribute("core_id",core_id)
         doc.appendChild(loading_pattern_xml)
-        
-        #control rod xml
-        
-#         for cycle in cycles:
-#             control_rod_assembly_loading_patterns=cycle.loading_patterns.filter(control_rod_assembly__isnull=False)
-#             if control_rod_assembly_loading_patterns:
-#                 control_rod_xml=doc.createElement("control_rod")
-#                 control_rod_xml.setAttribute("cycle",str(cycle.cycle))
-#                 loading_pattern_xml.appendChild(control_rod_xml)
-#                 
-#                 map_xml=doc.createElement("map")
-#                 control_rod_xml.appendChild(map_xml)
-#                 cra_position_lst=[]
-#                 for reactor_position in reactor_positions:
-#                     cra_pattern=control_rod_assembly_loading_patterns.filter(reactor_position=reactor_position)
-#                     if cra_pattern:
-#                         crat=cra_pattern.get().control_rod_assembly.cluster.control_rod_assembly_type
-#                         cra_position_lst.append(crat.cr_id)
-#                     else:
-#                         cra_position_lst.append('0')
-#                         
-#                 map_xml.appendChild(doc.createTextNode((' '.join(cra_position_lst))))
         
         #fuel xml
         for cycle in cycles: 
@@ -1124,6 +1118,8 @@ class PreRobinTask(BaseModel):
     depletion_state=models.ForeignKey(DepletionState)
     pre_robin_model=models.ForeignKey(PreRobinModel)
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
+    bp=models.BooleanField(default=True)
+    pellet_map=models.CommaSeparatedIntegerField(max_length=256,blank=True,null=True,help_text="pellet pk")
     class Meta:
         db_table='pre_robin_task'
         
@@ -1134,7 +1130,6 @@ class PreRobinTask(BaseModel):
             segment_ID +="_BP_"+str(burnup)
         return segment_ID
     
-        
     @property    
     def rela_file_path(self):
         return str(self.pk).zfill(6)
@@ -1169,9 +1164,11 @@ class PreRobinTask(BaseModel):
     
         return cwd
     
-    def get_lst(self,fuel=False):
+    def get_lst(self,fuel=False,pellet=False):
         if fuel:
             rod_map=self.fuel_map
+        elif pellet:
+            rod_map=self.pellet_map
         else:
             rod_map=self.pin_map
             
@@ -1179,6 +1176,40 @@ class PreRobinTask(BaseModel):
         
         return lst
     
+    @property
+    def contains_IFBA(self):
+        lst=self.get_lst()
+        #13 is the material transection pk contains ZrB2
+        if '13' in lst:
+            return True
+        else:
+            return False
+    
+    def get_fuel_lst(self):
+        fuel_lst=map(int,self.get_lst(fuel=True))
+        pellet_lst=map(int,self.get_lst(pellet=True))
+        zipped_fuel=zip(fuel_lst,pellet_lst)
+        fuel_set=set(zipped_fuel)
+        fuel_set.remove((0,0))
+        lst=list(fuel_set)
+        lst.sort()
+        return lst
+    
+    def get_fuel_index_lst(self):
+        fuel_lst=self.get_fuel_lst()
+        mat_lst=map(int,self.get_lst(fuel=True))
+        pellet_lst=map(int,self.get_lst(pellet=True))
+        zipped_fuel=zip(mat_lst,pellet_lst)
+        fuel_index_lst=[]
+        for item in zipped_fuel:
+            if item!=(0,0):
+                fuel_index=str(fuel_lst.index(item)+1)
+            else:
+                fuel_index="0"
+            fuel_index_lst.append(fuel_index)
+        return fuel_index_lst
+                
+
     def get_material_pk_set(self):
         material_set=set()
         #pin map
@@ -1186,10 +1217,10 @@ class PreRobinTask(BaseModel):
         material_transection_pk_lst.remove('0')
         for material_transection_pk in  material_transection_pk_lst:
             material_set.update(MaterialTransection.objects.get(pk=int(material_transection_pk)).material_set)
-        #fuel map
-        material_pk_set=set(self.get_lst(fuel=True))
-        material_pk_set.remove('0')
-        material_set.update(map(int,material_pk_set))
+#         #fuel map
+#         material_pk_set=set(self.get_lst(fuel=True))
+#         material_pk_set.remove('0')
+#         material_set.update(map(int,material_pk_set))
         
         #control rod material
         reactor_model=self.plant.reactor_model
@@ -1198,17 +1229,30 @@ class PreRobinTask(BaseModel):
             material_set.update(control_rod_type.material_set)
         
         return material_set
+        
     
     def generate_material_databank_xml(self):
         '''generate material databank xml in current working directory
         '''
         fuel_assembly_model=self.fuel_assembly_type.model
-        fuel_pellet=fuel_assembly_model.fuelpellet
-        material_pk_set =self.get_material_pk_set()
         base_mat_lst=[]
+        #consider fuel separately
+        fuel_lst=self.get_fuel_lst()
+        index=1
+        for fuel in fuel_lst:
+            fuel_pk=fuel[0]
+            pellet_pk=fuel[1]
+            fuel_pellet=FuelPellet.objects.get(pk=pellet_pk)
+            material=Material.objects.get(pk=fuel_pk)
+            base_mat=material.generate_base_mat(fuel_pellet=fuel_pellet,fuel_index=index)
+            base_mat_lst.append(base_mat)
+            index +=1
+            
+        #consider non fuel   
+        material_pk_set =self.get_material_pk_set()
         for material_pk in material_pk_set:
             material=Material.objects.get(pk=material_pk)
-            base_mat=material.generate_base_mat(fuel_pellet)
+            base_mat=material.generate_base_mat()
             base_mat_lst.append(base_mat)
         #grids
         grids=fuel_assembly_model.grids.all()
@@ -1236,6 +1280,10 @@ class PreRobinTask(BaseModel):
             if mt.if_bp_rod:
                 return True
         return False
+    @property
+    def cal_bp_out(self):
+        return self.bp and self.bp_in
+    
     @property
     def bp_num(self):
         lst=self.get_lst()
@@ -1284,13 +1332,13 @@ class PreRobinTask(BaseModel):
         return self.depletion_state.generate_depletion_state_xml()
     
     def generate_fuel_map_xml(self):
-        fuel_lst=self.get_lst(fuel=True)
+        fuel_index_lst=self.get_fuel_index_lst()
         fuel_map='\n'
-        num=len(fuel_lst)
+        num=len(fuel_index_lst)
         i=0
         row=1
         while i<num:
-            row_lst=fuel_lst[i:i+row]
+            row_lst=fuel_index_lst[i:i+row]
             i +=row
             row +=1
             fuel_map +=('  '.join(row_lst)+'\n')
@@ -1673,7 +1721,7 @@ class PreRobinTask(BaseModel):
         #no bp out 
         return_code=self.generate_prerobin_output()
         self.generate_all_robin_tasks()
-        if self.bp_in:
+        if self.cal_bp_out:
             BP_OUT_POINTS=PreRobinTask.BP_OUT_POINTS
             for burnup in BP_OUT_POINTS:
                 self.generate_prerobin_output(burnup=burnup)
@@ -1696,16 +1744,7 @@ class PreRobinTask(BaseModel):
     def stop_robin(self): 
         robin_tasks=self.robin_tasks.all()
         for robin_task in robin_tasks.filter(task_status=0): 
-            s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
-            queue=Server.objects.first().queue
-            s.freeze()
-            s.apply_async()
-            
-        for robin_task in robin_tasks.filter(task_status=1):   
-            s=signature('calculation.tasks.stop_robin_task', args=(robin_task.pk,))
-            queue=robin_task.server.queue 
-            s.freeze()
-            s.apply_async(queue=queue) 
+            robin_task.stop()
             
     def find_inputfile_names(self,postfix=None,burnup=0):
         base_segment_ID=self.get_segment_ID(burnup)
@@ -1820,7 +1859,7 @@ class PreRobinTask(BaseModel):
         #link base table
         self.link_table()
         #link other bp out table
-        if self.bp_in:
+        if self.cal_bp_out:
             bp_out_points=PreRobinTask.BP_OUT_POINTS
             for burnup in bp_out_points:
                 self.link_table(burnup)
@@ -1834,14 +1873,14 @@ class PreRobinTask(BaseModel):
         #no bp out
         self.start_idyll(burnup=0)
         #bp out
-        if self.bp_in:
+        if self.cal_bp_out:
             burnup_points=PreRobinTask.BP_OUT_POINTS
             for burnup in burnup_points:
                 self.start_idyll(burnup=burnup)
             self.generate_BPOUT_file()
             
     def generate_BPOUT_file(self):
-        if self.bp_in:
+        if self.cal_bp_out:
             cwd=self.get_cwd()
             os.chdir(cwd)
             segment_ID=self.get_segment_ID()    
@@ -1870,7 +1909,7 @@ class PreRobinTask(BaseModel):
             return filename
         
     def get_no_bp_in_task(self):
-        if self.bp_in:
+        if self.cal_bp_out:
             objs=PreRobinTask.objects.filter(plant=self.plant,fuel_assembly_type=self.fuel_assembly_type,fuel_map=self.fuel_map,branch=self.branch,depletion_state=self.depletion_state,pre_robin_model=self.pre_robin_model)
             for obj in objs:
                 if not obj.bp_in:
@@ -1975,18 +2014,20 @@ class RobinTask(models.Model):
         input_fileurl=self.input_file.url
         url=input_fileurl.replace(".inp",".out1")
         return url
-    
+    @property
+    def task_id(self):
+        return "ROBIN_"+str(self.pk)
     def start_calculation(self):
 #         server=self.server
 #         queue=server.queue
         queue='queue_robin'
         s=signature('calculation.tasks.robin_calculation_task', args=(self.pk,))
         s.freeze()
-        s.apply_async(queue=queue,task_id=str(self.pk))
+        s.apply_async(queue=queue,task_id=self.task_id)
         
     def cancel_calculation(self):
         #only can cancel waiting tasks
-        app.control.revoke(str(self.pk),)  # @UndefinedVariable
+        app.control.revoke(self.task_id,)  # @UndefinedVariable
         self.task_status=5
         self.save()
     
@@ -2002,6 +2043,17 @@ class RobinTask(models.Model):
             else:
                 time.sleep(1)
                 self.refresh_from_db()
+                
+    def stop(self): 
+        s=signature('calculation.tasks.stop_task', args=(RobinTask,self.pk,))
+        s.freeze()
+        task_status=self.task_status
+        if task_status==0: 
+            s.apply_async()
+        elif task_status==1:   
+            queue=self.server.queue 
+            s.freeze()
+            s.apply_async(queue=queue)
             
     @property
     def pid(self):
@@ -2395,10 +2447,11 @@ class EgretTask(BaseModel):
     authorized=models.BooleanField(default=False)
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
-    calculation_identity=models.CharField(max_length=128,blank=True)
+    #calculation_identity=models.CharField(max_length=128,blank=True)
     recalculation_depth=models.PositiveSmallIntegerField(default=0)
     locked=models.BooleanField(default=False)
     min_avail_subtask_num=models.PositiveSmallIntegerField(default=1)
+    server=models.ForeignKey(Server,blank=True,null=True)
     class Meta:
         db_table='egret_task'
   
@@ -2651,6 +2704,19 @@ class EgretTask(BaseModel):
             return 'U{}C{}_{}.xml'.format(unit.unit,cycle.cycle,str(recalculation_depth+1).zfill(6))
         elif self.task_type=='SEQUENCE':
             return 'U{}C{}_sequence.xml'.format(unit.unit,cycle.cycle)
+        
+    @property
+    def task_id(self):
+        return "EGRET_"+str(self.pk)
+    
+    @property
+    def pid(self):
+        cwd=self.get_cwd()
+        os.chdir(cwd)
+        f=open("myegret.pid")
+        pid= int(f.read())
+        f.close()
+        return pid
     
     def start_calculation(self,countdown):
         cwd=self.get_cwd()
@@ -2663,12 +2729,43 @@ class EgretTask(BaseModel):
         self.save() 
         s=signature('calculation.tasks.egret_calculation_task', args=(cwd,input_filename,user,self.pk), countdown=countdown)
         s.freeze()
-        self.calculation_identity=s.id
-        self.save()
         #s.delay()
 #         queue=Server.objects.get(name="Controller").queue
         queue='queue_egret'
-        s.apply_async(queue=queue)
+        s.apply_async(queue=queue,task_id=self.task_id)
+        
+    def cancel_calculation(self):
+        #only can cancel waiting tasks
+        app.control.revoke(self.task_id,)  # @UndefinedVariable
+        self.task_status=5
+        self.end_time=datetime.now()
+        self.save()
+    
+        
+    def stop_calculation(self,):
+        #only can stop calculating tasks
+        pid=self.pid
+        os.kill(pid,signal.SIGKILL)
+        self.end_time=datetime.now()
+        while True:
+            if self.task_status==4:
+                self.task_status=3
+                self.save()
+                break
+            else:
+                time.sleep(1)
+                self.refresh_from_db()
+                
+    def stop(self): 
+        s=signature('calculation.tasks.stop_task', args=(EgretTask,self.pk,))
+        s.freeze()
+        task_status=self.task_status
+        if task_status==0: 
+            s.apply_async()
+        elif task_status==1:   
+            queue=self.server.queue 
+            s.freeze()
+            s.apply_async(queue=queue)
         
     
     @property

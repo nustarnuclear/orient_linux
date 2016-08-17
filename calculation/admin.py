@@ -66,7 +66,7 @@ class PreRobinBranchAdmin(admin.ModelAdmin):
                                      
                 }),
     )
-    list_display=('pk',"__str__",)
+    list_display=('pk',"__str__",'get_burnup_lst')
 admin.site.register(PreRobinBranch, PreRobinBranchAdmin)
  
 class AssemblyLaminationInline(admin.TabularInline):
@@ -92,7 +92,7 @@ class PreRobinInputAdmin(admin.ModelAdmin):
     change_list_template="calculation/prerobin_changlist.html"
     exclude=('remark','user')
     inlines=[AssemblyLaminationInline,]
-    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already','robin_finished')
+    list_display=('pk','unit','fuel_assembly_type','burnable_poison_assembly','symmetry','cut_already','robin_finished',)
     list_filter=("unit",'fuel_assembly_type','burnable_poison_assembly',)
     actions=['auto_cut_selected_inputs']
     def get_urls(self):
@@ -135,10 +135,10 @@ class PreRobinInputAdmin(admin.ModelAdmin):
             obj = PreRobinInput.objects.get(pk=pk)
             obj.create_task()
             self.message_user(request, 'Assembly cut completed')
-            return redirect(reverse("admin:calculation_prerobininput_change",args=[pk]))
+            
         except:
             self.message_user(request, 'You need to save this input first',messages.WARNING)
-            
+        return redirect(reverse("admin:calculation_prerobininput_change",args=[pk]))    
     
     def auto_cut_all_view(self,request, *args, **kwargs):
         num=0
@@ -257,7 +257,7 @@ class RobinTaskInline(admin.TabularInline):
 class PreRobinTaskAdmin(admin.ModelAdmin):
     add_form_template="no_action.html"
     change_form_template="calculation/change_form_template.html"
-    list_display=("__str__","plant",'fuel_assembly_type','task_status','robin_finished','table_generated','bp_num')
+    list_display=("__str__","plant",'fuel_assembly_type','task_status','robin_finished','table_generated','bp_num','contains_IFBA')
     exclude=('remark','user')
     inlines=[RobinTaskInline,]
     readonly_fields=('plant','fuel_assembly_type','pin_map','fuel_map',)

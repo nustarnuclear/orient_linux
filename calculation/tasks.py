@@ -9,7 +9,11 @@ import socket
 # import shutil
 @shared_task
 def egret_calculation_task(cwd,input_filename,user,pk,version='196'):
+    #set server
+    hostname=socket.gethostname()
+    myhost=Server.objects.get(name=hostname)
     egret_instance=EgretTask.objects.get(pk=pk)
+    egret_instance.server=myhost
     egret_instance.task_status=1
     egret_instance.save()
     os.chdir(cwd)
@@ -96,15 +100,17 @@ def robin_calculation_task(pk):
     return return_code
     
 @shared_task
-def stop_robin_task(pk):
-    robin_task=RobinTask.objects.get(pk=pk)
-    task_status=robin_task.task_status
+def stop_task(model,pk):
+    task=model.objects.get(pk=pk)
+    task_status=task.task_status
     #waiting
     if task_status==0:
-        robin_task.cancel_calculation()
+        task.cancel_calculation()
               
     elif task_status==1: 
-        robin_task.stop_calculation() 
+        task.stop_calculation() 
+        
+ 
 
         
     

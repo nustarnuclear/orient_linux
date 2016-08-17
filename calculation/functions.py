@@ -45,9 +45,9 @@ def generate_base_core(unit,calc_data,power_temperature):
     coolant_volume_xml.appendChild(doc.createTextNode(str(coolant_volume)))
     plant_data_xml.appendChild(coolant_volume_xml)
     
-    HZP_cool_inlet_temp=unit.HZP_cool_inlet_temp
-    HFP_cool_inlet_temp=unit.HFP_cool_inlet_temp
-    mid_power_cool_inlet_temp=unit.mid_power_cool_inlet_temp
+#     HZP_cool_inlet_temp=unit.HZP_cool_inlet_temp
+#     HFP_cool_inlet_temp=unit.HFP_cool_inlet_temp
+#     mid_power_cool_inlet_temp=unit.mid_power_cool_inlet_temp
     
     inlet_temperature_xml = doc.createElement("inlet_temperature")
     plant_data_xml.appendChild(inlet_temperature_xml)

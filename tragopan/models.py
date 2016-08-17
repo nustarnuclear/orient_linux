@@ -357,11 +357,10 @@ class Material(BaseModel):
         verbose_name_plural='Material repository'
     
             
-    @property
-    def prerobin_identifier(self):
+    def get_prerobin_identifier(self,fuel_index=None):
        
-        if self.enrichment:
-            return 'FUEL_'+str(self.pk)
+        if fuel_index:
+            return 'FUEL_'+str(fuel_index)
         elif self.HOMO:
             return 'HOMO_'+str(self.pk)
         else:
@@ -380,14 +379,14 @@ class Material(BaseModel):
         else:
             return None
         
-    def generate_base_mat(self,fuel_pellet=None):
+    def generate_base_mat(self,fuel_pellet=None,fuel_index=None):
         if self.symbolic:
             return 
-        result={'ID':self.prerobin_identifier}
+        result={'ID':self.get_prerobin_identifier(fuel_index)}
         #HOMO_
         if self.HOMO:
             compo=self.volume_mixtures.all()
-            composition_ID_lst=[item.material.prerobin_identifier for item in compo]
+            composition_ID_lst=[item.material.get_prerobin_identifier() for item in compo]
             volume_percent_lst=[str(item.percent) for item in compo]
             result['homogenized_mat']=','.join(composition_ID_lst)
             result['volume_percent']=','.join(volume_percent_lst)
@@ -446,7 +445,7 @@ class Material(BaseModel):
         elif self.enrichment:
             return "UO2_"+str(self.enrichment)
         else:
-            return self.prerobin_identifier
+            return self.get_prerobin_identifier()
         
 class MaterialWeightComposition(BaseModel):
     mixture=models.ForeignKey(Material,related_name='weight_mixtures',)
@@ -1008,11 +1007,11 @@ class CoreBaffle(BaseModel):
             
     def get_material_ID_lst(self,model_type):
         if model_type in ['BR1','BR2','BR3']:
-            return ['MOD',self.material.prerobin_identifier,'MOD']
+            return ['MOD',self.material.get_prerobin_identifier(),'MOD']
         elif model_type=='BR_BOT':
-            return ['MOD',self.bottom_material.prerobin_identifier,'MOD']
+            return ['MOD',self.bottom_material.get_prerobin_identifier(),'MOD']
         elif model_type=='BR_TOP':
-            return [self.top_material.prerobin_identifier]*3
+            return [self.top_material.get_prerobin_identifier()]*3
     
     def __str__(self):
         return "{}'s core baffle".format(self.reactor_model)
@@ -1051,9 +1050,9 @@ class UnitParameter(BaseModel):
     best_estimated_cool_mass_flow_rate = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:kg/h', null=True)
     coolant_volume=models.DecimalField(max_digits=20, decimal_places=5,validators=[MinValueValidator(0)],help_text=r'unit:m3', null=True)
     bypass_flow_fraction = models.DecimalField(max_digits=9, decimal_places=6,validators=[MaxValueValidator(100),MinValueValidator(0)],help_text=r"unit:%", blank=True, null=True)
-    cold_state_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
-    HZP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
-    HFP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K')
+    cold_state_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
+    HZP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
+    HFP_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
     HFP_core_ave_cool_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
     mid_power_cool_inlet_temp = models.DecimalField(max_digits=15, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:K', blank=True, null=True)
     num_signal=models.PositiveSmallIntegerField(default=1)
@@ -1444,7 +1443,7 @@ class FuelAssemblyModel(BaseModel):
         
         grid_xml=doc.createElement('spacer_grid_mat')
         fix_grid=self.grids.first()
-        grid_xml.appendChild(doc.createTextNode(fix_grid.sleeve_material.prerobin_identifier))
+        grid_xml.appendChild(doc.createTextNode(fix_grid.sleeve_material.get_prerobin_identifier()))
         assembly_model_xml.appendChild(grid_xml)
           
         symmetry_xml=doc.createElement('symmetry')
@@ -1503,6 +1502,7 @@ class FuelAssemblyModel(BaseModel):
 
 class FuelAssemblyType(BaseModel):
     model=models.ForeignKey(FuelAssemblyModel)
+    name=models.CharField(max_length=10)
     assembly_enrichment=models.DecimalField(max_digits=9, decimal_places=6,validators=[MinValueValidator(0)],help_text='meaningful only if using the one unique enrichment fuel',blank=True,null=True)
     map=models.ManyToManyField('FuelElementType',through='FuelElementTypePosition')
     symmetry=models.BooleanField(default=True,help_text="satisfy 1/8 symmetry")
@@ -1514,6 +1514,16 @@ class FuelAssemblyType(BaseModel):
     def side_pin_num(self):
         return self.model.side_pin_num
     
+    def get_rob_pk_dic(self):
+        rod_pk_dic={}
+        for fet in self.map.all():
+            rod_pk=fet.pk
+            if rod_pk not in rod_pk_dic:
+                rod_pk_dic[rod_pk]=1
+            else:
+                rod_pk_dic[rod_pk]+=1
+        return rod_pk_dic
+    
     def get_height_lst(self,fuel=False):
         rods=self.map.all()
         height_set=set()
@@ -1523,7 +1533,7 @@ class FuelAssemblyType(BaseModel):
         height_lst=sorted(list(height_set))
         return height_lst
     
-    def generate_transection(self,height,fuel=False):
+    def generate_transection(self,height,fuel=False,pellet=False):
         if self.symmetry:
             rod_positions=self.rod_positions.all()
             transection={}
@@ -1533,7 +1543,7 @@ class FuelAssemblyType(BaseModel):
                     column=rod_position.column
                     #get the fuel element
                     fet=rod_position.fuel_element_type
-                    rod_transection_pk=fet.which_transection(height,fuel=fuel)
+                    rod_transection_pk=fet.which_transection(height,fuel=fuel,pellet=pellet)
                     #has bpa at this height
                     if rod_transection_pk:
                         transection[(row,column)]=rod_transection_pk
@@ -1629,6 +1639,8 @@ class FuelAssemblyType(BaseModel):
         return num
         
     def __str__(self):
+        if self.name:
+            return self.name
         if self.Gd_num!=0:
             return "{} {} {} {}Gd".format(self.pk,self.model,self.assembly_enrichment,self.Gd_num)  
         else:
@@ -1873,7 +1885,7 @@ class Grid(BaseModel):
 #     @property
 #     def grid_material_ID(self):
 #         if self.sleeve_material==self.spring_material:
-#             return self.sleeve_material.prerobin_identifier
+#             return self.sleeve_material.get_prerobin_identifier()
 #         else:
 #             return 'HOMO_grid'+str(self.type_num)
         
@@ -1908,9 +1920,9 @@ class Grid(BaseModel):
         spring_material=self.spring_material
         mod_material=Material.objects.get(nameEN='MOD')   
         if (not spring_material) or sleeve_material==spring_material:
-            return {sleeve_material.prerobin_identifier:grid_percent,mod_material.prerobin_identifier:100-grid_percent}
+            return {sleeve_material.get_prerobin_identifier():grid_percent,mod_material.get_prerobin_identifier():100-grid_percent}
         else:
-            return {sleeve_material.prerobin_identifier:sleeve_percent,spring_material.prerobin_identifier:spring_percent,mod_material.prerobin_identifier:100-grid_percent}
+            return {sleeve_material.get_prerobin_identifier():sleeve_percent,spring_material.get_prerobin_identifier():spring_percent,mod_material.get_prerobin_identifier():100-grid_percent}
         
     @property
     def moderator_material_ID(self):
@@ -1963,7 +1975,7 @@ class GuideTube(BaseModel):
         base_pin_xml=doc.createElement('base_pin')
         ID='GT'
         radii="{},{}".format(self.upper_inner_diameter/2,self.upper_outer_diameter/2)
-        mat='MOD,'+self.material.prerobin_identifier
+        mat='MOD,'+self.material.get_prerobin_identifier()
         
         ID_xml=doc.createElement('ID')
         ID_xml.appendChild(doc.createTextNode(ID))
@@ -2008,7 +2020,7 @@ class InstrumentTube(BaseModel):
         base_pin_xml=doc.createElement('base_pin')
         ID='IT'
         radii="{},{}".format(self.inner_diameter/2,self.outer_diameter/2)
-        mat='MOD,'+self.material.prerobin_identifier
+        mat='MOD,'+self.material.get_prerobin_identifier()
         
         ID_xml=doc.createElement('ID')
         ID_xml.appendChild(doc.createTextNode(ID))
@@ -2102,7 +2114,7 @@ class FuelElement(BaseModel):
             return section.material_transection.pk
             
     def __str__(self):
-        return "{} fuel element".format(self.fuel_assembly_model)
+        return "{} {}".format(self.pk,self.remark)
     
 class FuelElementSection(BaseModel):
     '''
@@ -2110,7 +2122,7 @@ class FuelElementSection(BaseModel):
     '''
     fuel_element=models.ForeignKey(FuelElement,related_name='sections')
     section_num=models.PositiveSmallIntegerField()
-    length=models.DecimalField(max_digits=7, decimal_places=3,validators=[MinValueValidator(0)],help_text='unit:cm')
+    length=models.DecimalField(max_digits=10, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm')
     material_transection=models.ForeignKey('MaterialTransection')
     
     class Meta:
@@ -2200,7 +2212,7 @@ class MaterialTransection(BaseModel):
         base_pin_xml=doc.createElement('base_pin')
         ID=self.pin_id
         radial_map=self.radial_materials.order_by('radius')
-        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
+        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.get_prerobin_identifier()) for item in radial_map])
         
         radii_lst=list(radii_tup)
         mat_lst=list(mat_tup)
@@ -2210,7 +2222,7 @@ class MaterialTransection(BaseModel):
             radii_lst.append(str(guide_tube.upper_inner_diameter/2))
             radii_lst.append(str(guide_tube.upper_outer_diameter/2))
             mat_lst.append('MOD')
-            mat_lst.append(guide_tube.material.prerobin_identifier)
+            mat_lst.append(guide_tube.material.get_prerobin_identifier())
   
         radii=','.join(radii_lst)
         mat=','.join(mat_lst)
@@ -2266,16 +2278,19 @@ class FuelElementType(BaseModel):
         height_lst=self.get_height_lst(fuel)
         return which_section(height,height_lst)
     
-    def which_transection(self,height,fuel=False):
+    def which_transection(self,height,fuel=False,pellet=False):
         #if fuel return material pk
         #else return material transection object
         if fuel:
             section_num=self.which_section(height=height,fuel=True) 
             pellet_section=self.fuel_pellet_map.get(section_num=section_num)
             fuel_pellet_type=pellet_section.fuel_pellet_type
-            return fuel_pellet_type.material.pk
-       
-        return self.model.which_transection(height)
+            if pellet:
+                return fuel_pellet_type.model.pk
+            else:
+                return fuel_pellet_type.material.pk
+        else:
+            return self.model.which_transection(height)
     
     @property
     def enrichment(self):
@@ -2287,7 +2302,7 @@ class FuelElementType(BaseModel):
         
     def __str__(self):
         
-        return "{} {}".format(self.model,self.enrichment)
+        return "{} {} {} ".format(self.pk,self.remark,self.enrichment)
     
     
 class UpperCap(BaseModel):
@@ -2371,7 +2386,7 @@ class FakeFuelElementType(BaseModel):
 
 #Fuel Pellet 
 class FuelPellet(BaseModel):
-    fuel_assembly_model=models.OneToOneField(FuelAssemblyModel)
+    fuel_assembly_model=models.ForeignKey(FuelAssemblyModel)
     outer_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
     inner_diameter=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],blank=True,null=True,help_text='unit:cm can be none when hollow')
     length=models.DecimalField(max_digits=7, decimal_places=5,validators=[MinValueValidator(0)],help_text='unit:cm',blank=True,null=True)
@@ -2388,13 +2403,18 @@ class FuelPellet(BaseModel):
     
     class Meta:
         db_table='fuel_pellet'
+    @property
+    def hollow_factor(self):
+        if self.inner_diameter is not None:
+            return 1-(self.inner_diameter/self.outer_diameter)**2
+        return Decimal(1)
         
     @property    
     def factor(self):
-        return (100-self.dish_volume_percentage-self.chamfer_volume_percentage)/100*(self.nominal_density_percent/100)
+        return (100-self.dish_volume_percentage-self.chamfer_volume_percentage)/100*(self.nominal_density_percent/100)*self.hollow_factor
     
     def __str__(self):
-        return '{} pellet'.format(self.fuel_assembly_model)
+        return '{} {} pellet'.format(self.pk,self.remark)
 
 class FuelPelletType(BaseModel):
     model=models.ForeignKey(FuelPellet)
@@ -2422,7 +2442,7 @@ class FuelPelletType(BaseModel):
         return base_mat_lst
         
     def __str__(self):
-        return '{} {} {}'.format(self.pk,self.model,self.material)
+        return '{} {}'.format(self.pk,self.remark)
     
     
 class FuelElementPelletLoadingScheme(BaseModel):
@@ -2659,7 +2679,7 @@ class BurnablePoisonRod(BaseModel):
             section=self.sections.get(section_num=section_num)
             return section.material_transection.pk
     def __str__(self):
-        return '{} burnable poison rod'.format(self.fuel_assembly_model)
+        return '{} {} burnable poison rod'.format(self.pk,self.fuel_assembly_model)
 
 
 class BurnablePoisonSection(BaseModel):
@@ -2697,7 +2717,7 @@ class BurnablePoisonSection(BaseModel):
         base_pin_xml=doc.createElement('base_pin')
         ID=self.pin_id
         radial_map=self.material_transection.radial_materials.order_by('radius')
-        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.prerobin_identifier) for item in radial_map])
+        radii_tup,mat_tup=zip(*[(str(item.radius),item.material.get_prerobin_identifier()) for item in radial_map])
   
         #insert into guide tube
         radii_lst=list(radii_tup)
@@ -2705,7 +2725,7 @@ class BurnablePoisonSection(BaseModel):
         radii_lst.append(str(guide_tube.upper_outer_diameter))
         mat_lst=list(mat_tup)
         mat_lst.append('MOD')
-        mat_lst.append(guide_tube.material.prerobin_identifier)
+        mat_lst.append(guide_tube.material.get_prerobin_identifier())
         
         radii=','.join(radii_lst)
         mat=','.join(mat_lst)
@@ -2833,7 +2853,7 @@ class BurnablePoisonAssembly(BaseModel):
     
     def __str__(self):
         num=self.rod_positions.count()
-        return '{} {}'.format(num, self.fuel_assembly_model)
+        return '{} {} {} {}'.format(self.pk,self.remark,num, self.fuel_assembly_model)
 
 class BurnablePoisonAssemblyMap(BaseModel):
     burnable_poison_assembly=models.ForeignKey(BurnablePoisonAssembly,related_name='rod_positions')
@@ -2946,6 +2966,11 @@ class ControlRodAssemblyType(BaseModel):
             else:
                 gnum+=1
         return (bnum,gnum)
+    @property
+    def grey(self):
+        if self.black_grey_rod_num()[1]!=0:
+            return True
+        return False
     
     @property
     def length_lst(self):
@@ -3048,7 +3073,8 @@ class ControlRodAssemblyType(BaseModel):
         return base_branch_xml_lst
         
     def __str__(self):
-        return '{} control rod assembly type'.format(self.reactor_model)
+        descrip="grey rod" if self.grey else "black rod"
+        return '{} {}'.format(self.reactor_model,descrip)
 
 class ControlRodAssemblyMap(BaseModel):
     control_rod_assembly_type=models.ForeignKey(ControlRodAssemblyType,related_name='rod_positions')
@@ -3109,7 +3135,7 @@ class ControlRodCluster(BaseModel):
         return self.control_rod_assembly_type.basez
     
     def __str__(self):
-        return '{}'.format(self.cluster_name)
+        return '{} {}'.format(self.pk,self.cluster_name)
     
 # #the following two models describe control rod assembly
 # class ControlRodAssembly(BaseModel):

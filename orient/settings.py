@@ -92,7 +92,7 @@ WSGI_APPLICATION = 'orient.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'oasis',
+        'NAME': 'oasis_as',
         'USER': 'root',
         'PASSWORD': 'NuStar_Orient123',
         'HOST': '192.168.1.105',

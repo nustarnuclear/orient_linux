@@ -9,6 +9,7 @@ DEFAULT_EGRET_VERSION=195
 
 os.environ['LD_LIBRARY_PATH']='/opt/nustar/lib'  
 logfile="myegret.log"
+pidfile="myegret.pid"
 workspace=".workspace"
 sys_user=os.getenv('USER')
 
@@ -85,6 +86,9 @@ if input_file:
     #Begin egret calculation
     
     with Popen(['/opt/nustar/bin/EGRET%d'%egret_version,'-i',input_file],stdout=log_file.fileno(),stderr=PIPE,universal_newlines=True) as proc:
+        pidfile=open(pidfile,'w')
+        pidfile.write(str(proc.pid))
+        pidfile.close()
         outs,errs=proc.communicate()
         
         if errs:
