@@ -130,7 +130,7 @@ media_url=settings.MEDIA_URL
 class Server(models.Model):
     name=models.CharField(max_length=32,unique=True)
     IP=models.GenericIPAddressField(unique=True)
-    queue=models.CharField(max_length=32,unique=True)
+    #queue=models.CharField(max_length=32,unique=True)
     class Meta:
         db_table="server"
         ordering=['IP']
@@ -142,6 +142,10 @@ class Server(models.Model):
                 return False
         
         return True
+    
+    @property
+    def queue(self):
+        return self.name
    
     @classmethod
     def first(cls):
@@ -853,11 +857,11 @@ class PreRobinInput(BaseModel):
         pre_robin_inputs=cls.objects.filter(unit__plant__reactor_model=reactor_model)
         
         for pre_robin_input in pre_robin_inputs:
-            if pre_robin_input.robin_finished:
-                base_fuel_xml,BX_base_fuel_xml=pre_robin_input.generate_base_fuel_xml()
-                base_component_xml.appendChild(base_fuel_xml)
-                if BX_base_fuel_xml:
-                    base_component_xml.appendChild(BX_base_fuel_xml)
+            #if pre_robin_input.robin_finished:
+            base_fuel_xml,BX_base_fuel_xml=pre_robin_input.generate_base_fuel_xml()
+            base_component_xml.appendChild(base_fuel_xml)
+            if BX_base_fuel_xml:
+                base_component_xml.appendChild(BX_base_fuel_xml)
                 
         cra_types=reactor_model.cra_types.all()
         for cra_type in cra_types:

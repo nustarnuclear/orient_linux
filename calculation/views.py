@@ -355,9 +355,10 @@ def multiple_loading_pattern(request,format=None):
     if request.method == 'POST':
         file=data['file']
         name=request.query_params['name']
-        try:   
-            if 'pre_pk' in request.query_params:
-                pre_pk=request.query_params['pre_pk']
+        print(request.query_params)
+        try: 
+            pre_pk=request.query_params['pre_pk']  
+            if pre_pk:
                 pre_loading_pattern=MultipleLoadingPattern.objects.get(pk=pre_pk)
                 mlp=MultipleLoadingPattern(user=request.user,name=name,xml_file=file,cycle=cycle,pre_loading_pattern=pre_loading_pattern)
             else:

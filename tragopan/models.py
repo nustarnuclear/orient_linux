@@ -704,6 +704,12 @@ class ReactorModel(BaseModel):
         return line
     
     def generate_reflector_index(self,outer=True):
+        #consider AP1000 seperately
+        if self.name=="AP1000":
+            if outer:
+                return [12,12,12,17,18,17,15,12,12,17,18,17,15,17,18,17,15]
+            else:
+                return [11,11,11,16,14,13,14,11,11,16,14,13,14,16,14,13]
         line=self.generate_reflector_line()
         index=[]
         for pos in line:

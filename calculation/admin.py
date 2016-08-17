@@ -480,7 +480,7 @@ class EgretTaskAdmin(admin.ModelAdmin):
 admin.site.register(EgretTask, EgretTaskAdmin)
 
 class ServerAdmin(admin.ModelAdmin):
-    list_display=("name","IP","queue",'next')
+    list_display=("name","IP",'next')
     #inlines=[RobinTaskInline,]
 admin.site.register(Server,ServerAdmin)
 
