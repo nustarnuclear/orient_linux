@@ -43,26 +43,15 @@ def egret_calculation_task(cwd,input_filename,user,pk,version='196'):
 
 @shared_task
 def robin_calculation_task(pk):
-#     mainhost=Server.objects.get(name="Controller")
-#     myip=get_ip()
-#     myhost=Server.objects.get(IP=myip)
-    
     hostname=socket.gethostname()
     myhost=Server.objects.get(name=hostname)
     robin_instance=RobinTask.objects.get(pk=pk)
+    if robin_instance.task_status==4:
+        return
     cwd=robin_instance.get_cwd()
     os.makedirs(cwd, exist_ok=True)
     os.chdir(cwd)
     input_filename=robin_instance.get_input_filename()
-#     #transfer input file by ftp if needed
-#     
-#     if mainhost!=myhost:
-#         ftp=FTP(mainhost.IP)
-#         ftp.login(user="django",passwd="django")
-#         ftp.cwd(cwd)
-#         ftp.retrbinary("RETR %s"%input_filename, open(input_filename,"wb").write)
-#         ftp.quit()    
-    
     start_time=datetime.now()
     robin_instance.start_time=start_time
     robin_instance.task_status=1
@@ -79,24 +68,7 @@ def robin_calculation_task(pk):
     else:
         robin_instance.task_status=4
         
-    robin_instance.save()    
-#     #upload log and output file
-#     if mainhost!=myhost:
-#         log_filename=robin_instance.get_log_filename()
-#         output_filename=robin_instance.get_output_filename()
-#         ftp=FTP(mainhost.IP)
-#         ftp.login(user="django",passwd="django")
-#         ftp.cwd(cwd)
-#         ftp.storbinary("STOR %s"%log_filename, open(log_filename,"rb"))
-#         ftp.storbinary("STOR %s"%output_filename, open(output_filename,"rb"))
-#         ftp.quit() 
-#         
-#         #remove files if not at localhost
-#         basename=os.path.basename(cwd)
-#         dirname=os.path.dirname(cwd)
-#         os.chdir(dirname)
-#         shutil.rmtree(basename)
-        
+    robin_instance.save()           
     return return_code
     
 @shared_task
