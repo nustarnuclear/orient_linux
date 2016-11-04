@@ -610,7 +610,7 @@ class PreRobinInput(BaseModel):
     fuel_assembly_type=models.ForeignKey('tragopan.FuelAssemblyType')  
     burnable_poison_assembly=models.ForeignKey('tragopan.BurnablePoisonAssembly',blank=True,null=True)
     boron_density=models.PositiveSmallIntegerField(default=500,help_text='ppm')
-    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=32,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
+    burnup_point=models.DecimalField(max_digits=7,decimal_places=4,validators=[MinValueValidator(0)],default=65,help_text='0.0,0.03,0.05,0.1,0.2,0.5,1,2,3,...,10,12,14,16,...,100')
     bp=models.BooleanField(default=True,verbose_name="calculate bp out?")
     task=models.ManyToManyField('PreRobinTask',through='AssemblyLamination')
     class Meta:
@@ -1914,7 +1914,8 @@ class PreRobinTask(BaseModel):
         
     def get_no_bp_in_task(self):
         if self.cal_bp_out:
-            objs=PreRobinTask.objects.filter(plant=self.plant,fuel_assembly_type=self.fuel_assembly_type,fuel_map=self.fuel_map,branch=self.branch,depletion_state=self.depletion_state,pre_robin_model=self.pre_robin_model)
+            #objs=PreRobinTask.objects.filter(plant=self.plant,fuel_assembly_type=self.fuel_assembly_type,fuel_map=self.fuel_map,branch=self.branch,depletion_state=self.depletion_state,pre_robin_model=self.pre_robin_model)
+            objs=PreRobinTask.objects.filter(plant=self.plant,fuel_assembly_type=self.fuel_assembly_type)
             for obj in objs:
                 if not obj.bp_in:
                     return obj

@@ -111,16 +111,27 @@ def generate_base_core(unit,calc_data,power_temperature):
     std_fuel_len_xml.appendChild(doc.createTextNode(str(active_height)))
     core_geo_xml.appendChild(std_fuel_len_xml)
     fuel_map_lst=[]
+    thermal_couple_lst=[]
     for i in range(1,max_row+1):
         for j in range(1,max_row+1):
             fuel_position=reactor_model.positions.filter(row=i,column=j)
+            thermal_couple_position=reactor_model.thermal_couple_position.filter(row=i,column=j)
             if fuel_position:
                 fuel_map_lst.append('1')
             else:
                 fuel_map_lst.append('0')
+                
+            if thermal_couple_position:
+                thermal_couple_lst.append("1")
+            else:
+                thermal_couple_lst.append("0")
     fuel_map_xml = doc.createElement("fuel_map")
     fuel_map_xml.appendChild(doc.createTextNode(' '.join(fuel_map_lst)))
     core_geo_xml.appendChild(fuel_map_xml)
+    
+    thermal_couple_map_xml = doc.createElement("thermal_couple_map")
+    thermal_couple_map_xml.appendChild(doc.createTextNode(' '.join(thermal_couple_lst)))
+    core_geo_xml.appendChild(thermal_couple_map_xml)
     
     rcca_xml = doc.createElement("rcca")
     base_core_xml.appendChild(rcca_xml)  
