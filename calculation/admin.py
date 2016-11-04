@@ -130,14 +130,14 @@ class PreRobinInputAdmin(admin.ModelAdmin):
         return my_urls + urls
     
     def auto_cut_view(self,request, *args, **kwargs):
-        try:
-            pk=kwargs['pk']
-            obj = PreRobinInput.objects.get(pk=pk)
-            obj.create_task()
-            self.message_user(request, 'Assembly cut completed')
+#         try:
+        pk=kwargs['pk']
+        obj = PreRobinInput.objects.get(pk=pk)
+        obj.create_task()
+        self.message_user(request, 'Assembly cut completed')
             
-        except:
-            self.message_user(request, 'You need to save this input first',messages.WARNING)
+#         except Exception as e:
+#             self.message_user(request, '%s'%e,messages.WARNING)
         return redirect(reverse("admin:calculation_prerobininput_change",args=[pk]))    
     
     def auto_cut_all_view(self,request, *args, **kwargs):
@@ -265,7 +265,7 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
     list_filter=("plant","task_status",'fuel_assembly_type')
     def auto_start_prerobin(self, request, queryset):
         index=0
-        for obj in queryset.exclude(task_status=4):
+        for obj in queryset.all():
             return_code=obj.start_prerobin()
             if return_code!=0:
                 index +=1
@@ -274,8 +274,8 @@ class PreRobinTaskAdmin(admin.ModelAdmin):
     def del_all_robin_tasks(self, request, queryset):
         for obj in queryset:
             robin_tasks=obj.robin_tasks.all()
-            if not robin_tasks.filter(task_status=1).exists():
-                robin_tasks.delete()
+            #if not robin_tasks.filter(task_status=1).exists():
+            robin_tasks.delete()
         self.message_user(request, 'all robin tasks are deleted')
         
     def auto_start_robin(self,request, queryset):

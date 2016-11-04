@@ -325,7 +325,7 @@ class IncoreInstrumentPositionInline(admin.TabularInline):
         return extra
     
 class ReactorModelAdmin(admin.ModelAdmin):
-    exclude=('remark','thermal_couple_position','incore_instrument_position')
+    exclude=('remark','incore_instrument_position')
     inlines=[ReactorPositionInline,CoreBaffleInline,]
     list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','dimension','middle','start_pos','quarter_pos','generate_reflector_line','generate_reflector_index']
     

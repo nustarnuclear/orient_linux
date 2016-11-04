@@ -1118,6 +1118,12 @@ class UnitParameter(BaseModel):
         if os.path.isfile(loading_pattern_path):
             return loading_pattern_path
         
+    def duplicate(self,plant,unit_num):
+        self.pk=None
+        self.plant=plant
+        self.unit=unit_num
+        self.save()
+        
     def generate_loading_pattern_doc(self,max_cycle=1):
         loading_pattern_path=self.loading_pattern_path
         dom=minidom.parse(loading_pattern_path)
@@ -1296,7 +1302,15 @@ class Cycle(BaseModel):
            
             base_fuel_set.add((fuel_assembly_type,burnable_poison_assembly))
         return base_fuel_set
-            
+    
+    def duplicate_loading_pattern(self,cycle):
+        loading_patterns=cycle.loading_patterns.all()
+        for loading_pattern in loading_patterns:
+            loading_pattern.pk=None
+            loading_pattern.cycle=self
+            fuel_assembly=FuelAssemblyRepository.objects.create(type=loading_pattern.fuel_assembly.type,unit=self.unit)
+            loading_pattern.fuel_assembly=fuel_assembly
+            loading_pattern.save()
         
     def __str__(self):
         return '{}C{}'.format(self.unit, self.cycle)
