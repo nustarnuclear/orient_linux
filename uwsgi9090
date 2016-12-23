@@ -24,22 +24,29 @@ DAEMON=/opt/orient_project/env/bin/uwsgi
 CONFIGFILE=/etc/$NAME.ini
 PIDFILE=/var/run/$NAME.pid
 SCRIPTNAME=/etc/init.d/$NAME
- 
+
+#EXIT IF RETURN A NON-ZERO VALUE
 set -e
+#check if has execute permission
 [ -x "$DAEMON" ] || exit 0
  
 do_start() {
+    echo "starting $DAEMON"
     $DAEMON $CONFIGFILE || echo -n "uwsgi already running"
+    echo "$DAEMON has been started successfully"
 }
  
 do_stop() {
+    echo "stopping $DAEMON"
     $DAEMON --stop $PIDFILE || echo -n "uwsgi not running"
     rm -f $PIDFILE
     echo "$DAEMON STOPED."
 }
  
 do_reload() {
+    echo "reloading $DAEMON"
     $DAEMON --reload $PIDFILE || echo -n "uwsgi can't reload"
+    echo "$DAEMON has been reloaded successfully."
 }
  
 do_status() {

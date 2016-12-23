@@ -119,7 +119,7 @@ class BaseModel(models.Model):
     time_inserted = models.DateTimeField(auto_now_add=True)
     last_modified = models.DateTimeField(auto_now=True)
     remark = models.TextField(blank=True)
-    user=models.ForeignKey(User,blank=True,null=True)
+    user=models.ForeignKey(User,blank=True,null=True,on_delete=models.SET_NULL)
     class Meta:
         abstract=True
 
@@ -128,7 +128,7 @@ media_url=settings.MEDIA_URL
 #concrete model in DATABASE
 
 class Server(models.Model):
-    name=models.CharField(max_length=32,unique=True)
+    name=models.CharField(max_length=32,unique=True,help_text="host name and queue name for control")
     IP=models.GenericIPAddressField(unique=True)
     #queue=models.CharField(max_length=32,unique=True)
     class Meta:
@@ -1988,7 +1988,7 @@ class RobinTask(models.Model):
     task_status=models.PositiveSmallIntegerField(choices=TASK_STATUS_CHOICES,default=0)
     start_time=models.DateTimeField(blank=True,null=True)
     end_time=models.DateTimeField(blank=True,null=True)
-    server=models.ForeignKey(Server,related_name="robin_tasks",blank=True,null=True)
+    server=models.ForeignKey(Server,related_name="robin_tasks",blank=True,null=True,on_delete=models.SET_NULL)
     core_baffle_calc=models.ForeignKey('CoreBaffleCalculation',related_name="robin_tasks",blank=True,null=True)
     class Meta:
         db_table='robin_task'
@@ -2456,7 +2456,7 @@ class EgretTask(BaseModel):
     recalculation_depth=models.PositiveSmallIntegerField(default=0)
     locked=models.BooleanField(default=False)
     min_avail_subtask_num=models.PositiveSmallIntegerField(default=1)
-    server=models.ForeignKey(Server,blank=True,null=True)
+    server=models.ForeignKey(Server,blank=True,null=True,on_delete=models.SET_NULL)
     class Meta:
         db_table='egret_task'
   
