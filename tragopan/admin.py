@@ -326,9 +326,10 @@ class IncoreInstrumentPositionInline(admin.TabularInline):
     
 class ReactorModelAdmin(admin.ModelAdmin):
     exclude=('remark','incore_instrument_position')
-    inlines=[ReactorPositionInline,CoreBaffleInline,]
+    #inlines=[ReactorPositionInline,CoreBaffleInline,]
     list_display=['pk','name','generation','reactor_type','get_thermal_couple_num','get_incore_instrument_num','get_fuel_assembly_num','dimension','middle','start_pos','quarter_pos','generate_reflector_line','generate_reflector_index']
-    
+    def has_delete_permission(self, request, obj=None):
+        return False
     def get_formsets_with_inlines(self, request, obj=None):
         for inline in self.get_inline_instances(request, obj):
             if not request.user.is_superuser:

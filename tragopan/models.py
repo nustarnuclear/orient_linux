@@ -553,7 +553,7 @@ class ReactorModel(BaseModel):
         ('W','West'),
         ('N', 'North'),
     )
-    DRWM_FILE_FORMAT_CHOICES=(
+    FILE_FORMAT_CHOICES=(
         (0,'Decimal'),
         (1,'Binary'),
     )
@@ -579,8 +579,11 @@ class ReactorModel(BaseModel):
     max_step=models.PositiveSmallIntegerField(default=228)
     set_zero_to_direction=models.CharField(max_length=1, choices=DIRECTION_CHOICES,default='E')
     clockwise_increase=models.BooleanField(default=True)
-    drwm_file_format=models.SmallIntegerField(default=1,choices=DRWM_FILE_FORMAT_CHOICES)
-    drwm_file=models.FileField(upload_to=get_drwm_file_path,blank=True,null=True)
+    drwm_file_format=models.SmallIntegerField(default=1,choices=FILE_FORMAT_CHOICES,editable=False)
+    drwm_file=models.FileField(upload_to=get_drwm_file_path,blank=True,null=True,editable=False)
+    aosc_file_format=models.SmallIntegerField(default=1,choices=FILE_FORMAT_CHOICES)
+    aosc_file=models.FileField(upload_to=get_drwm_file_path,blank=True,null=True,help_text="detector response file")
+    aosc_wgt_func_file=models.FileField(upload_to=get_drwm_file_path,blank=True,null=True,help_text="weight function file")
     class Meta:
         db_table = 'reactor_model'
         
@@ -664,7 +667,7 @@ class ReactorModel(BaseModel):
         
         
    
-        
+    
     
     def generate_pos_index(self,row,col,outer=True):
         '''
@@ -790,6 +793,14 @@ class ReactorModel(BaseModel):
             else:
                 material_lst.insert(0, item)
         return material_lst
+    
+    def generate_aosc_wgt_func_file_xml(self):
+        doc=minidom.Document()
+        aosc_wgt_func_file_xml=doc.createElement('aosc_wgt_func_file')
+        aosc_wgt_func_file_path=self.aosc_wgt_func_file.path
+        aosc_wgt_func_file_xml.appendChild(doc.createTextNode(aosc_wgt_func_file_path))
+        return aosc_wgt_func_file_xml
+    
     
     def __str__(self):
         return '{}'.format(self.name)  
@@ -1153,21 +1164,35 @@ class UnitParameter(BaseModel):
             base_fuel_set.update(cycle.generate_base_fuel_set())
         return base_fuel_set
     
-    def generate_drwm_imp_file_xml(self):
+#     def generate_drwm_imp_file_xml(self):
+#         doc=minidom.Document()
+#         drwm_imp_file_xml=doc.createElement('drwm_imp_file')
+#         fmt=self.reactor_model.drwm_file_format
+#         drwm_file_path=self.reactor_model.drwm_file.path
+#         nsignal=self.num_signal
+#         ndsf=self.num_dsf
+#         
+#         drwm_imp_file_xml.setAttribute('fmt', str(fmt))
+#         drwm_imp_file_xml.setAttribute('nsignal', str(nsignal))
+#         drwm_imp_file_xml.setAttribute('ndsf', str(ndsf))
+#         drwm_imp_file_xml.appendChild(doc.createTextNode(drwm_file_path))
+#         
+#         return drwm_imp_file_xml
+    
+    def generate_detector_response_file_xml(self):
         doc=minidom.Document()
-        drwm_imp_file_xml=doc.createElement('drwm_imp_file')
-        fmt=self.reactor_model.drwm_file_format
-        drwm_file_path=self.reactor_model.drwm_file.path
+        detector_response_file_xml=doc.createElement('detector_response_file')
+        fmt=self.reactor_model.aosc_file_format
         nsignal=self.num_signal
         ndsf=self.num_dsf
-        
-        drwm_imp_file_xml.setAttribute('fmt', str(fmt))
-        drwm_imp_file_xml.setAttribute('nsignal', str(nsignal))
-        drwm_imp_file_xml.setAttribute('ndsf', str(ndsf))
-        drwm_imp_file_xml.appendChild(doc.createTextNode(drwm_file_path))
-        
-        return drwm_imp_file_xml
-        
+        detector_response_file_xml.setAttribute('fmt', str(fmt))
+        detector_response_file_xml.setAttribute('nsignal', str(nsignal))
+        detector_response_file_xml.setAttribute('ndsf', str(ndsf))
+        detector_response_file_path=self.reactor_model.aosc_file.path
+        detector_response_file_xml.appendChild(doc.createTextNode(detector_response_file_path))
+        return detector_response_file_xml
+    
+    
     def __str__(self):
         return '{} U{}'.format(self.plant, self.unit)
  

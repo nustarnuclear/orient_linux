@@ -2827,12 +2827,21 @@ class EgretTask(BaseModel):
             cycle_sequ_xml.appendChild(doc.createTextNode(cycle_sequ_file))
             run_egret_xml.appendChild(cycle_sequ_xml)
             
-            #add drwm function
+#             #add drwm function
+#             try:
+#                 drwm_imp_file_xml=unit.generate_drwm_imp_file_xml()
+#                 run_egret_xml.appendChild(drwm_imp_file_xml)
+#             except:
+#                 pass
+            #add aosc function
             try:
-                drwm_imp_file_xml=unit.generate_drwm_imp_file_xml()
-                run_egret_xml.appendChild(drwm_imp_file_xml)
+                aosc_wgt_func_file_xml=reactor_model.generate_aosc_wgt_func_file_xml()
+                detector_response_file_xml=unit.generate_detector_response_file_xml()
+                run_egret_xml.appendChild(aosc_wgt_func_file_xml)
+                run_egret_xml.appendChild(detector_response_file_xml)
             except:
                 pass
+            
         #export_case
         export_case_xml=doc.createElement('export_case')
         export_case_xml.appendChild(doc.createTextNode(str(export)))

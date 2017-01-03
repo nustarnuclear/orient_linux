@@ -10,7 +10,7 @@ from calculation.models import EgretTask,MultipleLoadingPattern,PreRobinInput
 from xml.dom import minidom
 import signal
 from rest_framework_xml.renderers import XMLRenderer
-from rest_framework.parsers import FileUploadParser
+from rest_framework.parsers import FileUploadParser,MultiPartParser,FormParser
 from rest_framework_xml.parsers import XMLParser
 from rest_framework.authentication import TokenAuthentication
 from django.db.models import Q
@@ -22,8 +22,9 @@ from tragopan.models import del_fieldfile
 from rest_framework import viewsets
 from django.shortcuts import get_object_or_404
 from orient.settings import MEDIA_URL
+from django.http.request import QueryDict
 @api_view(('POST','GET','DELETE','PUT'))
-@parser_classes((FileUploadParser,XMLParser))
+@parser_classes((MultiPartParser,FormParser,FileUploadParser,XMLParser))
 @renderer_classes((XMLRenderer,)) 
 @authentication_classes((TokenAuthentication,))
 def egret_task(request,format=None):
@@ -48,17 +49,6 @@ def egret_task(request,format=None):
                 error_message={'error_message':e}
                 return Response(data=error_message,status=404)
             
-#             pid=int(query_params['pid'])
-#             os.kill(pid,signal.SIGKILL)
-#             
-#             while True:
-#                 if task.task_status==4:
-#                     task.task_status=3
-#                     task.save()
-#                     break
-#                 else:
-#                     time.sleep(1)
-#                     task.refresh_from_db()
             task.stop()
             return Response(data={'sucess_message':'stop operation finished'},status=200)
             
@@ -81,11 +71,6 @@ def egret_task(request,format=None):
         # cancel operation
         elif operation_type==3:
             try:
-#                 calculation_identity=task.calculation_identity
-#                 app.control.revoke(calculation_identity)  # @UndefinedVariable
-#                 task.task_status=5
-#                 task.end_time=datetime.now()
-#                 task.save()
                 task.stop()
                 return Response(data={'sucess_message':'cancel operation finished'},status=200)
             
@@ -120,6 +105,7 @@ def egret_task(request,format=None):
         try:
             query_params=request.query_params
             data=request.data
+            print(data)
             task_name=query_params['task_name']
             task_type=query_params['task_type']
             remark=query_params['remark']
@@ -127,8 +113,11 @@ def egret_task(request,format=None):
             visibility=int(query_params['visibility'])
             countdown=int(query_params['countdown'])
             user=request.user
-            input_file=data['file']
-            
+            if isinstance(data,QueryDict):
+                file=data.getlist('file')
+                input_file=file[0]
+            else:
+                input_file=data["file"]
             #get pre egret task
             pre_task=EgretTask.objects.get(pk=query_params['pre_pk']) if 'pre_pk' in query_params else None 
             if pre_task and task_type=='SEQUENCE':
@@ -143,6 +132,7 @@ def egret_task(request,format=None):
             
         except Exception as e:
             error_message={'error_message':e}
+            print(e)
             return Response(data=error_message,status=404)      
             
         #start creating egret task
@@ -151,14 +141,19 @@ def egret_task(request,format=None):
             task_instance.full_clean()
             task_instance.save()
             current_workdirectory=task_instance.get_cwd()
-            task_instance.save()
             base_dir=task_instance.get_base_dir()
             #loading pattern xml in the upper directory
             os.chdir(base_dir)
             task_instance.generate_loading_pattern_xml()
             #change directory to current task directory
             os.chdir(current_workdirectory)
-         
+            #generate aosc file if needed
+            if isinstance(data,QueryDict) and len(file)==2:
+                aosc_file=file[1]
+                with open(aosc_file.name, 'wb+') as destination:
+                    for chunk in aosc_file.chunks():
+                        destination.write(chunk)
+                        
             #generate myegret xml
             task_instance.generate_runegret_xml()
             #copy the files to current working directory
@@ -175,20 +170,20 @@ def egret_task(request,format=None):
         success_message['egret_input_file']=task_instance.egret_input_file.url
         success_message['success_message']='your request has been handled successfully'
         
-        if countdown!=0:
-            return Response(data=success_message,status=200)
+#         if countdown!=0:
+#             return Response(data=success_message,status=200)
         
-        #wait until myegret.log exists
-        myegret_log=os.path.join(current_workdirectory,'myegret.log')
-        log_status=os.path.isfile(myegret_log)    
-        log_index=0
-        max_circle=100
-        while not log_status:
-            time.sleep(0.1)
-            log_index +=1
-            log_status=os.path.isfile(myegret_log)
-            if log_index==max_circle:
-                break
+#         #wait until myegret.log exists
+#         myegret_log=os.path.join(current_workdirectory,'myegret.log')
+#         log_status=os.path.isfile(myegret_log)    
+#         log_index=0
+#         max_circle=100
+#         while not log_status:
+#             time.sleep(0.1)
+#             log_index +=1
+#             log_status=os.path.isfile(myegret_log)
+#             if log_index==max_circle:
+#                 break
         return Response(data=success_message,status=200)
         
     if request.method =='PUT':
