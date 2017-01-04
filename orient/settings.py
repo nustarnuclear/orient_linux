@@ -193,7 +193,7 @@ FILEBROWSER_MAX_UPLOAD_SIZE=10000000000
 CELERYD_PREFETCH_MULTIPLIER=1
 CELERYD_CONCURRENCY=4
 
-LOG_ROOT = "/var/log/orient"
+LOG_ROOT = "/var/log/orient/nymph"
 # logging
 LOGGING = {
     'version': 1,
