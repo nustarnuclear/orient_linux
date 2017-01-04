@@ -192,3 +192,67 @@ FILEBROWSER_MAX_UPLOAD_SIZE=10000000000
 #celery setting
 CELERYD_PREFETCH_MULTIPLIER=1
 CELERYD_CONCURRENCY=4
+
+LOG_ROOT = "/var/log/orient"
+# logging
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': True,
+    'formatters': {
+        'standard': {
+            'format': '%(asctime)s [%(threadName)s:%(thread)d] [%(name)s:%(lineno)d] [%(module)s:%(funcName)s] [%(levelname)s]- %(message)s'}
+    },
+    'filters': {
+    },
+    'handlers': {
+        'default': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_ROOT, 'all.log'),
+            'maxBytes': 1024 * 1024 * 5,
+            'backupCount': 5,
+            'formatter': 'standard',
+        },
+        'error': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_ROOT, 'error.log'),
+            'maxBytes': 1024 * 1024 * 5,
+            'backupCount': 5,
+            'formatter': 'standard',
+        },
+        'request_handler': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_ROOT, 'script.log'),
+            'maxBytes': 1024 * 1024 * 5,
+            'backupCount': 5,
+            'formatter': 'standard',
+        },
+        'scprits_handler': {
+            'level': 'DEBUG',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_ROOT, 'script.log'),
+            'maxBytes': 1024 * 1024 * 5,
+            'backupCount': 5,
+            'formatter': 'standard',
+        }
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['default'],
+            'level': 'DEBUG',
+            'propagate': False
+        },
+        'django.request': {
+            'handlers': ['request_handler'],
+            'level': 'DEBUG',
+            'propagate': False,
+        },
+        'scripts': {
+            'handlers': ['scprits_handler'],
+            'level': 'DEBUG',
+            'propagate': False
+        },
+    }
+}

@@ -37,7 +37,6 @@ def egret_task(request,format=None):
         #stop operation
         if operation_type==1:
             try:
-                
                 task=EgretTask.objects.get(pk=task_pk)
                 suspend_user=task.user
                 #check if you have delete permission
@@ -105,11 +104,9 @@ def egret_task(request,format=None):
         try:
             query_params=request.query_params
             data=request.data
-            print(data)
             task_name=query_params['task_name']
             task_type=query_params['task_type']
             remark=query_params['remark']
-            
             visibility=int(query_params['visibility'])
             countdown=int(query_params['countdown'])
             user=request.user
@@ -132,7 +129,6 @@ def egret_task(request,format=None):
             
         except Exception as e:
             error_message={'error_message':e}
-            print(e)
             return Response(data=error_message,status=404)      
             
         #start creating egret task
@@ -170,20 +166,6 @@ def egret_task(request,format=None):
         success_message['egret_input_file']=task_instance.egret_input_file.url
         success_message['success_message']='your request has been handled successfully'
         
-#         if countdown!=0:
-#             return Response(data=success_message,status=200)
-        
-#         #wait until myegret.log exists
-#         myegret_log=os.path.join(current_workdirectory,'myegret.log')
-#         log_status=os.path.isfile(myegret_log)    
-#         log_index=0
-#         max_circle=100
-#         while not log_status:
-#             time.sleep(0.1)
-#             log_index +=1
-#             log_status=os.path.isfile(myegret_log)
-#             if log_index==max_circle:
-#                 break
         return Response(data=success_message,status=200)
         
     if request.method =='PUT':
@@ -431,8 +413,6 @@ def upload_loading_pattern(request,format=None):
             loading_pattern_xml.setAttribute('plant_name', str(plantname))
             loading_pattern_xml.setAttribute('unit_num', str(unit_num))
             doc.appendChild(loading_pattern_xml)
-#             fuel_xml = doc.createElement("fuel")
-#             loading_pattern_xml.appendChild(fuel_xml)
             for item in data:
                 [n,row,column,position_or_type]=item.split()
                 
